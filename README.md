@@ -2,10 +2,18 @@
 
 Transpiles a strict, fully annotated Python subset to Rust.
 
-The end goal is a Python package you install with `uv add compylr`, where a decorator compiles
-the function it wraps:
+> **There is no Python package yet.** `import compylr` does not work, and `uv add compylr`
+> installs nothing — no `pyproject.toml`, no PyO3 bindings, and no maturin build exist in this
+> repo today. compylr is currently a **Rust crate with a CLI**. See [Status](#status) for what
+> actually runs, and [Try it now](#try-it-now) to use it.
+
+## The goal
+
+A Python package installed with `uv add compylr`, where a decorator compiles the function it
+wraps:
 
 ```python
+# TARGET DESIGN — not implemented yet
 import compylr
 
 @compylr.compyle
@@ -13,10 +21,14 @@ def add(a: int, b: int) -> int:
     return a + b
 ```
 
-On first run the decorated function is transpiled to Rust with PyO3 bindings, built via
-maturin, and installed into the project venv. On later runs the decorator swaps in the
+On first run the decorated function would be transpiled to Rust with PyO3 bindings, built via
+maturin, and installed into the project venv. On later runs the decorator would swap in the
 compiled implementation at import time. Every decorated function in a project is exposed by
 **one** shared maturin crate, and adding or editing any of them rebuilds that single artifact.
+
+Reaching that needs, roughly in order: a Rust backend that emits code from the IR, PyO3
+binding generation, a maturin build and install step, and the Python-side decorator and
+rebuild cache. None of those exist yet.
 
 ## Status
 
@@ -35,6 +47,26 @@ source text ──frontend──> ruff AST ──lower──> compylr IR ──b
 | `ir-lowering` | Translating the syntax tree into IR, enforcing the subset and type rules |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
+
+## Try it now
+
+The only interface today is the CLI. It parses a Python file, lowers it to IR, and reports the
+unit fingerprint and each function's signature — or a located diagnostic if the program is
+outside the subset:
+
+```bash
+git submodule update --init          # required; see Getting started
+cargo run -- python/fixtures/accepted/inference.py
+```
+
+```
+unit fingerprint: bcddf18219a7c991
+  comparisons (1 params) -> bool
+  expressions (1 params) -> int
+  literals (0 params) -> str
+```
+
+No Rust source is emitted — that is the backend, which does not exist yet.
 
 ## Supported subset
 
