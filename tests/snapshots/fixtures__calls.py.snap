@@ -1,0 +1,114 @@
+---
+source: tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "double",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Binary {
+                    op: Mul,
+                    left: Name(
+                        "n",
+                    ),
+                    right: Literal(
+                        Int(
+                            2,
+                        ),
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 0,
+            end: 43,
+        },
+    },
+    Function {
+        name: "quadruple",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Call {
+                    callee: "double",
+                    args: [
+                        Call {
+                            callee: "double",
+                            args: [
+                                Name(
+                                    "n",
+                                ),
+                            ],
+                        },
+                    ],
+                },
+            ),
+        ],
+        span: Span {
+            start: 46,
+            end: 104,
+        },
+    },
+    Function {
+        name: "nested_expression",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "total",
+                ty: Int,
+                value: Binary {
+                    op: Add,
+                    left: Call {
+                        callee: "double",
+                        args: [
+                            Name(
+                                "a",
+                            ),
+                        ],
+                    },
+                    right: Call {
+                        callee: "double",
+                        args: [
+                            Name(
+                                "b",
+                            ),
+                        ],
+                    },
+                },
+            },
+            Return(
+                Name(
+                    "total",
+                ),
+            ),
+        ],
+        span: Span {
+            start: 107,
+            end: 208,
+        },
+    },
+]

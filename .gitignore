@@ -1,0 +1,17 @@
+# Build output
+/target
+
+# Generated reports
+reports/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.idea/
+.DS_Store
+
+# Machine-local Claude Code settings (skills and commands ARE committed)
+.claude/settings.local.json

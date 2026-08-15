@@ -1,0 +1,129 @@
+---
+source: tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "alias_parameter",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "b",
+                ty: Int,
+                value: Name(
+                    "a",
+                ),
+            },
+            Return(
+                Name(
+                    "b",
+                ),
+            ),
+        ],
+        span: Span {
+            start: 0,
+            end: 58,
+        },
+    },
+    Function {
+        name: "alias_local",
+        params: [],
+        ret: Str,
+        body: [
+            Bind {
+                name: "x",
+                ty: Str,
+                value: Literal(
+                    Str(
+                        "hi",
+                    ),
+                ),
+            },
+            Bind {
+                name: "y",
+                ty: Str,
+                value: Name(
+                    "x",
+                ),
+            },
+            Return(
+                Name(
+                    "y",
+                ),
+            ),
+        ],
+        span: Span {
+            start: 61,
+            end: 127,
+        },
+    },
+    Function {
+        name: "alias_chain",
+        params: [
+            Param {
+                name: "a",
+                ty: Bool,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Bind {
+                name: "b",
+                ty: Bool,
+                value: Name(
+                    "a",
+                ),
+            },
+            Bind {
+                name: "c",
+                ty: Bool,
+                value: Name(
+                    "b",
+                ),
+            },
+            Return(
+                Name(
+                    "c",
+                ),
+            ),
+        ],
+        span: Span {
+            start: 130,
+            end: 196,
+        },
+    },
+    Function {
+        name: "annotated_alias",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "b",
+                ty: Int,
+                value: Name(
+                    "a",
+                ),
+            },
+            Return(
+                Name(
+                    "b",
+                ),
+            ),
+        ],
+        span: Span {
+            start: 199,
+            end: 262,
+        },
+    },
+]

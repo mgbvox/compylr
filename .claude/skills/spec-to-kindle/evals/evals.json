@@ -1,0 +1,26 @@
+{
+  "skill_name": "spec-to-kindle",
+  "evals": [
+    {
+      "id": 0,
+      "name": "vague-send-no-change-named",
+      "prompt": "send the spec to my kindle",
+      "expected_output": "Auto-detects the sole active change, renders reports/add-python-ir-lowering.epub containing all artifacts, reads KINDLE_EMAIL from .env without dumping the file, and prepares (not sends) a Gmail message with an application/epub+zip attachment.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "proofread-on-ereader",
+      "prompt": "i want to proofread the ir lowering spec + the design doc on my e-reader tonight, can you get them over there? the openspec change is add-python-ir-lowering",
+      "expected_output": "Renders the EPUB for add-python-ir-lowering including the ir-lowering spec and design chapters, then prepares the Kindle send.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "regenerate-after-edit",
+      "prompt": "I tweaked tasks.md a bit. can you rebuild the epub for add-python-ir-lowering and email it over to my kindle again",
+      "expected_output": "Re-renders from disk (does not reuse a stale artifact), confirms the tasks chapter is present, prepares the send, and does not overclaim delivery to the device.",
+      "files": []
+    }
+  ]
+}

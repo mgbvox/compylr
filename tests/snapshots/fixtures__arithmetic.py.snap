@@ -1,0 +1,182 @@
+---
+source: tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "add",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Binary {
+                    op: Add,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 0,
+            end: 48,
+        },
+    },
+    Function {
+        name: "difference",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Binary {
+                    op: Sub,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 51,
+            end: 106,
+        },
+    },
+    Function {
+        name: "scale",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Binary {
+                    op: Mul,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 109,
+            end: 159,
+        },
+    },
+    Function {
+        name: "halve",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Binary {
+                    op: FloorDiv,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Literal(
+                        Int(
+                            2,
+                        ),
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 162,
+            end: 205,
+        },
+    },
+    Function {
+        name: "remainder",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Binary {
+                    op: Mod,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 208,
+            end: 262,
+        },
+    },
+    Function {
+        name: "negate",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Neg(
+                    Name(
+                        "a",
+                    ),
+                ),
+            ),
+        ],
+        span: Span {
+            start: 265,
+            end: 305,
+        },
+    },
+]

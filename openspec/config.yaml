@@ -1,0 +1,62 @@
+schema: spec-driven
+
+context: |
+  compylr transpiles a strict, fully annotated Python subset to Rust.
+
+  Target end state (see CLAUDE.md):
+    - Users `uv add compylr` and decorate functions with `@compylr.compyle`.
+    - First run: the decorated function is transpiled to Rust with PyO3 bindings,
+      built via maturin, and installed into the project venv.
+    - Subsequent runs: the decorator swaps in the compiled implementation at runtime.
+    - ALL decorated functions in a project are exposed by ONE shared maturin crate.
+    - Adding or editing a decorated function rebuilds that one shared artifact.
+
+  Architecture constraints:
+    - Input arrives as source TEXT from inspect.getsource(fn), not as a file path.
+    - The IR is independent of both Python and any target language. Rust is the first
+      backend; Go, C++, and TypeScript should be able to consume the same IR. Concrete
+      type spellings (int -> i64, str -> String) belong to a backend capability, never
+      to the IR itself.
+    - IR operators carry PYTHON semantics: floor division rounds toward negative
+      infinity, remainder takes the sign of the divisor. Backends must emit
+      semantics-preserving code rather than mapping to same-named native operators,
+      which differ on negative operands.
+    - Rebuild decisions key off an IR fingerprint, not source text, so comments and
+      reformatting do not trigger recompiles. Unit fingerprints are order-independent.
+
+  Tech stack: Rust (edition 2024); ruff parser and AST vendored at vendored/ruff and
+  consumed via path dependencies. Python tooling is run with uv.
+
+  Testing: TDD - write tests before implementation. Run cargo test and
+  cargo clippy -- -D warnings before committing. Target >80% coverage.
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

@@ -1,0 +1,153 @@
+---
+source: tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "is_even",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Return(
+                Binary {
+                    op: Eq,
+                    left: Binary {
+                        op: Mod,
+                        left: Name(
+                            "n",
+                        ),
+                        right: Literal(
+                            Int(
+                                2,
+                            ),
+                        ),
+                    },
+                    right: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 0,
+            end: 50,
+        },
+    },
+    Function {
+        name: "differs",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Int,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Return(
+                Binary {
+                    op: NotEq,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 53,
+            end: 107,
+        },
+    },
+    Function {
+        name: "at_most",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Int,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Return(
+                Binary {
+                    op: LtE,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 110,
+            end: 164,
+        },
+    },
+    Function {
+        name: "greeting",
+        params: [],
+        ret: Str,
+        body: [
+            Return(
+                Literal(
+                    Str(
+                        "hello",
+                    ),
+                ),
+            ),
+        ],
+        span: Span {
+            start: 167,
+            end: 208,
+        },
+    },
+    Function {
+        name: "truthy",
+        params: [],
+        ret: Bool,
+        body: [
+            Return(
+                Literal(
+                    Bool(
+                        true,
+                    ),
+                ),
+            ),
+        ],
+        span: Span {
+            start: 211,
+            end: 248,
+        },
+    },
+    Function {
+        name: "nothing",
+        params: [],
+        ret: Unit,
+        body: [
+            ReturnUnit,
+        ],
+        span: Span {
+            start: 251,
+            end: 282,
+        },
+    },
+]
