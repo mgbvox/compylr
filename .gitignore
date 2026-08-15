@@ -1,9 +1,6 @@
 # Build output
 /target
 
-# Generated reports
-reports/
-
 # Secrets — never commit
 .env
 .env.*
