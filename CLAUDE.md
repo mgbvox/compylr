@@ -57,6 +57,12 @@ Literals, expressions, and calls still require an annotation.
   and reformatting do not trigger recompiles.
 * TDD: write tests before implementation. Run `cargo fmt`, `cargo clippy -- -D warnings`, and
   `cargo test` before committing. Commit at each checkpoint rather than batching.
+* **Keep `README.md` in sync.** It is the entry point for anyone who has not read the specs, so
+  it must never describe a state the code is not in. `tests/readme.rs` enforces the mechanical
+  half — the type table, operator list, capability list, module layout, and every referenced
+  path — and fails `cargo test` on drift. The prose half is on you: when a change alters the
+  supported subset, adds a capability or pipeline stage, changes the setup steps, or makes the
+  backend real, update the README in the *same* change, not afterwards.
 * Planning happens in OpenSpec (`openspec/changes/`). `/opsx:propose` to plan, `/opsx:apply`
   to implement.
 

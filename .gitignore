@@ -6,6 +6,9 @@
 .env.*
 !.env.example
 
+# Python bytecode
+__pycache__/
+
 # Editor / OS
 .idea/
 .DS_Store
