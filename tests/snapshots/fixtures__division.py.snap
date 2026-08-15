@@ -1,0 +1,101 @@
+---
+source: tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "ratio",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Int,
+            },
+        ],
+        ret: Float,
+        body: [
+            Return(
+                Binary {
+                    op: TrueDiv,
+                    left: ToFloat(
+                        Name(
+                            "a",
+                        ),
+                    ),
+                    right: ToFloat(
+                        Name(
+                            "b",
+                        ),
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 0,
+            end: 52,
+        },
+    },
+    Function {
+        name: "halves",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Binary {
+                    op: FloorDiv,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Literal(
+                        Int(
+                            2,
+                        ),
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 55,
+            end: 99,
+        },
+    },
+    Function {
+        name: "remainder",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Binary {
+                    op: Mod,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 102,
+            end: 156,
+        },
+    },
+]

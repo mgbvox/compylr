@@ -1,0 +1,145 @@
+---
+source: tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "literals",
+        params: [],
+        ret: Str,
+        body: [
+            Bind {
+                name: "a",
+                ty: Str,
+                value: Literal(
+                    Str(
+                        "x",
+                    ),
+                ),
+            },
+            Bind {
+                name: "b",
+                ty: Int,
+                value: Literal(
+                    Int(
+                        3,
+                    ),
+                ),
+            },
+            Bind {
+                name: "c",
+                ty: Float,
+                value: Literal(
+                    Float(
+                        4608533498688228557,
+                    ),
+                ),
+            },
+            Bind {
+                name: "d",
+                ty: Bool,
+                value: Literal(
+                    Bool(
+                        true,
+                    ),
+                ),
+            },
+            Return(
+                Name(
+                    "a",
+                ),
+            ),
+        ],
+        span: Span {
+            start: 0,
+            end: 82,
+        },
+    },
+    Function {
+        name: "expressions",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "doubled",
+                ty: Int,
+                value: Binary {
+                    op: Mul,
+                    left: Name(
+                        "n",
+                    ),
+                    right: Literal(
+                        Int(
+                            2,
+                        ),
+                    ),
+                },
+            },
+            Bind {
+                name: "shifted",
+                ty: Int,
+                value: Binary {
+                    op: Add,
+                    left: Name(
+                        "doubled",
+                    ),
+                    right: Literal(
+                        Int(
+                            1,
+                        ),
+                    ),
+                },
+            },
+            Return(
+                Name(
+                    "shifted",
+                ),
+            ),
+        ],
+        span: Span {
+            start: 85,
+            end: 181,
+        },
+    },
+    Function {
+        name: "comparisons",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Bind {
+                name: "big",
+                ty: Bool,
+                value: Binary {
+                    op: Gt,
+                    left: Name(
+                        "n",
+                    ),
+                    right: Literal(
+                        Int(
+                            100,
+                        ),
+                    ),
+                },
+            },
+            Return(
+                Name(
+                    "big",
+                ),
+            ),
+        ],
+        span: Span {
+            start: 184,
+            end: 249,
+        },
+    },
+]

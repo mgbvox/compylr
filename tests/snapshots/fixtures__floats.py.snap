@@ -1,0 +1,133 @@
+---
+source: tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "scale",
+        params: [
+            Param {
+                name: "a",
+                ty: Float,
+            },
+            Param {
+                name: "b",
+                ty: Float,
+            },
+        ],
+        ret: Float,
+        body: [
+            Return(
+                Binary {
+                    op: Mul,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 0,
+            end: 56,
+        },
+    },
+    Function {
+        name: "widen",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Float,
+        body: [
+            Return(
+                ToFloat(
+                    Name(
+                        "n",
+                    ),
+                ),
+            ),
+        ],
+        span: Span {
+            start: 59,
+            end: 99,
+        },
+    },
+    Function {
+        name: "mixed",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Float,
+            },
+        ],
+        ret: Float,
+        body: [
+            Bind {
+                name: "total",
+                ty: Float,
+                value: Binary {
+                    op: Add,
+                    left: ToFloat(
+                        Name(
+                            "a",
+                        ),
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            },
+            Return(
+                Name(
+                    "total",
+                ),
+            ),
+        ],
+        span: Span {
+            start: 102,
+            end: 181,
+        },
+    },
+    Function {
+        name: "compare_mixed",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+            Param {
+                name: "b",
+                ty: Float,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Return(
+                Binary {
+                    op: Lt,
+                    left: ToFloat(
+                        Name(
+                            "a",
+                        ),
+                    ),
+                    right: Name(
+                        "b",
+                    ),
+                },
+            ),
+        ],
+        span: Span {
+            start: 184,
+            end: 245,
+        },
+    },
+]

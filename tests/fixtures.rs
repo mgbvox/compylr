@@ -36,7 +36,15 @@ fn rejected(name: &str) -> LowerErrorKind {
 
 #[test]
 fn accepted_fixtures_lower_to_stable_ir() {
-    for name in ["arithmetic.py", "comparisons.py", "aliases.py", "calls.py"] {
+    for name in [
+        "arithmetic.py",
+        "comparisons.py",
+        "aliases.py",
+        "calls.py",
+        "inference.py",
+        "floats.py",
+        "division.py",
+    ] {
         let functions = accepted(name);
         insta::assert_debug_snapshot!(name, functions);
     }
@@ -53,12 +61,14 @@ fn every_rejected_fixture_fails_with_the_expected_kind() {
             "missing_return_annotation.py",
             LowerErrorKind::MissingAnnotation,
         ),
-        ("unannotated_local.py", LowerErrorKind::MissingAnnotation),
         (
-            "unannotated_local_from_expression.py",
+            "unannotated_from_call.py",
             LowerErrorKind::MissingAnnotation,
         ),
-        ("unsupported_type_float.py", LowerErrorKind::UnsupportedType),
+        (
+            "unsupported_type_complex.py",
+            LowerErrorKind::UnsupportedType,
+        ),
         ("unsupported_generic.py", LowerErrorKind::UnsupportedType),
         ("none_parameter.py", LowerErrorKind::UnsupportedType),
         ("type_parameters.py", LowerErrorKind::UnsupportedType),
@@ -72,7 +82,14 @@ fn every_rejected_fixture_fails_with_the_expected_kind() {
         ("while_loop.py", LowerErrorKind::UnsupportedConstruct),
         ("import_statement.py", LowerErrorKind::UnsupportedConstruct),
         ("class_definition.py", LowerErrorKind::UnsupportedConstruct),
-        ("true_division.py", LowerErrorKind::UnsupportedConstruct),
+        ("exponentiation.py", LowerErrorKind::UnsupportedConstruct),
+        ("str_plus_int.py", LowerErrorKind::TypeMismatch),
+        ("boolean_arithmetic.py", LowerErrorKind::TypeMismatch),
+        ("negate_string.py", LowerErrorKind::TypeMismatch),
+        ("compare_unrelated.py", LowerErrorKind::TypeMismatch),
+        ("narrowing_annotation.py", LowerErrorKind::TypeMismatch),
+        ("return_type_conflict.py", LowerErrorKind::TypeMismatch),
+        ("return_from_unit.py", LowerErrorKind::TypeMismatch),
         ("main_guard.py", LowerErrorKind::UnsupportedConstruct),
         ("big_integer.py", LowerErrorKind::LiteralOutOfRange),
         ("unbound_name.py", LowerErrorKind::Unresolved),
@@ -100,7 +117,7 @@ fn every_rejected_fixture_is_covered_by_the_table() {
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "py"))
         .count();
-    assert_eq!(count, 25, "update the rejection table when adding fixtures");
+    assert_eq!(count, 31, "update the rejection table when adding fixtures");
 }
 
 #[test]

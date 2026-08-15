@@ -10,10 +10,16 @@
 //!   been lowered yet, since in the target design each function is submitted independently.
 //!   Resolving during lowering would make success depend on arrival order, so calls are
 //!   recorded by name and checked later by [`crate::ir::Unit::validate`].
-//! * **Inference is limited to aliases.** `b = a` takes `a`'s type, because that answer is
-//!   already written down. Every other unannotated binding is rejected. The line is drawn at a
-//!   bare name deliberately: once literals infer, rejecting `b = a + 1` looks arbitrary, and
-//!   inferring *that* needs operator result typing — a real type checker.
+//! * **Inference covers whatever is determined.** A binding may omit its annotation when its
+//!   initializer's type follows from literals, already-typed names, negation, arithmetic, and
+//!   comparisons. Each of those has exactly one possible result given its operands, so this
+//!   computes an answer that was already fixed rather than choosing among candidates. An
+//!   expression containing a call is *undetermined* — not an error — and such a binding still
+//!   needs an annotation.
+//!
+//! Lowering is therefore also a small type checker: [`lower_expr`] returns an expression and
+//! its type together, so shape and type can never be derived from separate traversals and
+//! disagree.
 
 use std::collections::HashMap;
 
@@ -118,7 +124,7 @@ pub fn lower_function(def: &StmtFunctionDef) -> Result<Function, LowerError> {
         .iter()
         .map(|param| (param.name.clone(), param.ty))
         .collect();
-    let body = lower_body(&def.body, &mut scope)?;
+    let body = lower_body(&def.body, &mut scope, ret)?;
 
     Ok(Function {
         name: def.name.to_string(),
@@ -199,6 +205,7 @@ fn lower_annotation(annotation: &PyExpr, allow_unit: bool) -> Result<Ty, LowerEr
     match annotation {
         PyExpr::Name(name) => match name.id.as_str() {
             "int" => Ok(Ty::Int),
+            "float" => Ok(Ty::Float),
             "bool" => Ok(Ty::Bool),
             "str" => Ok(Ty::Str),
             other => Err(err(
@@ -231,18 +238,56 @@ fn lower_annotation(annotation: &PyExpr, allow_unit: bool) -> Result<Ty, LowerEr
     }
 }
 
-fn lower_body(body: &[PyStmt], scope: &mut Scope) -> Result<Vec<Stmt>, LowerError> {
+/// The type of an expression, or `None` when it is not determined during lowering.
+///
+/// `None` is not an error. A call's type comes from the callee's signature, and lowering
+/// deliberately does not resolve callees — doing so would make results depend on which
+/// function was submitted first. So an expression containing a call anywhere inside it is
+/// simply undetermined, and the *binding* decides what that means: infer when `Some`, demand
+/// an annotation when `None`.
+///
+/// Keeping the uncertainty in an `Option` rather than a `Ty::Unknown` variant confines it to
+/// lowering; no backend ever has to match on a state that must not reach codegen.
+type TyResult = Option<Ty>;
+
+fn lower_body(body: &[PyStmt], scope: &mut Scope, ret: Ty) -> Result<Vec<Stmt>, LowerError> {
     let mut lowered = Vec::with_capacity(body.len());
     for stmt in body {
-        lowered.push(lower_stmt(stmt, scope)?);
+        lowered.push(lower_stmt(stmt, scope, ret)?);
     }
     Ok(lowered)
 }
 
-fn lower_stmt(stmt: &PyStmt, scope: &mut Scope) -> Result<Stmt, LowerError> {
+fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ret: Ty) -> Result<Stmt, LowerError> {
     match stmt {
-        PyStmt::Return(ret) => match ret.value.as_deref() {
-            Some(value) => Ok(Stmt::Return(lower_expr(value, scope)?)),
+        PyStmt::Return(node) => match node.value.as_deref() {
+            Some(value) => {
+                let (lowered, ty) = lower_expr(value, scope)?;
+                if ret == Ty::Unit {
+                    return Err(err(
+                        LowerErrorKind::TypeMismatch,
+                        "function is declared to return no value, but a value is returned here",
+                        stmt,
+                    ));
+                }
+                // Only check when the type is determined; a returned call cannot be checked.
+                match ty {
+                    Some(actual) => Ok(Stmt::Return(coerce(lowered, actual, ret).ok_or_else(
+                        || {
+                            err(
+                                LowerErrorKind::TypeMismatch,
+                                format!(
+                                    "function returns '{}' but this expression is '{}'",
+                                    ret.python_name(),
+                                    actual.python_name()
+                                ),
+                                stmt,
+                            )
+                        },
+                    )?)),
+                    None => Ok(Stmt::Return(lowered)),
+                }
+            }
             None => Ok(Stmt::ReturnUnit),
         },
         PyStmt::Pass(_) => Ok(Stmt::ReturnUnit),
@@ -269,6 +314,21 @@ fn lower_stmt(stmt: &PyStmt, scope: &mut Scope) -> Result<Stmt, LowerError> {
             other,
         )),
     }
+}
+
+/// Adapt `expr` of type `actual` to the expected type, or `None` if it cannot be adapted.
+///
+/// The only adaptation is widening an integer to a float, which is Python's own promotion.
+/// Narrowing a float to an integer is deliberately not offered: it would lose information
+/// silently, which is exactly the kind of quiet wrongness this compiler is meant to avoid.
+fn coerce(expr: Expr, actual: Ty, expected: Ty) -> Option<Expr> {
+    if actual == expected {
+        return Some(expr);
+    }
+    if actual == Ty::Int && expected == Ty::Float {
+        return Some(expr.to_float());
+    }
+    None
 }
 
 /// Reject binding a name that already exists, keeping every binding a fresh introduction.
@@ -310,31 +370,29 @@ fn lower_annotated_binding(
             stmt,
         ));
     };
-    let lowered = lower_expr(value, scope)?;
+    let (lowered, actual) = lower_expr(value, scope)?;
 
-    // When the initializer is a bare name its type is already known, so a disagreement with the
-    // declared type is catchable here. This check is free given the alias lookup, and catching
-    // `b: str = a` now is better than handing a backend IR it cannot render.
-    if let Expr::Name(source) = &lowered
-        && let Some(actual) = scope.get(source)
-        && *actual != declared
-    {
-        return Err(err(
-            LowerErrorKind::TypeMismatch,
-            format!(
-                "'{name}' is declared as '{}' but '{source}' is '{}'",
-                declared.python_name(),
-                actual.python_name()
-            ),
-            stmt,
-        ));
-    }
+    // An undetermined initializer cannot be checked; the declared type is taken on trust.
+    let value = match actual {
+        Some(actual) => coerce(lowered, actual, declared).ok_or_else(|| {
+            err(
+                LowerErrorKind::TypeMismatch,
+                format!(
+                    "'{name}' is declared as '{}' but the value is '{}'",
+                    declared.python_name(),
+                    actual.python_name()
+                ),
+                stmt,
+            )
+        })?,
+        None => lowered,
+    };
 
     scope.insert(name.clone(), declared);
     Ok(Stmt::Bind {
         name,
         ty: declared,
-        value: lowered,
+        value,
     })
 }
 
@@ -353,62 +411,123 @@ fn lower_bare_binding(
     let name = binding_target(&assign.targets[0], stmt)?.to_string();
     ensure_unbound(&name, scope, stmt)?;
 
-    // The one inference rule: a bare name alias takes the source's type. Anything else needs an
-    // annotation, so the answer is never guessed.
-    let PyExpr::Name(source) = assign.value.as_ref() else {
+    let (value, inferred) = lower_expr(&assign.value, scope)?;
+
+    // Infer when the initializer's type is determined; otherwise the answer is genuinely
+    // unknown here and an annotation is the only way to supply it.
+    let Some(ty) = inferred else {
         return Err(err(
             LowerErrorKind::MissingAnnotation,
             format!(
-                "'{name}' needs an explicit type annotation; only a direct alias of another \
-                 typed name (`{name} = other`) can have its type inferred"
+                "'{name}' needs an explicit type annotation: its value contains a call, whose \
+                 type is not known while lowering"
             ),
             stmt,
         ));
     };
 
-    let source_name = source.id.as_str();
-    let Some(ty) = scope.get(source_name).copied() else {
-        return Err(err(
-            LowerErrorKind::Unresolved,
-            format!("'{source_name}' is not defined"),
-            assign.value.as_ref(),
-        ));
-    };
-
     scope.insert(name.clone(), ty);
-    Ok(Stmt::Bind {
-        name,
-        ty,
-        value: Expr::Name(source_name.to_string()),
-    })
+    Ok(Stmt::Bind { name, ty, value })
 }
 
-fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<Expr, LowerError> {
+/// Result type of an arithmetic operator applied to two determined operand types.
+fn arithmetic_result(op: BinOp, left: Ty, right: Ty) -> Option<Ty> {
+    // Python's `+` is overloaded on strings; every other arithmetic operator is numeric only.
+    if op == BinOp::Add && left == Ty::Str && right == Ty::Str {
+        return Some(Ty::Str);
+    }
+    if !left.is_numeric() || !right.is_numeric() {
+        return None;
+    }
+    // True division always yields a float, even for two integers. This is the single most
+    // likely place for a backend to be accidentally wrong, which is why it is explicit here.
+    if op == BinOp::TrueDiv {
+        return Some(Ty::Float);
+    }
+    if left == Ty::Float || right == Ty::Float {
+        Some(Ty::Float)
+    } else {
+        Some(Ty::Int)
+    }
+}
+
+/// Build a typed binary expression, applying promotion and rejecting invalid operand types.
+fn build_binary(
+    op: BinOp,
+    left: Expr,
+    left_ty: Ty,
+    right: Expr,
+    right_ty: Ty,
+    node: &impl Ranged,
+) -> Result<(Expr, Ty), LowerError> {
+    let mismatch = |extra: &str| {
+        err(
+            LowerErrorKind::TypeMismatch,
+            format!(
+                "operator '{}' is not defined for '{}' and '{}'{extra}",
+                op.python_symbol(),
+                left_ty.python_name(),
+                right_ty.python_name()
+            ),
+            node,
+        )
+    };
+
+    if op.is_comparison() {
+        // Comparison operands must agree, except that numbers compare across int and float.
+        let operand = if left_ty == right_ty {
+            left_ty
+        } else if left_ty.is_numeric() && right_ty.is_numeric() {
+            Ty::Float
+        } else {
+            return Err(mismatch(""));
+        };
+        let left = coerce(left, left_ty, operand).ok_or_else(|| mismatch(""))?;
+        let right = coerce(right, right_ty, operand).ok_or_else(|| mismatch(""))?;
+        return Ok((Expr::binary(op, left, right), Ty::Bool));
+    }
+
+    let result = arithmetic_result(op, left_ty, right_ty).ok_or_else(|| {
+        if left_ty == Ty::Bool || right_ty == Ty::Bool {
+            mismatch("; booleans are not numbers in compylr")
+        } else {
+            mismatch("")
+        }
+    })?;
+
+    // Operands are widened to the result type so a backend can emit them positionally.
+    let operand = if result == Ty::Str { Ty::Str } else { result };
+    let left = coerce(left, left_ty, operand).ok_or_else(|| mismatch(""))?;
+    let right = coerce(right, right_ty, operand).ok_or_else(|| mismatch(""))?;
+    Ok((Expr::binary(op, left, right), result))
+}
+
+/// Lower an expression and determine its type in one traversal.
+///
+/// Shape and type are produced together so they cannot be computed from different traversals
+/// and disagree about what an expression means.
+fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<(Expr, TyResult), LowerError> {
     match expr {
         PyExpr::NumberLiteral(literal) => match &literal.value {
             Number::Int(value) => match value.as_i64() {
-                Some(int) => Ok(Expr::int(int)),
-                // `Int::as_i64` returns None for literals beyond the 64-bit range. Truncating
-                // would silently change the program's meaning, so this is an error.
+                Some(int) => Ok((Expr::int(int), Some(Ty::Int))),
+                // `Int::as_i64` returns None beyond the 64-bit range. Truncating would
+                // silently change the program's meaning, so this is an error.
                 None => Err(err(
                     LowerErrorKind::LiteralOutOfRange,
                     "integer literal is too large for a 64-bit signed integer",
                     expr,
                 )),
             },
-            Number::Float(_) => Err(err(
-                LowerErrorKind::UnsupportedConstruct,
-                "float literals are not supported",
-                expr,
-            )),
+            Number::Float(value) => Ok((Expr::float(*value), Some(Ty::Float))),
             Number::Complex { .. } => Err(err(
                 LowerErrorKind::UnsupportedConstruct,
                 "complex literals are not supported",
                 expr,
             )),
         },
-        PyExpr::BooleanLiteral(literal) => Ok(Expr::bool(literal.value)),
-        PyExpr::StringLiteral(literal) => Ok(Expr::string(literal.value.to_str())),
+        PyExpr::BooleanLiteral(literal) => Ok((Expr::bool(literal.value), Some(Ty::Bool))),
+        PyExpr::StringLiteral(literal) => Ok((Expr::string(literal.value.to_str()), Some(Ty::Str))),
         PyExpr::FString(_) => Err(err(
             LowerErrorKind::UnsupportedConstruct,
             "f-strings are not supported",
@@ -416,18 +535,28 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<Expr, LowerError> {
         )),
         PyExpr::Name(name) => {
             let id = name.id.as_str();
-            if scope.contains_key(id) {
-                Ok(Expr::name(id))
-            } else {
-                Err(err(
+            match scope.get(id) {
+                Some(ty) => Ok((Expr::name(id), Some(*ty))),
+                None => Err(err(
                     LowerErrorKind::Unresolved,
                     format!("'{id}' is not defined"),
                     expr,
-                ))
+                )),
             }
         }
         PyExpr::UnaryOp(unary) => match unary.op {
-            UnaryOp::USub => Ok(Expr::Neg(Box::new(lower_expr(&unary.operand, scope)?))),
+            UnaryOp::USub => {
+                let (operand, ty) = lower_expr(&unary.operand, scope)?;
+                match ty {
+                    Some(ty) if ty.is_numeric() => Ok((Expr::Neg(Box::new(operand)), Some(ty))),
+                    Some(ty) => Err(err(
+                        LowerErrorKind::TypeMismatch,
+                        format!("cannot negate a value of type '{}'", ty.python_name()),
+                        expr,
+                    )),
+                    None => Ok((Expr::Neg(Box::new(operand)), None)),
+                }
+            }
             UnaryOp::UAdd => Err(err(
                 LowerErrorKind::UnsupportedConstruct,
                 "unary '+' is not supported",
@@ -449,15 +578,9 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<Expr, LowerError> {
                 Operator::Add => BinOp::Add,
                 Operator::Sub => BinOp::Sub,
                 Operator::Mult => BinOp::Mul,
+                Operator::Div => BinOp::TrueDiv,
                 Operator::FloorDiv => BinOp::FloorDiv,
                 Operator::Mod => BinOp::Mod,
-                Operator::Div => {
-                    return Err(err(
-                        LowerErrorKind::UnsupportedConstruct,
-                        "true division '/' is not supported; use '//'",
-                        expr,
-                    ));
-                }
                 other => {
                     return Err(err(
                         LowerErrorKind::UnsupportedConstruct,
@@ -466,11 +589,16 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<Expr, LowerError> {
                     ));
                 }
             };
-            Ok(Expr::binary(
-                op,
-                lower_expr(&binary.left, scope)?,
-                lower_expr(&binary.right, scope)?,
-            ))
+            let (left, left_ty) = lower_expr(&binary.left, scope)?;
+            let (right, right_ty) = lower_expr(&binary.right, scope)?;
+            match (left_ty, right_ty) {
+                (Some(l), Some(r)) => {
+                    let (node, ty) = build_binary(op, left, l, right, r, expr)?;
+                    Ok((node, Some(ty)))
+                }
+                // Undetermined propagates outward rather than becoming a type error.
+                _ => Ok((Expr::binary(op, left, right), None)),
+            }
         }
         PyExpr::Compare(compare) => {
             if compare.ops.len() != 1 || compare.comparators.len() != 1 {
@@ -495,11 +623,15 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<Expr, LowerError> {
                     ));
                 }
             };
-            Ok(Expr::binary(
-                op,
-                lower_expr(&compare.left, scope)?,
-                lower_expr(&compare.comparators[0], scope)?,
-            ))
+            let (left, left_ty) = lower_expr(&compare.left, scope)?;
+            let (right, right_ty) = lower_expr(&compare.comparators[0], scope)?;
+            match (left_ty, right_ty) {
+                (Some(l), Some(r)) => {
+                    let (node, ty) = build_binary(op, left, l, right, r, expr)?;
+                    Ok((node, Some(ty)))
+                }
+                _ => Ok((Expr::binary(op, left, right), None)),
+            }
         }
         PyExpr::Call(call) => {
             if !call.arguments.keywords.is_empty() {
@@ -518,14 +650,17 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<Expr, LowerError> {
             };
             let mut args = Vec::with_capacity(call.arguments.args.len());
             for arg in &call.arguments.args {
-                args.push(lower_expr(arg, scope)?);
+                args.push(lower_expr(arg, scope)?.0);
             }
-            // The callee is intentionally not resolved here; Unit::validate does it once the
-            // whole unit is assembled.
-            Ok(Expr::Call {
-                callee: callee.id.to_string(),
-                args,
-            })
+            // The callee is not resolved here, so the call's type is undetermined. Unit
+            // validation checks the target once the whole unit is assembled.
+            Ok((
+                Expr::Call {
+                    callee: callee.id.to_string(),
+                    args,
+                },
+                None,
+            ))
         }
         other => Err(err(
             LowerErrorKind::UnsupportedConstruct,
@@ -534,7 +669,6 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<Expr, LowerError> {
         )),
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -687,9 +821,9 @@ mod tests {
 
     #[test]
     fn unsupported_annotations_are_rejected() {
-        let float = error_for("def f(a: float) -> int:\n    return 1\n");
-        assert_eq!(float.kind(), LowerErrorKind::UnsupportedType);
-        assert!(float.message().contains("float"));
+        let complex = error_for("def f(a: complex) -> int:\n    return 1\n");
+        assert_eq!(complex.kind(), LowerErrorKind::UnsupportedType);
+        assert!(complex.message().contains("complex"));
 
         let generic = error_for("def f(a: list[int]) -> int:\n    return 1\n");
         assert_eq!(generic.kind(), LowerErrorKind::UnsupportedType);
@@ -766,10 +900,6 @@ mod tests {
 
     #[test]
     fn unsupported_operators_are_rejected() {
-        let division = error_for("def f(a: int, b: int) -> int:\n    return a / b\n");
-        assert_eq!(division.kind(), LowerErrorKind::UnsupportedConstruct);
-        assert!(division.message().contains("//"));
-
         let power = error_for("def f(a: int, b: int) -> int:\n    return a ** b\n");
         assert_eq!(power.kind(), LowerErrorKind::UnsupportedConstruct);
     }
@@ -839,17 +969,15 @@ mod tests {
     }
 
     #[test]
-    fn unannotated_binding_from_a_literal_is_rejected() {
-        let error = error_for("def f() -> int:\n    x = 1\n    return x\n");
-        assert_eq!(error.kind(), LowerErrorKind::MissingAnnotation);
-        assert!(error.message().contains('x'));
+    fn unannotated_binding_from_a_literal_is_inferred() {
+        let f = lower_one("def f() -> int:\n    x = 1\n    return x\n");
+        assert!(matches!(f.body[0], Stmt::Bind { ty: Ty::Int, .. }));
     }
 
     #[test]
-    fn unannotated_binding_from_an_expression_is_rejected() {
-        let error = error_for("def f(a: int) -> int:\n    b = a + 1\n    return b\n");
-        assert_eq!(error.kind(), LowerErrorKind::MissingAnnotation);
-        assert!(error.message().contains('b'));
+    fn unannotated_binding_from_an_expression_is_inferred() {
+        let f = lower_one("def f(a: int) -> int:\n    b = a + 1\n    return b\n");
+        assert!(matches!(f.body[0], Stmt::Bind { ty: Ty::Int, .. }));
     }
 
     #[test]
@@ -878,11 +1006,260 @@ mod tests {
         assert!(error.message().contains("str") && error.message().contains("int"));
     }
 
+    // ---- literal and expression inference ---------------------------------
+
+    /// Type a binding by name in the first function of a source.
+    fn bound_ty(source: &str, want: &str) -> Ty {
+        let f = lower_one(source);
+        for stmt in &f.body {
+            if let Stmt::Bind { name, ty, .. } = stmt
+                && name == want
+            {
+                return *ty;
+            }
+        }
+        panic!("no binding named {want}");
+    }
+
+    #[test]
+    fn literal_initializers_are_inferred() {
+        // The motivating cases from the proposal.
+        assert_eq!(
+            bound_ty("def f() -> str:\n    a = \"x\"\n    return a\n", "a"),
+            Ty::Str
+        );
+        assert_eq!(
+            bound_ty("def f() -> int:\n    b = 3\n    return b\n", "b"),
+            Ty::Int
+        );
+        assert_eq!(
+            bound_ty("def f() -> float:\n    c = 1.3\n    return c\n", "c"),
+            Ty::Float
+        );
+        assert_eq!(
+            bound_ty("def f() -> bool:\n    d = True\n    return d\n", "d"),
+            Ty::Bool
+        );
+    }
+
+    #[test]
+    fn expression_initializers_are_inferred() {
+        assert_eq!(
+            bound_ty("def f(a: int) -> int:\n    b = a + 1\n    return b\n", "b"),
+            Ty::Int
+        );
+        assert_eq!(
+            bound_ty(
+                "def f(a: int) -> bool:\n    b = a < 10\n    return b\n",
+                "b"
+            ),
+            Ty::Bool
+        );
+        assert_eq!(
+            bound_ty("def f(c: float) -> float:\n    b = -c\n    return b\n", "b"),
+            Ty::Float
+        );
+        assert_eq!(
+            bound_ty(
+                "def f(a: int) -> int:\n    b = (a + 1) * 2 - 3\n    return b\n",
+                "b"
+            ),
+            Ty::Int
+        );
+    }
+
+    #[test]
+    fn true_division_yields_float_while_floor_division_stays_int() {
+        assert_eq!(
+            bound_ty(
+                "def f(a: int, b: int) -> float:\n    q = a / b\n    return q\n",
+                "q"
+            ),
+            Ty::Float
+        );
+        assert_eq!(
+            bound_ty(
+                "def f(a: int, b: int) -> int:\n    q = a // b\n    return q\n",
+                "q"
+            ),
+            Ty::Int
+        );
+    }
+
+    #[test]
+    fn string_concatenation_is_inferred() {
+        assert_eq!(
+            bound_ty(
+                "def f(a: str, b: str) -> str:\n    c = a + b\n    return c\n",
+                "c"
+            ),
+            Ty::Str
+        );
+    }
+
+    #[test]
+    fn mixed_arithmetic_promotes_and_records_the_conversion() {
+        let f = lower_one("def f(a: int, b: float) -> float:\n    c = a + b\n    return c\n");
+        match &f.body[0] {
+            Stmt::Bind { ty, value, .. } => {
+                assert_eq!(*ty, Ty::Float);
+                // The integer operand must be wrapped, or a backend emitting operands
+                // positionally would produce integer arithmetic.
+                match value {
+                    Expr::Binary { left, right, .. } => {
+                        assert!(
+                            matches!(**left, Expr::ToFloat(_)),
+                            "int operand should be promoted, got {left:?}"
+                        );
+                        assert!(matches!(**right, Expr::Name(_)));
+                    }
+                    other => panic!("expected binary, got {other:?}"),
+                }
+            }
+            other => panic!("expected bind, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn true_division_of_two_ints_promotes_both_operands() {
+        let f = lower_one("def f(a: int, b: int) -> float:\n    q = a / b\n    return q\n");
+        match &f.body[0] {
+            Stmt::Bind {
+                value: Expr::Binary { op, left, right },
+                ..
+            } => {
+                assert_eq!(*op, BinOp::TrueDiv);
+                assert!(matches!(**left, Expr::ToFloat(_)));
+                assert!(matches!(**right, Expr::ToFloat(_)));
+            }
+            other => panic!("expected binary bind, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mixed_comparison_is_permitted_and_yields_bool() {
+        assert_eq!(
+            bound_ty(
+                "def f(a: int, b: float) -> bool:\n    c = a < b\n    return c\n",
+                "c"
+            ),
+            Ty::Bool
+        );
+    }
+
+    #[test]
+    fn ill_typed_operands_are_rejected() {
+        for (source, note) in [
+            (
+                "def f(a: str, b: int) -> str:\n    c = a + b\n    return c\n",
+                "str + int",
+            ),
+            (
+                "def f(a: bool, b: bool) -> int:\n    c = a + b\n    return c\n",
+                "bool arithmetic",
+            ),
+            (
+                "def f(a: str) -> str:\n    c = -a\n    return c\n",
+                "negate str",
+            ),
+            (
+                "def f(a: str, b: int) -> bool:\n    c = a < b\n    return c\n",
+                "str < int",
+            ),
+        ] {
+            let error = error_for(source);
+            assert_eq!(
+                error.kind(),
+                LowerErrorKind::TypeMismatch,
+                "{note} should be a type mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn boolean_arithmetic_explains_itself() {
+        let error = error_for("def f(a: bool, b: bool) -> int:\n    c = a + b\n    return c\n");
+        assert!(
+            error.message().contains("booleans are not numbers"),
+            "message should explain the deliberate divergence, got: {}",
+            error.message()
+        );
+    }
+
+    #[test]
+    fn call_makes_an_expression_undetermined_rather_than_ill_typed() {
+        // The case a naive implementation gets wrong: it must demand an annotation, not
+        // report a type error, when a call is buried inside arithmetic.
+        let error = error_for("def f(a: int) -> int:\n    b = helper(a) + 1\n    return b\n");
+        assert_eq!(error.kind(), LowerErrorKind::MissingAnnotation);
+        assert!(error.message().contains("call"));
+
+        // ...and with an annotation it lowers fine, unchecked.
+        let f = lower_one("def f(a: int) -> int:\n    b: int = helper(a) + 1\n    return b\n");
+        assert!(matches!(f.body[0], Stmt::Bind { ty: Ty::Int, .. }));
+    }
+
+    // ---- declared versus inferred -----------------------------------------
+
+    #[test]
+    fn annotation_conflicting_with_the_initializer_is_rejected() {
+        for source in [
+            "def f() -> str:\n    b: str = 1\n    return b\n",
+            "def f(a: int) -> str:\n    b: str = a\n    return b\n",
+        ] {
+            let error = error_for(source);
+            assert_eq!(error.kind(), LowerErrorKind::TypeMismatch);
+        }
+    }
+
+    #[test]
+    fn widening_is_accepted_but_narrowing_is_not() {
+        let f = lower_one("def f() -> float:\n    c: float = 1\n    return c\n");
+        match &f.body[0] {
+            Stmt::Bind { ty, value, .. } => {
+                assert_eq!(*ty, Ty::Float);
+                assert!(
+                    matches!(value, Expr::ToFloat(_)),
+                    "int should widen to float"
+                );
+            }
+            other => panic!("expected bind, got {other:?}"),
+        }
+
+        let error = error_for("def f() -> int:\n    n: int = 1.5\n    return n\n");
+        assert_eq!(error.kind(), LowerErrorKind::TypeMismatch);
+    }
+
+    #[test]
+    fn float_annotations_are_accepted_everywhere() {
+        let f = lower_one("def f(a: float) -> float:\n    b: float = a\n    return b\n");
+        assert_eq!(f.params[0].ty, Ty::Float);
+        assert_eq!(f.ret, Ty::Float);
+        assert!(matches!(f.body[0], Stmt::Bind { ty: Ty::Float, .. }));
+    }
+
+    #[test]
+    fn returned_value_is_checked_against_the_declared_type() {
+        let wrong = error_for("def f() -> int:\n    return \"x\"\n");
+        assert_eq!(wrong.kind(), LowerErrorKind::TypeMismatch);
+
+        let from_unit = error_for("def f() -> None:\n    return 1\n");
+        assert_eq!(from_unit.kind(), LowerErrorKind::TypeMismatch);
+
+        // Widening applies to returns too.
+        let widened = lower_one("def f() -> float:\n    return 1\n");
+        assert_eq!(widened.body[0], Stmt::Return(Expr::int(1).to_float()));
+
+        // A returned call is undetermined, so it is not checked.
+        let unchecked = lower_one("def f(a: int) -> int:\n    return helper(a)\n");
+        assert!(matches!(unchecked.body[0], Stmt::Return(Expr::Call { .. })));
+    }
+
     // ---- diagnostics ------------------------------------------------------
 
     #[test]
     fn diagnostics_carry_a_useful_span() {
-        let source = "def f(a: int) -> int:\n    x = 1\n    return x\n";
+        let source = "def f(a: int) -> int:\n    x = a ** 2\n    return x\n";
         let error = lower(source).unwrap_err();
         let rendered = error.render(source);
         assert!(
@@ -893,8 +1270,9 @@ mod tests {
 
     #[test]
     fn first_violation_in_source_order_is_reported() {
-        // Two violations: the unannotated binding on line 2, the `if` on line 3.
-        let source = "def f(a: int) -> int:\n    x = 1\n    if a:\n        pass\n    return a\n";
+        // Two violations: the unannotated call binding on line 2, the `if` on line 3.
+        let source =
+            "def f(a: int) -> int:\n    x = helper(a)\n    if a:\n        pass\n    return a\n";
         let error = lower(source).unwrap_err();
         assert_eq!(error.kind(), LowerErrorKind::MissingAnnotation);
     }

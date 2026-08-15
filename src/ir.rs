@@ -27,6 +27,8 @@ use crate::span::Span;
 pub enum Ty {
     /// A 64-bit signed integer.
     Int,
+    /// A 64-bit binary floating-point number.
+    Float,
     /// A boolean.
     Bool,
     /// A UTF-8 text string.
@@ -40,10 +42,21 @@ impl Ty {
     pub fn python_name(self) -> &'static str {
         match self {
             Self::Int => "int",
+            Self::Float => "float",
             Self::Bool => "bool",
             Self::Str => "str",
             Self::Unit => "None",
         }
+    }
+
+    /// Whether arithmetic is defined on this type.
+    ///
+    /// Booleans are deliberately excluded even though Python's `bool` subclasses `int`:
+    /// accepting `True + 1` would force every backend to decide how a boolean widens, and
+    /// would make `a + b` on two booleans mean integer addition, which reads as a bug in the
+    /// languages compylr emits.
+    pub fn is_numeric(self) -> bool {
+        matches!(self, Self::Int | Self::Float)
     }
 }
 
@@ -52,6 +65,15 @@ impl Ty {
 pub enum Literal {
     /// Integer literal, already checked to fit the supported integer range.
     Int(i64),
+    /// Floating-point literal, stored as its IEEE-754 bit pattern.
+    ///
+    /// `f64` implements neither `Eq` nor `Hash`, and every IR type derives both so that
+    /// [`Function::fingerprint`] can hash the structure. Storing the bit pattern keeps those
+    /// derives and is also the right comparison here: two source literals should contribute
+    /// the same fingerprint exactly when they denote the same value. The usual objections do
+    /// not apply — NaN cannot be spelled as a Python literal (it needs a call), and `0.0` and
+    /// `-0.0` are genuinely different literals worth distinguishing in a rebuild key.
+    Float(u64),
     /// Boolean literal.
     Bool(bool),
     /// String literal contents, unescaped.
@@ -59,10 +81,24 @@ pub enum Literal {
 }
 
 impl Literal {
+    /// Build a floating-point literal from its value.
+    pub fn float(value: f64) -> Self {
+        Self::Float(value.to_bits())
+    }
+
+    /// The value of a floating-point literal, or `None` for other literal kinds.
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Float(bits) => Some(f64::from_bits(*bits)),
+            _ => None,
+        }
+    }
+
     /// Type of this literal.
     pub fn ty(&self) -> Ty {
         match self {
             Self::Int(_) => Ty::Int,
+            Self::Float(_) => Ty::Float,
             Self::Bool(_) => Ty::Bool,
             Self::Str(_) => Ty::Str,
         }
@@ -78,6 +114,12 @@ pub enum BinOp {
     Sub,
     /// Multiplication.
     Mul,
+    /// True division: always yields a floating-point result, even for two integer operands.
+    ///
+    /// This is the trap `/` sets for a backend. In Python `7 / 2` is `3.5`; in Rust, Go, and
+    /// C++ the same spelling between two integers is integer division yielding `3`. A backend
+    /// must convert its operands before dividing.
+    TrueDiv,
     /// Floor division: rounds toward negative infinity, unlike most targets' `/`.
     FloorDiv,
     /// Remainder: takes the sign of the divisor, unlike most targets' `%`.
@@ -111,6 +153,7 @@ impl BinOp {
             Self::Add => "+",
             Self::Sub => "-",
             Self::Mul => "*",
+            Self::TrueDiv => "/",
             Self::FloorDiv => "//",
             Self::Mod => "%",
             Self::Eq => "==",
@@ -132,6 +175,13 @@ pub enum Expr {
     Name(String),
     /// Arithmetic negation.
     Neg(Box<Expr>),
+    /// Widening of an integer expression to floating-point.
+    ///
+    /// Inserted by lowering wherever Python's numeric promotion applies, so the conversion is
+    /// visible in the tree instead of something each backend has to re-derive. A backend that
+    /// emitted operands positionally without this node would produce integer arithmetic where
+    /// Python produces float arithmetic.
+    ToFloat(Box<Expr>),
     /// A binary operation.
     Binary {
         /// Operator applied.
@@ -156,9 +206,19 @@ impl Expr {
         Self::Literal(Literal::Int(value))
     }
 
+    /// Convenience constructor for a floating-point literal.
+    pub fn float(value: f64) -> Self {
+        Self::Literal(Literal::float(value))
+    }
+
     /// Convenience constructor for a boolean literal.
     pub fn bool(value: bool) -> Self {
         Self::Literal(Literal::Bool(value))
+    }
+
+    /// Wrap this expression in an explicit widening to floating-point.
+    pub fn to_float(self) -> Self {
+        Self::ToFloat(Box::new(self))
     }
 
     /// Convenience constructor for a string literal.
@@ -184,7 +244,9 @@ impl Expr {
     pub fn walk_calls(&self, visit: &mut impl FnMut(&str, usize)) {
         match self {
             Self::Literal(_) | Self::Name(_) => {}
-            Self::Neg(inner) => inner.walk_calls(visit),
+            // ToFloat must descend, or a call wrapped in a promotion would be invisible to
+            // Unit::validate and its target would never be checked.
+            Self::Neg(inner) | Self::ToFloat(inner) => inner.walk_calls(visit),
             Self::Binary { left, right, .. } => {
                 left.walk_calls(visit);
                 right.walk_calls(visit);
@@ -401,18 +463,93 @@ mod tests {
 
     #[test]
     fn ty_covers_exactly_the_supported_set() {
-        let all = [Ty::Int, Ty::Bool, Ty::Str, Ty::Unit];
+        let all = [Ty::Int, Ty::Float, Ty::Bool, Ty::Str, Ty::Unit];
         let names: Vec<&str> = all.iter().map(|t| t.python_name()).collect();
-        assert_eq!(names, ["int", "bool", "str", "None"]);
+        assert_eq!(names, ["int", "float", "bool", "str", "None"]);
         assert_eq!(Ty::Int, Ty::Int);
         assert_ne!(Ty::Int, Ty::Bool);
     }
 
     #[test]
+    fn int_and_float_are_distinct_types() {
+        // A backend has to know which representation to emit, so these must never unify.
+        assert_ne!(Ty::Int, Ty::Float);
+        assert!(Ty::Int.is_numeric() && Ty::Float.is_numeric());
+        assert!(
+            !Ty::Bool.is_numeric(),
+            "booleans are deliberately not numeric"
+        );
+        assert!(!Ty::Str.is_numeric());
+        assert!(!Ty::Unit.is_numeric());
+    }
+
+    #[test]
     fn literals_report_their_type() {
         assert_eq!(Literal::Int(1).ty(), Ty::Int);
+        assert_eq!(Literal::float(1.5).ty(), Ty::Float);
         assert_eq!(Literal::Bool(true).ty(), Ty::Bool);
         assert_eq!(Literal::Str("x".into()).ty(), Ty::Str);
+    }
+
+    #[test]
+    fn float_literals_round_trip_and_compare_by_value() {
+        let a = Literal::float(1.3);
+        assert_eq!(a.as_f64(), Some(1.3));
+        assert_eq!(a, Literal::float(1.3));
+        assert_ne!(a, Literal::float(1.4));
+        assert_eq!(Literal::Int(1).as_f64(), None);
+    }
+
+    #[test]
+    fn float_literals_can_be_fingerprinted() {
+        // The whole reason for storing bits: f64 is neither Eq nor Hash, and Function
+        // derives both. A body containing a float must still produce a fingerprint.
+        let f = func("f", vec![], Ty::Float, vec![Stmt::Return(Expr::float(1.3))]);
+        let same = func("f", vec![], Ty::Float, vec![Stmt::Return(Expr::float(1.3))]);
+        let other = func("f", vec![], Ty::Float, vec![Stmt::Return(Expr::float(1.4))]);
+        assert_eq!(f.fingerprint(), same.fingerprint());
+        assert_ne!(f.fingerprint(), other.fingerprint());
+    }
+
+    #[test]
+    fn positive_and_negative_zero_are_distinguishable() {
+        // Pins the documented bitwise-comparison decision so a later change cannot quietly
+        // normalise it away.
+        assert_ne!(Literal::float(0.0), Literal::float(-0.0));
+        assert_eq!(Literal::float(0.0).as_f64(), Some(0.0));
+        assert_eq!(Literal::float(-0.0).as_f64(), Some(-0.0));
+    }
+
+    #[test]
+    fn true_division_is_distinct_from_floor_division() {
+        assert_ne!(BinOp::TrueDiv, BinOp::FloorDiv);
+        assert_eq!(BinOp::TrueDiv.python_symbol(), "/");
+        assert_eq!(BinOp::FloorDiv.python_symbol(), "//");
+        assert!(!BinOp::TrueDiv.is_comparison());
+    }
+
+    #[test]
+    fn to_float_nests_and_participates_in_equality() {
+        let wrapped = Expr::name("a").to_float();
+        assert_eq!(wrapped, Expr::ToFloat(Box::new(Expr::name("a"))));
+        assert_ne!(wrapped, Expr::name("a"));
+        match &wrapped {
+            Expr::ToFloat(inner) => assert_eq!(**inner, Expr::name("a")),
+            other => panic!("expected ToFloat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn walk_calls_descends_through_promotion() {
+        // A call hidden under a promotion must still be validated.
+        let expr = Expr::Call {
+            callee: "helper".into(),
+            args: vec![],
+        }
+        .to_float();
+        let mut seen = Vec::new();
+        expr.walk_calls(&mut |name, argc| seen.push((name.to_string(), argc)));
+        assert_eq!(seen, vec![("helper".to_string(), 0)]);
     }
 
     #[test]
@@ -431,6 +568,7 @@ mod tests {
             BinOp::Add,
             BinOp::Sub,
             BinOp::Mul,
+            BinOp::TrueDiv,
             BinOp::FloorDiv,
             BinOp::Mod,
         ] {
@@ -444,6 +582,7 @@ mod tests {
             BinOp::Add,
             BinOp::Sub,
             BinOp::Mul,
+            BinOp::TrueDiv,
             BinOp::FloorDiv,
             BinOp::Mod,
             BinOp::Eq,
@@ -454,10 +593,10 @@ mod tests {
             BinOp::GtE,
         ];
         let mut symbols: Vec<&str> = ops.iter().map(|op| op.python_symbol()).collect();
-        assert_eq!(symbols.len(), 11);
+        assert_eq!(symbols.len(), 12);
         symbols.sort_unstable();
         symbols.dedup();
-        assert_eq!(symbols.len(), 11, "operator spellings must be distinct");
+        assert_eq!(symbols.len(), 12, "operator spellings must be distinct");
         assert_eq!(BinOp::FloorDiv.python_symbol(), "//");
     }
 
