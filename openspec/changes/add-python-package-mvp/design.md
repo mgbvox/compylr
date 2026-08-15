@@ -232,9 +232,11 @@ executed, and inheriting would let it be swallowed by handlers that meant the bu
 
 ## Risks / Trade-offs
 
-* **PyO3 must support CPython 3.14** → Pin a version that does and build against `abi3` at the
-  lowest supported minor, so one wheel spans interpreter versions instead of needing one per
-  version. Confirm at implementation time rather than assuming a version number.
+* **PyO3 must support CPython 3.14** → **Resolved during implementation: `pyo3 = "0.29.2"` with
+  `abi3-py311`**, verified building against CPython 3.14.5. One wheel spans 3.11+ instead of
+  needing one per interpreter version. `extension-module` is kept behind an optional cargo
+  feature: it tells PyO3 not to link libpython, which a wheel needs and `cargo test` cannot
+  tolerate, since the test binary must resolve those symbols.
 * **First call blocks for seconds** → Unavoidable for a compile-on-demand tool. Mitigated by the
   fingerprint cache making it strictly once per meaningful change, and by emitting a message so
   the pause is explained rather than mysterious.
@@ -261,8 +263,8 @@ that the Rust backend is written against actually describes `float`, `/`, and `T
 
 ## Open Questions
 
-* Which exact PyO3 version and `abi3` floor to pin. Deferrable: it changes a version string and
-  a feature flag, not the design, the specs, or the task breakdown.
+* ~~Which exact PyO3 version and `abi3` floor to pin.~~ **Resolved:** `0.29.2` with `abi3-py311`,
+  verified against CPython 3.14.5. See Risks.
 * Whether `.compylr/` should be discovered by walking up to a project root rather than rooted at
   the working directory. Deferrable — it changes where one path is computed, and every
   requirement is stated in terms of "one directory", not a specific location.

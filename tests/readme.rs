@@ -147,19 +147,53 @@ fn readme_references_only_paths_that_exist() {
     );
 }
 
-/// The README must not claim a backend exists while none does.
+/// The README's claim about the backend must match reality **in both directions**.
 ///
-/// The status section is the first thing a reader trusts, and "it emits Rust" is the single
-/// most damaging thing it could get wrong.
+/// The status section is the first thing a reader trusts, and whether Rust is emitted is the
+/// single most damaging thing it could get wrong.
+///
+/// This originally asserted only that a missing backend was disclosed, which meant it fell silent
+/// the moment `src/backend/` landed — going quiet exactly when the README first became wrong. A
+/// one-directional check protects nothing after the transition it was written for, so the
+/// existing-backend case is asserted too.
 #[test]
 fn readme_status_matches_reality() {
     let text = readme();
     let backend_exists =
         repo_root().join("src/codegen.rs").exists() || repo_root().join("src/backend").exists();
-    if !backend_exists {
+
+    if backend_exists {
+        assert!(
+            !text.contains("no backend"),
+            "a backend exists, so the README must not still say there is none"
+        );
+        assert!(
+            text.contains("Rust source"),
+            "a backend exists, so the README status section should say Rust is emitted"
+        );
+    } else {
         assert!(
             text.contains("not built") || text.contains("no backend"),
             "no backend exists, so the README status section must say so"
+        );
+    }
+}
+
+/// The README must not claim an importable Python package exists before one does.
+///
+/// This is the same failure mode one stage later: the backend landing makes it tempting to say
+/// the decorator works, and a reader who tries `import compylr` on that basis gets a
+/// `ModuleNotFoundError` rather than a compiled function.
+#[test]
+fn readme_does_not_promise_a_python_package_that_does_not_exist() {
+    let text = readme();
+    let package_exists = repo_root().join("pyproject.toml").exists()
+        && repo_root().join("python/compylr/__init__.py").exists();
+
+    if !package_exists {
+        assert!(
+            text.contains("does not work") || text.contains("no Python package"),
+            "there is no installable Python package, so the README must say so plainly"
         );
     }
 }

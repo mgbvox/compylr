@@ -10,12 +10,13 @@
 //! Python and any target language: a backend chooses concrete type spellings and operator
 //! syntax, so Rust, Go, C++, or TypeScript backends can all consume the same tree.
 
+pub mod backend;
 pub mod error;
 pub mod frontend;
 pub mod ir;
 pub mod lower;
 pub mod span;
 
-pub use error::{FrontendError, LowerError};
+pub use error::{ArtifactError, FrontendError, LowerError};
 pub use ir::{BinOp, Expr, Function, Literal, Param, Stmt, Ty, Unit};
 pub use span::Span;

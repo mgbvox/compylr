@@ -1,6 +1,14 @@
 # Build output
 /target
 
+# Generated compilation artifacts: the IR, the emitted target source, the shared
+# generated crate, and the build state. Regenerated from source on demand.
+.compylr/
+*.so
+*.pyd
+/dist
+/wheels
+
 # Secrets — never commit
 .env
 .env.*

@@ -1,0 +1,15 @@
+---
+source: tests/emit_quality.rs
+expression: functions.trim()
+---
+pub fn halves(a: i64) -> Result<i64, RuntimeError> {
+    Ok(PyNum::py_floordiv(&(a), &(2i64))?)
+}
+
+pub fn ratio(a: i64, b: i64) -> Result<f64, RuntimeError> {
+    Ok(py_truediv(&(((a) as f64)), &(((b) as f64)))?)
+}
+
+pub fn remainder(a: i64, b: i64) -> Result<i64, RuntimeError> {
+    Ok(PyNum::py_mod(&(a), &(b))?)
+}

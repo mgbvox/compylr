@@ -34,18 +34,29 @@ the same IR.
 ### Requirement: Function emission
 
 The backend SHALL emit each function in a unit as a Rust function carrying its name, its
-parameters in source order with their spelled types, and its return type. A function returning
-the unit type SHALL be emitted without a return type annotation.
+parameters in source order with their spelled types, and its declared return type.
+
+Every emitted function SHALL be fallible, yielding either the declared return type or a runtime
+error. This is uniform rather than decided per function: any body can contain a division or an
+arithmetic overflow, including the body of a function that returns nothing, so a signature that
+became fallible only when the backend judged failure possible would change shape on an unrelated
+edit and force every caller to change with it.
 
 #### Scenario: Function with parameters and a return type
 
 - **WHEN** a function taking two integers and returning an integer is emitted
-- **THEN** the Rust signature names both parameters with type `i64` and returns `i64`
+- **THEN** the Rust signature names both parameters with type `i64`, and the function yields an
+  `i64` on success
 
 #### Scenario: Function returning unit
 
 - **WHEN** a function annotated `-> None` is emitted
-- **THEN** the Rust function declares no return type
+- **THEN** the emitted Rust function yields no value on success
+
+#### Scenario: A unit-returning function can still report failure
+
+- **WHEN** a function annotated `-> None` contains a division by zero
+- **THEN** its signature is able to carry the failure, rather than the failure being unreportable
 
 #### Scenario: Every function in the unit appears
 

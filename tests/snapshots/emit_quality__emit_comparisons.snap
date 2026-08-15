@@ -1,0 +1,27 @@
+---
+source: tests/emit_quality.rs
+expression: functions.trim()
+---
+pub fn at_most(a: i64, b: i64) -> Result<bool, RuntimeError> {
+    Ok(((&(a)) <= (&(b))))
+}
+
+pub fn differs(a: i64, b: i64) -> Result<bool, RuntimeError> {
+    Ok(((&(a)) != (&(b))))
+}
+
+pub fn greeting() -> Result<String, RuntimeError> {
+    Ok(String::from("hello"))
+}
+
+pub fn is_even(n: i64) -> Result<bool, RuntimeError> {
+    Ok(((&(PyNum::py_mod(&(n), &(2i64))?)) == (&(0i64))))
+}
+
+pub fn nothing() -> Result<(), RuntimeError> {
+    Ok(())
+}
+
+pub fn truthy() -> Result<bool, RuntimeError> {
+    Ok(true)
+}

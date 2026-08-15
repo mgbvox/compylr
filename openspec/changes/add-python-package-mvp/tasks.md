@@ -1,58 +1,58 @@
 ## 1. Crate shape and dependencies
 
-- [ ] 1.1 Archive `add-local-type-inference` so `openspec/specs/` describes `float`, `/`, and the promotion node before a backend is written against them (design.md — Migration Plan)
-- [ ] 1.2 Add `serde` (derive) and `serde_json` to `Cargo.toml`; confirm `cargo test` still passes untouched
-- [ ] 1.3 Add `pyo3` at a version supporting CPython 3.14, with an `abi3` floor, resolving the first Open Question; record the chosen version and floor in design.md
-- [ ] 1.4 Set `[lib] crate-type = ["cdylib", "rlib"]` and verify the existing binary and both integration test targets still link
-- [ ] 1.5 Add `.compylr/` and generated build output to `.gitignore`
+- [x] 1.1 Archive `add-local-type-inference` so `openspec/specs/` describes `float`, `/`, and the promotion node before a backend is written against them (design.md — Migration Plan)
+- [x] 1.2 Add `serde` (derive) and `serde_json` to `Cargo.toml`; confirm `cargo test` still passes untouched
+- [x] 1.3 Add `pyo3` at a version supporting CPython 3.14, with an `abi3` floor, resolving the first Open Question; record the chosen version and floor in design.md
+- [x] 1.4 Set `[lib] crate-type = ["cdylib", "rlib"]` and verify the existing binary and both integration test targets still link
+- [x] 1.5 Add `.compylr/` and generated build output to `.gitignore`
 
 ## 2. IR serialization
 
-- [ ] 2.1 Write a round-trip test asserting a unit covering every type, statement form, and expression form deserializes structurally equal to the original
-- [ ] 2.2 Write a test asserting the fingerprint is identical before and after a round trip
-- [ ] 2.3 Write a test asserting float literals round-trip bit-exactly, including `-0.0` staying distinguishable from `0.0`
-- [ ] 2.4 Write a test asserting serializing the same unit twice is byte-identical, and that two units built in different addition orders serialize identically
-- [ ] 2.5 Write a test asserting units lowered from sources differing only in comments and indentation serialize byte-identically — this is the test that fails if spans are serialized
-- [ ] 2.6 Write a test asserting the artifact contains no Rust spellings (`i64`, `f64`, `String`)
-- [ ] 2.7 Derive `Serialize`/`Deserialize` across the IR, skipping `Span` per design.md D7, and implement unit serialization to and from JSON
-- [ ] 2.8 Confirm every test in this group passes and that `Unit`'s existing ordering guarantees carry the determinism rather than a sort added here
+- [x] 2.1 Write a round-trip test asserting a unit covering every type, statement form, and expression form deserializes structurally equal to the original
+- [x] 2.2 Write a test asserting the fingerprint is identical before and after a round trip
+- [x] 2.3 Write a test asserting float literals round-trip bit-exactly, including `-0.0` staying distinguishable from `0.0`
+- [x] 2.4 Write a test asserting serializing the same unit twice is byte-identical, and that two units built in different addition orders serialize identically
+- [x] 2.5 Write a test asserting units lowered from sources differing only in comments and indentation serialize byte-identically — this is the test that fails if spans are serialized
+- [x] 2.6 Write a test asserting the artifact contains no Rust spellings (`i64`, `f64`, `String`)
+- [x] 2.7 Derive `Serialize`/`Deserialize` across the IR, skipping `Span` per design.md D7, and implement unit serialization to and from JSON
+- [x] 2.8 Confirm every test in this group passes and that `Unit`'s existing ordering guarantees carry the determinism rather than a sort added here
 
 ## 3. Backend registry
 
-- [ ] 3.1 Write tests for the three-way lookup: `rust` resolves to an implemented backend, `typescript`/`go`/`cpp` resolve as reserved, an unrecognized name fails listing the available names
-- [ ] 3.2 Write a test asserting the reserved-backend error says the backend is not implemented yet, and is distinguishable from the unknown-name error
-- [ ] 3.3 Create `src/backend/mod.rs` with the `Backend` trait and the registry from design.md D6
+- [x] 3.1 Write tests for the three-way lookup: `rust` resolves to an implemented backend, `typescript`/`go`/`cpp` resolve as reserved, an unrecognized name fails listing the available names
+- [x] 3.2 Write a test asserting the reserved-backend error says the backend is not implemented yet, and is distinguishable from the unknown-name error
+- [x] 3.3 Create `src/backend/mod.rs` with the `Backend` trait and the registry from design.md D6
 
 ## 4. Rust backend — structure
 
-- [ ] 4.1 Write tests asserting each IR type emits its Rust spelling, and that a function returning unit emits no return type
-- [ ] 4.2 Write a test asserting emission leaves the IR unchanged and that no Rust spelling appears anywhere in `src/ir.rs`
-- [ ] 4.3 Write tests for function emission: parameters in source order with spelled types, and all functions of a unit present in the unit's deterministic order
-- [ ] 4.4 Write tests for statement emission: return of an expression, a `pass` body under a unit return type, and a local binding stating its type explicitly
-- [ ] 4.5 Write tests for expression emission: literals of every type, name references, negation, the promotion node, and a call to another function in the unit
-- [ ] 4.6 Write a test asserting a string literal containing a double quote, a backslash, and a newline emits a Rust literal denoting exactly those characters
-- [ ] 4.7 Write a test asserting nesting is preserved regardless of Rust precedence — arithmetic inside a comparison inside a call argument
-- [ ] 4.8 Implement `src/backend/rust.rs` covering types, functions, statements, and expressions, emitting fully parenthesized binary expressions per design.md D5
-- [ ] 4.9 Confirm the backend never re-derives promotion: assert `TrueDiv` on two integers emits a plain division because lowering already wrapped both operands in the promotion node
+- [x] 4.1 Write tests asserting each IR type emits its Rust spelling, and that a function returning unit emits no return type
+- [x] 4.2 Write a test asserting emission leaves the IR unchanged and that no Rust spelling appears anywhere in `src/ir.rs`
+- [x] 4.3 Write tests for function emission: parameters in source order with spelled types, and all functions of a unit present in the unit's deterministic order
+- [x] 4.4 Write tests for statement emission: return of an expression, a `pass` body under a unit return type, and a local binding stating its type explicitly
+- [x] 4.5 Write tests for expression emission: literals of every type, name references, negation, the promotion node, and a call to another function in the unit
+- [x] 4.6 Write a test asserting a string literal containing a double quote, a backslash, and a newline emits a Rust literal denoting exactly those characters
+- [x] 4.7 Write a test asserting nesting is preserved regardless of Rust precedence — arithmetic inside a comparison inside a call argument
+- [x] 4.8 Implement `src/backend/rust.rs` covering types, functions, statements, and expressions, emitting fully parenthesized binary expressions per design.md D5
+- [x] 4.9 Confirm the backend never re-derives promotion: assert `TrueDiv` on two integers emits a plain division because lowering already wrapped both operands in the promotion node
 
 ## 5. Rust backend — Python operator semantics
 
-- [ ] 5.1 Write executable tests for floor division: `-7 // 2 == -4`, `7 // -2 == -4`, `-6 // 2 == -3`, and `-7.0 // 2.0 == -4.0`
-- [ ] 5.2 Write executable tests for remainder: `-7 % 2 == 1`, `7 % -2 == -1`, and the identity `(a // b) * b + (a % b) == a` over a table of signed operand pairs
-- [ ] 5.3 Write executable tests for true division: `7 / 2 == 3.5`, and a function returning `/` on two integers has Rust return type `f64`
-- [ ] 5.4 Write tests for the remaining operators: string concatenation, and each of the six comparisons yielding `bool`
-- [ ] 5.5 Write tests asserting division and remainder by zero produce a recoverable error rather than a panic, for integer and float operands alike — Python raises where IEEE would return infinity
-- [ ] 5.6 Write tests asserting overflow produces a recoverable error rather than wrapping, including `i64::MIN / -1`
-- [ ] 5.7 Write a test asserting a failure inside a called generated function propagates to the outermost caller
-- [ ] 5.8 Implement the emitted runtime helpers from a single `const` per design.md D4, with inner functions uniformly returning `Result<T, RuntimeError>` per D3
-- [ ] 5.9 Verify each semantics test executes emitted code rather than comparing emitted strings, so a helper that is wrong in a way the string still looks right cannot pass
+- [x] 5.1 Write executable tests for floor division: `-7 // 2 == -4`, `7 // -2 == -4`, `-6 // 2 == -3`, and `-7.0 // 2.0 == -4.0`
+- [x] 5.2 Write executable tests for remainder: `-7 % 2 == 1`, `7 % -2 == -1`, and the identity `(a // b) * b + (a % b) == a` over a table of signed operand pairs
+- [x] 5.3 Write executable tests for true division: `7 / 2 == 3.5`, and a function returning `/` on two integers has Rust return type `f64`
+- [x] 5.4 Write tests for the remaining operators: string concatenation, and each of the six comparisons yielding `bool`
+- [x] 5.5 Write tests asserting division and remainder by zero produce a recoverable error rather than a panic, for integer and float operands alike — Python raises where IEEE would return infinity
+- [x] 5.6 Write tests asserting overflow produces a recoverable error rather than wrapping, including `i64::MIN / -1`
+- [x] 5.7 Write a test asserting a failure inside a called generated function propagates to the outermost caller
+- [x] 5.8 Implement the emitted runtime helpers from a single `const` per design.md D4, with inner functions uniformly returning `Result<T, RuntimeError>` per D3
+- [x] 5.9 Verify each semantics test executes emitted code rather than comparing emitted strings, so a helper that is wrong in a way the string still looks right cannot pass
 
 ## 6. Emission quality
 
-- [ ] 6.1 Write a test asserting the same unit emits byte-identically twice, and that addition order does not change output
-- [ ] 6.2 Write a test that lowers and emits every accepted fixture and compiles the result, asserting no errors and no warnings under the project's lint settings
-- [ ] 6.3 Pipe emitted source through `rustfmt` on a best-effort basis, falling back to unformatted output when it is unavailable
-- [ ] 6.4 Snapshot the emitted Rust for the accepted fixtures so an unintended change in shape shows up as a diff
+- [x] 6.1 Write a test asserting the same unit emits byte-identically twice, and that addition order does not change output
+- [x] 6.2 Write a test that lowers and emits every accepted fixture and compiles the result, asserting no errors and no warnings under the project's lint settings
+- [x] 6.3 Pipe emitted source through `rustfmt` on a best-effort basis, falling back to unformatted output when it is unavailable
+- [x] 6.4 Snapshot the emitted Rust for the accepted fixtures so an unintended change in shape shows up as a diff
 
 ## 7. PyO3 binding emission
 
@@ -113,7 +113,7 @@
 
 - [ ] 12.1 Rewrite the README: remove the "no Python package yet" note and the `TARGET DESIGN` marker, document the real API, and state plainly that a Rust toolchain and maturin are required at runtime
 - [ ] 12.2 Update the README pipeline diagram and capability table, and document `.compylr/` and its artifacts
-- [ ] 12.3 Extend `tests/readme.rs` so the backend claim is enforced in both directions — the existing check falls silent once a backend exists, which is the moment it stops protecting anything
+- [x] 12.3 Extend `tests/readme.rs` so the backend claim is enforced in both directions — the existing check falls silent once a backend exists, which is the moment it stops protecting anything
 - [ ] 12.4 Update `CLAUDE.md`: current state, the new commands, and the two distinct PyO3 roles
 - [ ] 12.5 Run `cargo fmt`, `cargo clippy -p compylr --all-targets -- -D warnings`, and `cargo test`, resolving all findings
 - [ ] 12.6 Run the Python test suite with coverage and confirm it exceeds the project threshold

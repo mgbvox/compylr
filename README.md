@@ -32,13 +32,23 @@ rebuild cache. None of those exist yet.
 
 ## Status
 
-The pipeline is implemented up to the intermediate representation. There is no backend yet, so
-nothing emits Rust today.
+The pipeline reaches Rust source. The IR is emitted as an inspectable artifact along the way,
+and the emitted Rust preserves Python's arithmetic semantics — but nothing builds it into an
+importable module yet, which is why `import compylr` still does not work.
 
 ```
-source text ──frontend──> ruff AST ──lower──> compylr IR ──backend──> target code
-     ✓                       ✓                    ✓                   not built
+source text ──frontend──> ruff AST ──lower──> compylr IR ──backend──> Rust source ──build──> extension
+     ✓                       ✓                    ✓            ✓                     not built
 ```
+
+What the backend does today: maps the IR's semantic types onto `i64`, `f64`, `bool`, `String`,
+and `()`; emits every statement and expression form; and reproduces Python's `//`, `%`, and `/`
+rather than mapping them to Rust's same-named operators, which disagree on negative and integer
+operands. Division by zero and `i64` overflow are recoverable errors instead of a panic or a
+silent wrap.
+
+Not built yet: PyO3 binding generation, the maturin build, and the Python package with its
+decorator.
 
 | Capability | What it covers |
 | --- | --- |
@@ -141,9 +151,13 @@ error: 2:12: operator '+' is not defined for 'bool' and 'bool'; booleans are not
 src/
   frontend.rs   parse source text -> ruff AST
   lower.rs      ruff AST -> IR, plus the type checker
-  ir.rs         the IR: types, expressions, statements, Unit, fingerprints
-  error.rs      frontend and lowering diagnostics
+  ir.rs         the IR: types, expressions, statements, Unit, fingerprints, artifact
+  error.rs      frontend, lowering, and artifact diagnostics
   span.rs       byte-offset source locations
+  backend/
+    mod.rs      the Backend trait and the name registry
+    rust.rs     IR -> Rust source
+    runtime.rs  Python arithmetic semantics, embedded into generated crates
 python/fixtures/
   accepted/     programs that must lower
   rejected/     one program per rejection rule
