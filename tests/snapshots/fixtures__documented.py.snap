@@ -4,73 +4,7 @@ expression: functions
 ---
 [
     Function {
-        name: "ratio",
-        params: [
-            Param {
-                name: "a",
-                ty: Int,
-            },
-            Param {
-                name: "b",
-                ty: Int,
-            },
-        ],
-        ret: Float,
-        body: [
-            Return(
-                Binary {
-                    op: TrueDiv,
-                    left: ToFloat(
-                        Name(
-                            "a",
-                        ),
-                    ),
-                    right: ToFloat(
-                        Name(
-                            "b",
-                        ),
-                    ),
-                },
-            ),
-        ],
-        doc: None,
-        span: Span {
-            start: 0,
-            end: 52,
-        },
-    },
-    Function {
-        name: "halves",
-        params: [
-            Param {
-                name: "a",
-                ty: Int,
-            },
-        ],
-        ret: Int,
-        body: [
-            Return(
-                Binary {
-                    op: FloorDiv,
-                    left: Name(
-                        "a",
-                    ),
-                    right: Literal(
-                        Int(
-                            2,
-                        ),
-                    ),
-                },
-            ),
-        ],
-        doc: None,
-        span: Span {
-            start: 55,
-            end: 99,
-        },
-    },
-    Function {
-        name: "remainder",
+        name: "add",
         params: [
             Param {
                 name: "a",
@@ -85,7 +19,7 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: Mod,
+                    op: Add,
                     left: Name(
                         "a",
                     ),
@@ -95,10 +29,73 @@ expression: functions
                 },
             ),
         ],
+        doc: Some(
+            "Return the sum of two integers.",
+        ),
+        span: Span {
+            start: 0,
+            end: 90,
+        },
+    },
+    Function {
+        name: "described",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "doubled",
+                ty: Int,
+                value: Binary {
+                    op: Mul,
+                    left: Name(
+                        "n",
+                    ),
+                    right: Literal(
+                        Int(
+                            2,
+                        ),
+                    ),
+                },
+            },
+            Return(
+                Name(
+                    "doubled",
+                ),
+            ),
+        ],
+        doc: Some(
+            "Scale a value.\n\n    A longer explanation, spanning several lines, with a blank line above.\n    ",
+        ),
+        span: Span {
+            start: 93,
+            end: 267,
+        },
+    },
+    Function {
+        name: "undocumented",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Name(
+                    "n",
+                ),
+            ),
+        ],
         doc: None,
         span: Span {
-            start: 102,
-            end: 156,
+            start: 270,
+            end: 315,
         },
     },
 ]

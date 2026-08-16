@@ -41,16 +41,19 @@ validating it immediately and compiling the whole project on the first call. Bot
 (the IR as JSON, the generated Rust) are written under `.compylr/` on every build.
 
 Supported Python subset: top-level `def`s only, fully annotated (`int`/`float`/`bool`/`str`, plus
-`None` as a return type); bodies of `return`, `pass`, and assignment; expressions of literals,
-names, unary minus, `+ - * / // %`, comparisons, and calls. Local bindings infer their type
-whenever the initializer determines it; an initializer containing a call still needs an
-annotation, because lowering does not resolve callees.
+`None` as a return type); bodies of `return`, `pass`, and assignment, optionally preceded by a
+docstring; expressions of literals, names, unary minus, `+ - * / // %`, comparisons, and calls.
+Local bindings infer their type whenever the initializer determines it; an initializer containing
+a call still needs an annotation, because lowering does not resolve callees.
+
+A **docstring** is accepted in first position and carries no runtime meaning; it is kept on the IR
+function, emitted as a `///` comment, and deliberately **excluded from the fingerprint**, so
+editing prose never triggers a rebuild. The exception is narrow: any other bare expression
+statement — including a string in second position — is still rejected, because a discarded value
+is either dead code or a side effect the subset cannot express.
 
 Known gaps worth knowing before you trip on them:
 
-* **A docstring is rejected.** It lowers as an expression statement, which the subset does not
-  allow, so `@c.compyle` cannot be applied to a documented function. Recorded as an xfail in
-  `python/tests/test_api.py`.
 * **Compiling needs `cargo` and `maturin` at runtime.** Installing compylr gets the compiler,
   not the ability to build what it generates.
 * **`llm_assist` is accepted but refused when enabled**, and `typescript`/`go`/`cpp` are reserved

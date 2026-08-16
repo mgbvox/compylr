@@ -240,16 +240,10 @@ class TestMarkedFunctionsAreOrdinaryObjects:
         assert named.__annotations__ == named.python_function.__annotations__
         assert set(named.__annotations__) == {"a", "return"}
 
-    @pytest.mark.xfail(
-        reason=(
-            "A docstring lowers as an expression statement, which the subset rejects. This makes "
-            "the decorator unusable on documented code -- most code -- and is worth its own "
-            "change: a leading string literal is a no-op that lowering could skip."
-        ),
-        raises=_core.CompilationError,
-        strict=True,
-    )
     def test_a_docstring_does_not_prevent_compilation(self) -> None:
+        # Was a strict xfail until docstrings were accepted. Most code worth compiling is
+        # documented, so this was the single largest thing standing between the decorator and
+        # real use.
         c = compylr.initialize()
 
         @c.compyle
@@ -258,6 +252,32 @@ class TestMarkedFunctionsAreOrdinaryObjects:
             return a
 
         assert documented.__doc__ == "Return the argument."
+
+    def test_a_multi_line_docstring_is_accepted(self) -> None:
+        c = compylr.initialize()
+
+        @c.compyle
+        def described(a: int) -> int:
+            """Scale a value.
+
+            A longer explanation, of the kind house style asks for.
+            """
+            return a * 2
+
+        assert described.__doc__ is not None
+        assert "Scale a value." in described.__doc__
+
+    def test_a_stray_string_statement_is_still_rejected(self) -> None:
+        # The exception is narrow on purpose: only the first statement, and only a string. A
+        # discarded value anywhere else is dead code or an inexpressible side effect.
+        c = compylr.initialize()
+        with pytest.raises(_core.CompilationError):
+
+            @c.compyle
+            def stray(a: int) -> int:
+                """A real docstring."""
+                "but this one is just a discarded value"  # noqa: B018
+                return a
 
     def test_the_original_function_is_reachable(self) -> None:
         c = compylr.initialize()

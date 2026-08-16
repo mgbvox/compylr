@@ -44,6 +44,7 @@ fn accepted_fixtures_lower_to_stable_ir() {
         "inference.py",
         "floats.py",
         "division.py",
+        "documented.py",
     ] {
         let functions = accepted(name);
         insta::assert_debug_snapshot!(name, functions);
@@ -96,6 +97,8 @@ fn every_rejected_fixture_fails_with_the_expected_kind() {
         ("alias_of_unbound.py", LowerErrorKind::Unresolved),
         ("rebind_local.py", LowerErrorKind::Reassignment),
         ("conflicting_annotation.py", LowerErrorKind::TypeMismatch),
+        ("bare_expression.py", LowerErrorKind::UnsupportedConstruct),
+        ("trailing_string.py", LowerErrorKind::UnsupportedConstruct),
     ];
 
     for (name, expected) in cases {
@@ -117,7 +120,7 @@ fn every_rejected_fixture_is_covered_by_the_table() {
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "py"))
         .count();
-    assert_eq!(count, 31, "update the rejection table when adding fixtures");
+    assert_eq!(count, 33, "update the rejection table when adding fixtures");
 }
 
 #[test]
