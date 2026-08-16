@@ -11,10 +11,22 @@ use compylr::ir::{BinOp, Expr, Function, Param, Stmt, Ty, Unit};
 use compylr::lower::lower_source;
 use compylr::span::Span;
 
-/// Lower source into a unit and emit Rust for it.
+/// Lower source into a unit and return its translated functions.
 fn emit(source: &str) -> String {
-    let unit = unit_from(source);
-    lookup("rust").unwrap().emit(&unit).expect("must emit")
+    functions_of(&unit_from(source))
+}
+
+/// The translated functions of a unit.
+///
+/// A lookup rather than a search: the backend emits a file per concern, so the file holding the
+/// functions is simply asked for by name.
+fn functions_of(unit: &Unit) -> String {
+    lookup("rust")
+        .unwrap()
+        .emit(unit)
+        .expect("must emit")
+        .remove("src/generated.rs")
+        .expect("a translated-code file must be emitted")
 }
 
 fn unit_from(source: &str) -> Unit {
@@ -28,16 +40,9 @@ fn unit_from(source: &str) -> Unit {
     unit
 }
 
-/// Just the generated functions, with the embedded runtime stripped out.
-///
-/// Without this, asserting "the output contains `i64`" would pass on the runtime helpers alone
-/// and prove nothing about the function under test.
+/// Identity, kept so call sites read the same as before the crate was split.
 fn functions_only(emitted: &str) -> String {
-    let marker = "pub mod generated {";
-    let index = emitted
-        .find(marker)
-        .expect("emitted source must declare the generated module");
-    emitted[index + marker.len()..].to_string()
+    emitted.to_string()
 }
 
 #[test]
@@ -179,10 +184,11 @@ fn a_string_literal_needing_escapes_denotes_the_same_characters() {
         params: Vec::new(),
         ret: Ty::Str,
         body: vec![Stmt::Return(Expr::string("a\"b\\c\nd\te"))],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();
-    let emitted = lookup("rust").unwrap().emit(&unit).unwrap();
+    let emitted = functions_of(&unit);
 
     assert!(
         emitted.contains(r#"String::from("a\"b\\c\nd\te")"#),
@@ -271,7 +277,7 @@ fn true_division_emits_a_plain_division_because_lowering_already_promoted() {
         other => panic!("unexpected body: {other:?}"),
     }
 
-    let emitted = functions_only(&lookup("rust").unwrap().emit(&unit).unwrap());
+    let emitted = functions_only(&functions_of(&unit));
     assert!(emitted.contains("py_truediv"), "{emitted}");
     assert_eq!(
         emitted.matches("as f64").count(),
@@ -292,10 +298,11 @@ fn rust_keywords_are_escaped() {
         }],
         ret: Ty::Int,
         body: vec![Stmt::Return(Expr::name("type"))],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();
-    let emitted = functions_only(&lookup("rust").unwrap().emit(&unit).unwrap());
+    let emitted = functions_only(&functions_of(&unit));
     assert!(
         emitted.contains("r#match") && emitted.contains("r#type"),
         "Python names that collide with Rust keywords must be escaped:\n{emitted}"
@@ -348,6 +355,7 @@ fn a_function_that_cannot_return_is_reported_rather_than_emitted_broken() {
             ty: Ty::Int,
             value: Expr::int(1),
         }],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();

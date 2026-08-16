@@ -33,6 +33,7 @@ fn unit_from(source: &str) -> Unit {
 fn without_spans(unit: &Unit) -> Vec<Function> {
     unit.functions()
         .map(|f| Function {
+            doc: None,
             span: Span::default(),
             ..f.clone()
         })
@@ -50,6 +51,7 @@ fn every_construct() -> Unit {
         }],
         ret: Ty::Int,
         body: vec![Stmt::Return(Expr::name("n"))],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();
@@ -119,6 +121,7 @@ fn every_construct() -> Unit {
                 Expr::name("f"),
             )),
         ],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();
@@ -127,6 +130,7 @@ fn every_construct() -> Unit {
         params: Vec::new(),
         ret: Ty::Unit,
         body: vec![Stmt::ReturnUnit],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();
@@ -215,6 +219,7 @@ fn float_literals_survive_bit_exactly() {
             },
             Stmt::Return(Expr::float(f64::MAX)),
         ],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();

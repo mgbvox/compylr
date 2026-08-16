@@ -322,6 +322,16 @@ pub struct Function {
     pub ret: Ty,
     /// Body statements, in source order.
     pub body: Vec<Stmt>,
+    /// The function's docstring, if it has one.
+    ///
+    /// Held as a field rather than as a body statement. A `Stmt` variant would put something in
+    /// the body that every consumer must remember to skip, and every backend would independently
+    /// have to decide it emits nothing; a field is skipped by construction.
+    ///
+    /// Serialized, because it is useful when reading the artifact, but **not** fingerprinted —
+    /// see [`Function::fingerprint`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doc: Option<String>,
     /// Where the function was declared, for diagnostics.
     ///
     /// Deliberately absent from the serialized artifact. A span is a byte offset into a source
@@ -339,6 +349,10 @@ impl Function {
     /// The span is deliberately excluded: moving a function down a file, or reindenting it,
     /// changes its offsets but not its meaning, and a rebuild triggered by that would be waste.
     /// Hashing the IR rather than the source is what makes comments and formatting free.
+    ///
+    /// The docstring is excluded for the same reason. It is prose *about* the function rather than
+    /// part of what the function computes, so fixing a typo in documentation would otherwise cost
+    /// a full crate rebuild — which is exactly the waste this fingerprint exists to avoid.
     pub fn fingerprint(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         self.name.hash(&mut hasher);
@@ -524,6 +538,7 @@ mod tests {
             params,
             ret,
             body,
+            doc: None,
             span: Span::new(0, 1),
         }
     }

@@ -13,12 +13,26 @@ texts together with a backend name, returning the artifacts of a successful comp
 SHALL accept source TEXT rather than file paths, because the decorator obtains source by
 introspecting a live function object and no file may correspond to it.
 
+Generated target code SHALL be reported as a **mapping from relative path to contents**, since a
+backend emits a crate of files rather than one source string. The paths SHALL be relative, so a
+caller decides where the crate is written.
+
 #### Scenario: Compiling one source
 
 - **WHEN** a single source text containing one supported function is compiled for the `rust`
   backend
-- **THEN** compilation succeeds and returns the generated target source, the IR artifact, and
+- **THEN** compilation succeeds and returns the generated target files, the IR artifact, and
   the unit fingerprint
+
+#### Scenario: The generated files are reported individually
+
+- **WHEN** a unit is compiled
+- **THEN** each generated file is reported under its own relative path, rather than concatenated
+
+#### Scenario: Paths are relative
+
+- **WHEN** the reported paths are inspected
+- **THEN** none is absolute, so the caller chooses where the crate lands
 
 #### Scenario: Source text with no file behind it
 
@@ -36,16 +50,32 @@ The bridge SHALL combine every supplied source into a single compilation unit be
 so that a call from a function in one source to a function in another resolves. Resolution
 SHALL NOT depend on the order the sources are supplied.
 
+Signatures SHALL be gathered from **every** source before any body is lowered, so that a call
+across sources is typed rather than left undetermined. This is not an optimisation: the decorator
+captures each function as its own source, so a call between two decorated functions is always a
+cross-source call, and without this the inference the compiler offers would work everywhere except
+through its primary interface.
+
 #### Scenario: Call across two sources
 
 - **WHEN** two sources are compiled together and a function in the first calls a function in
   the second
 - **THEN** compilation succeeds
 
+#### Scenario: A cross-source call is typed
+
+- **WHEN** a binding in one source is initialised by calling a function defined in another
+- **THEN** the binding takes the callee's return type and needs no annotation
+
 #### Scenario: Order independence
 
 - **WHEN** the same two sources are compiled in both orders
 - **THEN** both succeed and report the same fingerprint
+
+#### Scenario: A callee in no source is still reported
+
+- **WHEN** every source has been supplied and a binding's initializer still cannot be typed
+- **THEN** compilation fails, since deferring a check is not the same as skipping it
 
 #### Scenario: Duplicate function names across sources
 
@@ -116,3 +146,40 @@ that computation or inspecting source.
 
 - **WHEN** a function's body is edited to compute something different and recompiled
 - **THEN** the reported fingerprint differs
+
+### Requirement: Failures carry a machine-readable category
+
+A compilation failure SHALL carry a stable identifier for what kind of rule was broken, alongside
+its message and location. Callers that act differently on different failures SHALL be able to
+branch on that identifier.
+
+The identifier SHALL be distinct from the human-readable message. A caller matching on message
+text is broken by any rewording, which makes the message unimprovable — and one caller, the
+decorator, needs to recognise exactly one category in order to defer it, without recognising any
+other.
+
+#### Scenario: A subset violation reports its category
+
+- **WHEN** a program is rejected for an unsupported construct
+- **THEN** the failure carries an identifier naming that category
+
+#### Scenario: Categories are distinguishable
+
+- **WHEN** two programs are rejected for different reasons
+- **THEN** their identifiers differ
+
+#### Scenario: The identifier is not the message
+
+- **WHEN** a failure's identifier and message are compared
+- **THEN** the identifier is a stable token rather than the prose shown to a user
+
+#### Scenario: A binding that cannot yet be typed has its own category
+
+- **WHEN** a binding's initializer calls a function the supplied sources do not define
+- **THEN** the failure's category distinguishes it from an annotation the user simply omitted,
+  because one may become resolvable with more sources and the other never will
+
+#### Scenario: A syntax error needs no category
+
+- **WHEN** a source fails to parse
+- **THEN** the failure is identifiable as a syntax error without carrying a subset category

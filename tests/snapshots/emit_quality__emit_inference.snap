@@ -2,25 +2,25 @@
 source: tests/emit_quality.rs
 expression: functions.trim()
 ---
-use super::runtime::{PyAdd, PyNum, RuntimeError, py_truediv};
+//! Translated from Python by compylr.
 
-    pub fn comparisons(n: i64) -> Result<bool, RuntimeError> {
-        let big: bool = ((&(n)) > (&(100i64)));
-        Ok(big)
-    }
+use crate::compat::{PyAdd, PyNum, RuntimeError, py_truediv};
 
-    pub fn expressions(n: i64) -> Result<i64, RuntimeError> {
-        let doubled: i64 = PyNum::py_mul(&(n), &(2i64))?;
-        let shifted: i64 = PyAdd::py_add(&(doubled), &(1i64))?;
-        Ok(shifted)
-    }
+pub fn comparisons(n: i64) -> Result<bool, RuntimeError> {
+    let big: bool = ((&(n)) > (&(100i64)));
+    Ok(big)
+}
 
-    pub fn literals() -> Result<String, RuntimeError> {
-        let a: String = String::from("x");
-        let b: i64 = 3i64;
-        let c: f64 = 1.3f64;
-        let d: bool = true;
-        Ok(a.clone())
-    }
+pub fn expressions(n: i64) -> Result<i64, RuntimeError> {
+    let doubled: i64 = PyNum::py_mul(&(n), &(2i64))?;
+    let shifted: i64 = PyAdd::py_add(&(doubled), &(1i64))?;
+    Ok(shifted)
+}
 
+pub fn literals() -> Result<String, RuntimeError> {
+    let a: String = String::from("x");
+    let b: i64 = 3i64;
+    let c: f64 = 1.3f64;
+    let d: bool = true;
+    Ok(a.clone())
 }

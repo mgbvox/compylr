@@ -32,7 +32,11 @@ from ._errors import BuildError, ToolchainMissingError
 __all__ = ["BuildPaths", "BuildPipeline"]
 
 #: Version of the on-disk build state, so a future layout change is detected rather than misread.
-_STATE_VERSION = 1
+#:
+#: Bumped to 2 when the generated crate went from one `lib.rs` to a file per concern. Without the
+#: bump an unchanged project would skip the rebuild and keep the old single file on disk -- never
+#: compiled against, but shown to anyone who opens it, contradicting the documented layout.
+_STATE_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,8 +54,17 @@ class BuildPaths:
         return self.root / "crate"
 
     @property
+    def src(self) -> Path:
+        return self.crate / "src"
+
+    @property
     def target_source(self) -> Path:
-        return self.crate / "src" / "lib.rs"
+        """The file holding the translated functions.
+
+        Named specifically because it is the one worth reading: `lib.rs` is module declarations,
+        `compat.rs` is identical in every project, and `bindings.rs` is boundary plumbing.
+        """
+        return self.src / "generated.rs"
 
     @property
     def manifest(self) -> Path:
@@ -70,11 +83,43 @@ class BuildPaths:
         return self.root / "state.json"
 
 
+#: Files that mark the top of a project, in the order they are preferred.
+#:
+#: An existing artifact directory wins: a project that has been built once should keep using what
+#: it built, even when a `pyproject.toml` sits further up. `.git` is deliberately absent — a
+#: monorepo holding several projects would collapse them into one artifact directory, which is
+#: worse than the problem being solved.
+_PROJECT_MARKERS = (".compylr", "pyproject.toml")
+
+
+def discover_root(start: Path | None = None) -> Path:
+    """Locate a project's artifact directory by searching upward for a marker.
+
+    The directory is a property of the project, not of the shell. Rooting it at the working
+    directory means running the same project from a subdirectory builds a second copy from
+    scratch, which reads as a cache bug and is really just a path.
+
+    The search stops at the filesystem root and falls back to the working directory, so a script
+    in an unmarked directory still works rather than selecting an arbitrary ancestor.
+    """
+    here = (start or Path.cwd()).resolve()
+    for directory in (here, *here.parents):
+        for marker in _PROJECT_MARKERS:
+            candidate = directory / marker
+            if candidate.exists():
+                # The marker may be the artifact directory itself, or the file that names the
+                # project it should sit beside.
+                return candidate if marker == ".compylr" else directory / ".compylr"
+    return here / ".compylr"
+
+
 class BuildPipeline:
     """Builds a compiled unit and hands back the imported module."""
 
     def __init__(self, root: Path | None = None) -> None:
-        self.paths = BuildPaths(Path(root) if root is not None else Path.cwd() / ".compylr")
+        # An explicit location skips discovery entirely: a caller who says where artifacts go has
+        # already answered the question the search exists to answer.
+        self.paths = BuildPaths(Path(root) if root is not None else discover_root())
 
     # -- toolchain -----------------------------------------------------------------------
 
@@ -148,8 +193,21 @@ class BuildPipeline:
         self.paths.ir.parent.mkdir(parents=True, exist_ok=True)
         self.paths.ir.write_text(compiled.ir_artifact + "\n")
 
-        self.paths.target_source.parent.mkdir(parents=True, exist_ok=True)
-        self.paths.target_source.write_text(compiled.target_source)
+        # `src/` holds nothing hand-authored, so it is rewritten wholesale rather than diffed
+        # against a record of the last build. A file a previous build wrote and this one did not
+        # would still compile, and could still be reachable if a module declaration outlived it --
+        # a failure that presents as "my change had no effect".
+        #
+        # Scoped to `src/`: the manifest, the cargo configuration, and `target/` sit outside it,
+        # and losing `target/` would make every build a cold build.
+        if self.paths.src.exists():
+            shutil.rmtree(self.paths.src)
+        for relative, contents in compiled.target_sources.items():
+            path = self.paths.crate / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(contents)
+
+        self.paths.crate.mkdir(parents=True, exist_ok=True)
         self.paths.manifest.write_text(compiled.manifest)
 
         # An extension module resolves the interpreter's symbols at load time instead of linking

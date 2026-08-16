@@ -40,6 +40,22 @@ def _concat(a: str, b: str) -> str:
     return a + b
 
 
+def _via_call(n: int) -> int:
+    # Calls another marked function with no annotation on the binding -- the case that only
+    # works because signatures are gathered across every source before any is lowered.
+    doubled = _add(n, n)
+    return doubled + 1
+
+
+def _documented(n: int) -> int:
+    """Triple a value.
+
+    Included so the end-to-end path covers a documented function, which was rejected
+    outright until docstrings were accepted.
+    """
+    return n * 3
+
+
 @pytest.fixture(scope="module")
 def project(tmp_path_factory: pytest.TempPathFactory) -> compylr.Manager:
     """A manager with several functions marked and built once for the whole module."""
@@ -54,6 +70,8 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> compylr.Manager:
     c.compyle(_modulo)
     c.compyle(_ratio)
     c.compyle(_concat)
+    c.compyle(_documented)
+    c.compyle(_via_call)
     c.ensure_built()
     return c
 
@@ -110,12 +128,42 @@ class TestArtifacts:
     def test_the_ir_is_written_and_readable(self, project: compylr.Manager) -> None:
         artifact = json.loads(project.paths.ir.read_text())
         names = {f["name"] for f in artifact["functions"]}
-        assert {"_add", "_floordiv", "_modulo", "_ratio", "_concat"} <= names
+        assert {
+            "_add",
+            "_floordiv",
+            "_modulo",
+            "_ratio",
+            "_concat",
+            "_documented",
+            "_via_call",
+        } <= names
 
     def test_the_generated_rust_is_written(self, project: compylr.Manager) -> None:
         source = project.paths.target_source.read_text()
-        assert "pub mod generated" in source
-        assert "py_floordiv" in source, "the semantics-preserving helper must be in the output"
+        assert "pub fn _floordiv" in source
+        assert "py_floordiv" in source, "the semantics-preserving helper must be called"
+
+    def test_the_crate_is_split_by_concern(self, project: compylr.Manager) -> None:
+        src = project.paths.src
+        assert {p.name for p in src.iterdir()} == {
+            "lib.rs",
+            "generated.rs",
+            "bindings.rs",
+            "compat.rs",
+        }
+
+    def test_the_translated_file_opens_on_the_translated_code(
+        self, project: compylr.Manager
+    ) -> None:
+        # The whole point: a reader opening this file sees their functions, not two hundred lines
+        # of helpers that are identical in every project.
+        lines = project.paths.target_source.read_text().splitlines()
+        first_fn = next(i for i, line in enumerate(lines) if line.startswith("pub fn"))
+        assert first_fn < 10, f"translated code should be near the top, found at line {first_fn}"
+
+    def test_the_crate_root_does_not_grow_with_the_program(self, project: compylr.Manager) -> None:
+        root = (project.paths.src / "lib.rs").read_text().splitlines()
+        assert len(root) < 20, "the crate root must stay lean regardless of function count"
 
     def test_all_generated_files_share_one_root(self, project: compylr.Manager) -> None:
         root = project.paths.root
@@ -130,6 +178,8 @@ class TestArtifacts:
             "_modulo",
             "_ratio",
             "_concat",
+            "_documented",
+            "_via_call",
         }
 
 
@@ -202,5 +252,71 @@ class TestReuseAcrossProcesses:
         fresh.compyle(_modulo)
         fresh.compyle(_ratio)
         fresh.compyle(_concat)
+        fresh.compyle(_documented)
+        fresh.compyle(_via_call)
 
         assert fresh._functions["_floordiv"](-7, 2) == -4
+
+
+class TestDocumentedFunctions:
+    def test_a_documented_function_compiles_and_matches(self, project: compylr.Manager) -> None:
+        compiled = project._functions["_documented"]
+        assert compiled(5) == _documented(5)
+
+    def test_the_docstring_reaches_the_generated_rust(self, project: compylr.Manager) -> None:
+        source = project.paths.target_source.read_text()
+        assert "/// Triple a value." in source, (
+            "the generated source is written to be read, and a translated function stripped of "
+            "its explanation is harder to check against the original"
+        )
+
+    def test_the_docstring_is_readable_on_the_marked_function(
+        self, project: compylr.Manager
+    ) -> None:
+        assert project._functions["_documented"].__doc__ == _documented.__doc__
+
+
+class TestArtifactsFollowTheProject:
+    def test_running_from_a_subdirectory_reuses_the_artifacts(
+        self, project: compylr.Manager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The point of root discovery: the same project run from a subdirectory must find what it
+        # already built rather than compiling a second copy.
+        from compylr import _manager
+        from compylr._build import discover_root
+
+        root = project.paths.root
+        nested = root.parent / "src" / "deep"
+        nested.mkdir(parents=True, exist_ok=True)
+        monkeypatch.chdir(nested)
+
+        assert discover_root() == root
+
+        _manager._reset_for_tests()
+
+        def fail(*args: object, **kwargs: object) -> None:
+            raise AssertionError("running from a subdirectory must not rebuild")
+
+        monkeypatch.setattr(BuildPipeline, "build", fail)
+
+        fresh = compylr.initialize()
+        for fn in (_add, _floordiv, _modulo, _ratio, _concat, _documented, _via_call):
+            fresh.compyle(fn)
+
+        assert fresh.paths.root == root
+        assert fresh._functions["_floordiv"](-7, 2) == -4
+
+
+class TestCrossSourceCallInference:
+    def test_a_call_typed_binding_compiles_and_matches(self, project: compylr.Manager) -> None:
+        # The whole point of the change, end to end: no annotation on `doubled`, and the compiled
+        # result equals the interpreted one.
+        compiled = project._functions["_via_call"]
+        assert compiled(5) == _via_call(5)
+
+    def test_the_generated_rust_types_it_correctly(self, project: compylr.Manager) -> None:
+        source = project.paths.target_source.read_text()
+        assert "pub fn _via_call(n: i64) -> Result<i64, RuntimeError>" in source
+        assert "let doubled: i64" in source, (
+            "the binding must carry the callee's return type, taken from its signature"
+        )

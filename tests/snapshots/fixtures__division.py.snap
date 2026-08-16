@@ -33,6 +33,7 @@ expression: functions
                 },
             ),
         ],
+        doc: None,
         span: Span {
             start: 0,
             end: 52,
@@ -62,6 +63,7 @@ expression: functions
                 },
             ),
         ],
+        doc: None,
         span: Span {
             start: 55,
             end: 99,
@@ -93,6 +95,7 @@ expression: functions
                 },
             ),
         ],
+        doc: None,
         span: Span {
             start: 102,
             end: 156,

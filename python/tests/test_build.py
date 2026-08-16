@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
-from compylr._build import BuildPipeline
+from compylr._build import BuildPipeline, discover_root
 from compylr._errors import BuildError, ToolchainMissingError
 
 
@@ -35,8 +35,67 @@ class TestPaths:
         ):
             assert root in path.parents or path == root
 
-    def test_it_defaults_to_the_working_directory(self) -> None:
-        assert BuildPipeline().paths.root == Path.cwd() / ".compylr"
+    def test_an_explicit_root_skips_discovery(self, tmp_path: Path) -> None:
+        explicit = tmp_path / "somewhere" / ".compylr"
+        assert BuildPipeline(explicit).paths.root == explicit
+
+
+class TestRootDiscovery:
+    """Finding the artifact directory from anywhere inside a project.
+
+    Rooting it at the working directory means running the same project from a subdirectory builds
+    a second copy from scratch -- which reads as a cache bug and is really just a path.
+    """
+
+    def test_an_existing_artifact_directory_is_found_from_a_subdirectory(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".compylr").mkdir()
+        nested = tmp_path / "src" / "deep"
+        nested.mkdir(parents=True)
+
+        assert discover_root(nested) == tmp_path / ".compylr"
+
+    def test_a_pyproject_marks_the_root(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        nested = tmp_path / "pkg"
+        nested.mkdir()
+
+        assert discover_root(nested) == tmp_path / ".compylr"
+
+    def test_an_existing_artifact_directory_wins_over_a_higher_pyproject(
+        self, tmp_path: Path
+    ) -> None:
+        # A project already built somewhere should keep using what it built.
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        inner = tmp_path / "inner"
+        inner.mkdir()
+        (inner / ".compylr").mkdir()
+
+        assert discover_root(inner) == inner / ".compylr"
+
+    def test_no_marker_falls_back_to_the_starting_directory(self, tmp_path: Path) -> None:
+        # Reaching the filesystem root without a marker must not select an arbitrary ancestor.
+        bare = tmp_path / "bare"
+        bare.mkdir()
+        assert discover_root(bare) == bare / ".compylr"
+
+    def test_the_search_stops_at_the_filesystem_root(self, tmp_path: Path) -> None:
+        bare = tmp_path / "a" / "b" / "c"
+        bare.mkdir(parents=True)
+        found = discover_root(bare)
+        # Whatever it picked, it is inside the temporary tree rather than somewhere on the machine.
+        assert tmp_path in found.parents or found == bare / ".compylr"
+
+    def test_discovery_is_used_when_no_root_is_given(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        nested = tmp_path / "pkg"
+        nested.mkdir()
+        monkeypatch.chdir(nested)
+
+        assert BuildPipeline().paths.root == tmp_path / ".compylr"
 
 
 class TestToolchainChecks:
@@ -106,7 +165,7 @@ class TestCache:
         pipeline.paths.state.write_text(
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "fingerprint": "abc123",
                     "module_name": "compylr_generated_abc123",
                     "functions": ["f"],

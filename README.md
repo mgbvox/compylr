@@ -43,10 +43,16 @@ compiled artifact is a black box:
 
 ```
 .compylr/
-  ir/unit.json        the IR, as JSON
-  crate/src/lib.rs    the generated Rust
-  state.json          fingerprint of the last successful build
+  ir/unit.json            the IR, as JSON
+  crate/src/generated.rs  your functions, translated — the file worth reading
+  crate/src/compat.rs     Python semantics in Rust; identical in every project
+  crate/src/bindings.rs   the PyO3 boundary
+  crate/src/lib.rs        module declarations and the module registration
+  state.json              fingerprint of the last successful build
 ```
+
+The crate is split by concern so `generated.rs` opens on your code. It used to be one file, where
+a single one-line function produced 238 lines and the translation was lines 200–212.
 
 | Capability | What it covers |
 | --- | --- |
@@ -58,6 +64,7 @@ compiled artifact is a black box:
 | `native-bridge` | `compylr._core`, exposing the compiler to Python and its diagnostics as exceptions |
 | `build-pipeline` | The shared crate, the artifacts on disk, and the fingerprint-keyed rebuild decision |
 | `python-api` | `initialize`, the decorator's two forms, settings resolution, and swapping in |
+| `cli` | The command line: what it compiles, what it emits, and how it reports rejections |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
@@ -73,8 +80,8 @@ uv venv && source .venv/bin/activate
 uv pip install maturin && maturin develop --release
 ```
 
-Then the snippet at the top of this file works. There is also a CLI that stops at the IR, which
-is useful for seeing what a program lowers to:
+Then the snippet at the top of this file works. There is also a CLI for seeing what a program
+compiles to, without a build:
 
 ```bash
 cargo run -- python/fixtures/accepted/inference.py
@@ -86,6 +93,20 @@ unit fingerprint: bcddf18219a7c991
   expressions (1 params) -> int
   literals (0 params) -> str
 ```
+
+`--emit` selects what it prints. Output goes to stdout and diagnostics to stderr, so redirecting
+gives you a usable file:
+
+```bash
+cargo run -- --emit ir    python/fixtures/accepted/inference.py   # the IR, as JSON
+cargo run -- --emit rust  python/fixtures/accepted/inference.py   # just the translated code
+cargo run -- --emit crate --out ./out python/fixtures/accepted/inference.py
+```
+
+Artifacts live in `.compylr/`, found by searching upward from the working directory for a
+`pyproject.toml` or an existing `.compylr/`. Running a project from a subdirectory therefore
+reuses what it already built. *If you built with an earlier version, the first run after upgrading
+may rebuild once as the directory moves to the project root — that is the move, not a cache bug.*
 
 ## Supported subset
 
@@ -104,6 +125,22 @@ negation and calls to functions in the same unit.
 
 Statements: `return`, `pass`, and local bindings.
 
+A **docstring** is permitted in first position and carries no runtime meaning, so ordinary
+documented code compiles:
+
+```python
+@c.compyle
+def add(a: int, b: int) -> int:
+    """Return the sum."""
+    return a + b
+```
+
+It is kept on the function, emitted as a `///` comment on the generated Rust — which PyO3 then
+lifts back onto the compiled function's `__doc__` — and excluded from the fingerprint, so editing
+documentation never triggers a rebuild. The exception is deliberately narrow: any *other* bare
+expression statement, including a string in second position, is still rejected, because a value
+that is computed and discarded is either dead code or a side effect this subset cannot express.
+
 Local bindings infer their type whenever the initializer determines it — literals, names,
 negation, arithmetic, and comparisons, composed to any depth:
 
@@ -117,15 +154,36 @@ def demo(n: int) -> float:
     return count / 2     # float — `/` always yields a float
 ```
 
-An initializer containing a **call** is undetermined, because lowering does not resolve callees,
-so it still needs an annotation:
+A **call** is inferred too, when the function being called is defined in the same source:
 
 ```python
-total: int = helper(n)   # annotation required
+def double(n: int) -> int:
+    return n * 2
+
+def demo(n: int) -> int:
+    doubled = double(n)      # int — taken from double's signature
+    return doubled
 ```
 
-Not supported yet: control flow, loops, classes, imports, collections, generics, reassignment,
-and inferring a binding from a call's return type.
+Signatures are collected before any body is lowered, so a function may call one defined *below*
+it and get the same answer either way. Arity and argument types are checked against the signature,
+and an integer passed where a float is declared carries an explicit conversion.
+
+A call to a function in **another** module is still undetermined, and needs an annotation:
+
+```python
+total: int = from_elsewhere(n)   # annotation required
+```
+
+That is not an oversight. Each decorated function is validated on its own, so a callee in another
+module is invisible at that moment; rejecting it would make whether your code compiles depend on
+which function you happened to decorate first. Such a call is still checked — once every source is
+assembled into one unit.
+
+A function that declares a return type must return one: `def f() -> int: pass` is rejected with
+its location.
+
+Not supported yet: control flow, loops, classes, imports, collections, generics, and reassignment.
 
 ## Getting started
 

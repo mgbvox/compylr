@@ -14,17 +14,20 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
-use crate::backend::{self, BackendError};
+use crate::backend::{self, BackendError, GeneratedFiles};
 use crate::error::{FrontendError, LowerError};
 use crate::frontend::parse_source;
 use crate::ir::Unit;
-use crate::lower::lower_source;
+use crate::lower::{Signatures, collect_signatures, lower_source, lower_source_with};
 
 /// Everything a successful compilation produces.
 #[derive(Debug, Clone)]
 pub struct Compiled {
-    /// Generated target source, bindings included.
-    pub target_source: String,
+    /// Generated target files, keyed by path relative to the crate root.
+    ///
+    /// A mapping rather than one string: a backend emits a crate, and the paths are relative so
+    /// the caller decides where it lands.
+    pub target_sources: GeneratedFiles,
     /// The IR, serialized for inspection.
     pub ir_artifact: String,
     /// Fingerprint of the compiled unit.
@@ -53,6 +56,8 @@ pub enum CompileFailure {
     Unsupported {
         /// What lowering objected to.
         message: String,
+        /// Stable identifier for the category, so callers can branch without matching prose.
+        code: &'static str,
         /// 1-based line.
         line: usize,
         /// 1-based column.
@@ -67,6 +72,7 @@ impl CompileFailure {
         let at = error.span().line_column(source);
         Self::Unsupported {
             message: error.message().to_string(),
+            code: error.kind().code(),
             line: at.line,
             column: at.column,
         }
@@ -87,7 +93,12 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     // error is about the backend rather than about whichever source happened to be malformed.
     let backend = backend::lookup(backend_name).map_err(CompileFailure::Backend)?;
 
-    let mut unit = Unit::new();
+    // Every source is parsed before any is lowered, so signatures can be gathered across all of
+    // them. The decorator submits each function as its own source, which makes a call between two
+    // decorated functions a call *across* sources; without this, such a call could never be typed
+    // and `doubled = double(n)` would demand an annotation in exactly the arrangement the
+    // decorator always produces.
+    let mut parsed_sources = Vec::with_capacity(sources.len());
     for source in sources {
         let parsed = parse_source(source).map_err(|error| match error {
             FrontendError::Syntax { message, span } => {
@@ -105,9 +116,18 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
                 column: 1,
             },
         })?;
+        parsed_sources.push((source, parsed));
+    }
 
-        let functions =
-            lower_source(&parsed).map_err(|error| CompileFailure::from_lower(&error, source))?;
+    let mut signatures = Signatures::new();
+    for (_, parsed) in &parsed_sources {
+        signatures.extend(collect_signatures(parsed));
+    }
+
+    let mut unit = Unit::new();
+    for (source, parsed) in &parsed_sources {
+        let functions = lower_source_with(parsed, &signatures)
+            .map_err(|error| CompileFailure::from_lower(&error, source))?;
         for function in functions {
             unit.add_function(function)
                 .map_err(|error| CompileFailure::from_lower(&error, source))?;
@@ -119,11 +139,12 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     unit.validate()
         .map_err(|error| CompileFailure::Unsupported {
             message: error.message().to_string(),
+            code: error.kind().code(),
             line: 1,
             column: 1,
         })?;
 
-    let target_source = backend
+    let target_sources = backend
         .emit_python_extension(&unit)
         .map_err(CompileFailure::Backend)?;
     let manifest = backend
@@ -136,7 +157,7 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     })?;
 
     Ok(Compiled {
-        target_source,
+        target_sources,
         ir_artifact,
         fingerprint: unit.fingerprint(),
         module_name: crate::backend::bindings::module_name(&unit),
@@ -189,23 +210,27 @@ impl CompileFailure {
                 column,
             } => (
                 SourceSyntaxError::new_err(format!("{line}:{column}: {message}")),
-                Some((line, column)),
+                Some((line, column, None)),
             ),
             Self::Unsupported {
                 message,
+                code,
                 line,
                 column,
             } => (
                 UnsupportedProgramError::new_err(format!("{line}:{column}: {message}")),
-                Some((line, column)),
+                Some((line, column, Some(code))),
             ),
             Self::Backend(error) => (BackendNotAvailableError::new_err(error.to_string()), None),
         };
 
-        if let Some((line, column)) = location {
+        if let Some((line, column, code)) = location {
             let value = err.value(py);
             let _ = value.setattr("line", line);
             let _ = value.setattr("column", column);
+            // The category, so a caller can act on *which* rule was broken without matching on
+            // message text. The decorator uses this to defer one specific case.
+            let _ = value.setattr("code", code);
         }
         err
     }
@@ -222,9 +247,9 @@ impl CompileFailure {
 )]
 #[derive(Debug, Clone)]
 pub struct PyCompiledUnit {
-    /// Generated target source, bindings included.
+    /// Generated target files, keyed by path relative to the crate root.
     #[pyo3(get)]
-    pub target_source: String,
+    pub target_sources: std::collections::BTreeMap<String, String>,
     /// The IR, serialized for inspection.
     #[pyo3(get)]
     pub ir_artifact: String,
@@ -245,7 +270,7 @@ pub struct PyCompiledUnit {
 impl From<Compiled> for PyCompiledUnit {
     fn from(compiled: Compiled) -> Self {
         Self {
-            target_source: compiled.target_source,
+            target_sources: compiled.target_sources,
             ir_artifact: compiled.ir_artifact,
             fingerprint: format!("{:016x}", compiled.fingerprint),
             module_name: compiled.module_name,

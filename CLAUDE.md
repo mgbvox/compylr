@@ -41,16 +41,26 @@ validating it immediately and compiling the whole project on the first call. Bot
 (the IR as JSON, the generated Rust) are written under `.compylr/` on every build.
 
 Supported Python subset: top-level `def`s only, fully annotated (`int`/`float`/`bool`/`str`, plus
-`None` as a return type); bodies of `return`, `pass`, and assignment; expressions of literals,
-names, unary minus, `+ - * / // %`, comparisons, and calls. Local bindings infer their type
-whenever the initializer determines it; an initializer containing a call still needs an
-annotation, because lowering does not resolve callees.
+`None` as a return type); bodies of `return`, `pass`, and assignment, optionally preceded by a
+docstring; expressions of literals, names, unary minus, `+ - * / // %`, comparisons, and calls.
+Local bindings infer their type whenever the initializer determines it, **including calls to
+functions in the same source**: signatures are collected in a first pass, so a function may call
+one defined below it. A call to a function in another module stays undetermined and needs an
+annotation — the decorator validates one function at a time, so rejecting an unseen callee would
+make acceptance depend on decoration order. `Unit::validate` still catches a callee that exists
+nowhere.
+
+A function declaring a return type must return one; `def f() -> int: pass` is a located lowering
+error rather than a backend failure.
+
+A **docstring** is accepted in first position and carries no runtime meaning; it is kept on the IR
+function, emitted as a `///` comment, and deliberately **excluded from the fingerprint**, so
+editing prose never triggers a rebuild. The exception is narrow: any other bare expression
+statement — including a string in second position — is still rejected, because a discarded value
+is either dead code or a side effect the subset cannot express.
 
 Known gaps worth knowing before you trip on them:
 
-* **A docstring is rejected.** It lowers as an expression statement, which the subset does not
-  allow, so `@c.compyle` cannot be applied to a documented function. Recorded as an xfail in
-  `python/tests/test_api.py`.
 * **Compiling needs `cargo` and `maturin` at runtime.** Installing compylr gets the compiler,
   not the ability to build what it generates.
 * **`llm_assist` is accepted but refused when enabled**, and `typescript`/`go`/`cpp` are reserved
@@ -96,7 +106,10 @@ extension module under a name already in `sys.modules`.
 cargo test
 cargo clippy -p compylr --all-targets -- -D warnings
 cargo llvm-cov -p compylr --ignore-filename-regex '(vendored/|/main\.rs)' --summary-only
-cargo run -- python/fixtures/accepted/aliases.py   # CLI: stops at the IR
+cargo run -- python/fixtures/accepted/aliases.py            # summary
+cargo run -- --emit ir   python/fixtures/accepted/aliases.py   # the IR as JSON
+cargo run -- --emit rust python/fixtures/accepted/aliases.py   # translated code only
+cargo run -- --emit crate --out ./out python/fixtures/accepted/aliases.py
 
 # Python (needs the venv; `maturin develop` rebuilds compylr._core after Rust changes)
 uv venv && source .venv/bin/activate
@@ -107,6 +120,10 @@ ruff check python/ && mypy python/compylr
 ./scripts/render_change_epub.py             # spec -> EPUB in reports/
 ./scripts/send_to_kindle.py <file> --dry-run
 ```
+
+**Run `cargo llvm-cov` with the venv deactivated.** The bridge tests auto-initialize a Python
+interpreter, and an active venv makes that mismatch what PyO3 linked against — the suite aborts
+with "no Python frame", which looks like a real failure and is not. `cargo test` is unaffected.
 
 **Never lint `python/fixtures/`.** They are compiler inputs, and `rejected/` is deliberately
 invalid — `ruff check --fix` once deleted the `import os` from `import_statement.py`, silently

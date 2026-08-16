@@ -7,7 +7,8 @@ the Rust side promises; if the two drift, the Python package type-checks against
 class CompiledUnit:
     """Everything a successful compilation produces."""
 
-    target_source: str
+    #: Generated files, keyed by path relative to the crate root.
+    target_sources: dict[str, str]
     ir_artifact: str
     fingerprint: str
     module_name: str
@@ -22,6 +23,9 @@ class CompilationError(CompylrError):
 
     line: int
     column: int
+    #: Stable identifier for the category, or None for a syntax error. Branch on this rather
+    #: than on the message, which is prose.
+    code: str | None
 
 class SourceSyntaxError(CompilationError):
     """The source is not valid Python."""
