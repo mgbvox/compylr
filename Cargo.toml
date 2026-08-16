@@ -27,6 +27,7 @@ extension-module = ["pyo3/extension-module"]
 
 [dev-dependencies]
 insta = "1.35.1"
+serde_json = "1.0.151"
 # `auto-initialize` starts an interpreter on demand, which lets the bridge's exception types be
 # asserted from Rust tests instead of only through a built wheel. It is a dev-dependency because
 # it is incompatible with `extension-module`, which is what a real wheel is built with.

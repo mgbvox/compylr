@@ -130,6 +130,12 @@ pub enum LowerErrorKind {
     LiteralOutOfRange,
     /// Two functions in one unit share a name.
     DuplicateFunction,
+    /// A function declared a return type but its body never returns a value.
+    ///
+    /// Distinct from [`Self::TypeMismatch`]: nothing disagrees about types here, the value is
+    /// simply absent, and telling the user their types conflict would send them looking in the
+    /// wrong place.
+    MissingReturn,
 }
 
 impl LowerErrorKind {
@@ -144,6 +150,7 @@ impl LowerErrorKind {
             Self::TypeMismatch => "type mismatch",
             Self::Reassignment => "unsupported reassignment",
             Self::LiteralOutOfRange => "integer literal out of range",
+            Self::MissingReturn => "missing return",
             Self::DuplicateFunction => "duplicate function",
         }
     }

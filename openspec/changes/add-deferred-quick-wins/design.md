@@ -64,10 +64,14 @@ A single `lower_source` call sees one source. Two decorated functions in differe
 each other, and neither source can resolve the other at lowering time — that is precisely why unit
 validation exists and it must stay.
 
-The observable consequence is worth stating: a call to a function that exists in **no** source now
-fails earlier and with a location, while a call to one in **another** source still fails at
-validation without one. Both are correct; a reader who sees only one of them will think the other
-is dead code.
+Crucially, lowering does **not** reject a callee it cannot see. `validate_source` — the entry the
+decorator uses — lowers exactly one function, so rejecting there would fail any decorated function
+that calls another decorated function, which is precisely what `native-bridge` promises not to do.
+An unseen callee therefore leaves the call's type undetermined, exactly as today, and unit
+validation still catches one that exists nowhere.
+
+The result is that this change only ever *adds* information: a callee in the same source gains a
+type and gets its arguments checked; everything else behaves as before.
 
 ### D3. "Cannot return" is a structural check, not a flow analysis
 
@@ -108,9 +112,10 @@ collapse them into one artifact directory, which is worse than the problem being
   nothing; afterwards it is guaranteed by an invariant of the signature pass. Tests must assert it
   directly — both orderings of a mutually-referencing pair producing identical IR — rather than
   relying on it holding by construction.
-* **A previously-passing program can now fail earlier** → A call to a nonexistent function moves
-  from validation to lowering. The message improves and gains a location, but anything asserting on
-  the old failure point changes. Called out as BREAKING in the proposal.
+* **Rejecting unseen callees would break the decorator** → Discovered while implementing: the
+  decorator validates one function at a time, so a callee in another module is invisible. Lowering
+  therefore types what it can see and defers the rest, which also means no program that lowers
+  today stops lowering.
 * **Recursion types but may not emit correctly** → With signatures available, a self-recursive
   function passes lowering. Whether the generated Rust compiles and terminates is a separate
   question; a test must answer it rather than assuming the backend copes.

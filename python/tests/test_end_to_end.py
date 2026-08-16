@@ -234,3 +234,34 @@ class TestDocumentedFunctions:
         self, project: compylr.Manager
     ) -> None:
         assert project._functions["_documented"].__doc__ == _documented.__doc__
+
+
+class TestArtifactsFollowTheProject:
+    def test_running_from_a_subdirectory_reuses_the_artifacts(
+        self, project: compylr.Manager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The point of root discovery: the same project run from a subdirectory must find what it
+        # already built rather than compiling a second copy.
+        from compylr import _manager
+        from compylr._build import discover_root
+
+        root = project.paths.root
+        nested = root.parent / "src" / "deep"
+        nested.mkdir(parents=True, exist_ok=True)
+        monkeypatch.chdir(nested)
+
+        assert discover_root() == root
+
+        _manager._reset_for_tests()
+
+        def fail(*args: object, **kwargs: object) -> None:
+            raise AssertionError("running from a subdirectory must not rebuild")
+
+        monkeypatch.setattr(BuildPipeline, "build", fail)
+
+        fresh = compylr.initialize()
+        for fn in (_add, _floordiv, _modulo, _ratio, _concat, _documented):
+            fresh.compyle(fn)
+
+        assert fresh.paths.root == root
+        assert fresh._functions["_floordiv"](-7, 2) == -4

@@ -6,16 +6,19 @@
 //!
 //! Two decisions shape the structure:
 //!
-//! * **Call targets are not resolved here.** A function may legitimately call one that has not
-//!   been lowered yet, since in the target design each function is submitted independently.
-//!   Resolving during lowering would make success depend on arrival order, so calls are
-//!   recorded by name and checked later by [`crate::ir::Unit::validate`].
+//! * **Call targets are resolved only as far as one source allows.** Signatures are collected in
+//!   a first pass, so a call within the source is typed and its arguments checked, and a function
+//!   may call one defined below it. A callee this source cannot see is *not* an error: lowering
+//!   handles one source at a time, and a decorated function may legitimately call one in a module
+//!   that has not been marked yet, so rejecting here would make success depend on arrival order.
+//!   Such a call is recorded by name and checked by [`crate::ir::Unit::validate`] once every
+//!   source is assembled.
 //! * **Inference covers whatever is determined.** A binding may omit its annotation when its
-//!   initializer's type follows from literals, already-typed names, negation, arithmetic, and
-//!   comparisons. Each of those has exactly one possible result given its operands, so this
-//!   computes an answer that was already fixed rather than choosing among candidates. An
-//!   expression containing a call is *undetermined* — not an error — and such a binding still
-//!   needs an annotation.
+//!   initializer's type follows from literals, already-typed names, negation, arithmetic,
+//!   comparisons, and calls to functions this source can see. Each has exactly one possible
+//!   result given its operands, so this computes an answer that was already fixed rather than
+//!   choosing among candidates. An expression containing an unseen call is *undetermined* — not
+//!   an error — and such a binding still needs an annotation.
 //!
 //! Lowering is therefore also a small type checker: [`lower_expr`] returns an expression and
 //! its type together, so shape and type can never be derived from separate traversals and
@@ -41,16 +44,67 @@ fn err(kind: LowerErrorKind, message: impl Into<String>, node: &impl Ranged) -> 
     LowerError::new(kind, message, Span::from(node.range()))
 }
 
+/// A function's declared interface, as written in its annotations.
+///
+/// Collected before any body is lowered, so that a call can be typed without depending on which
+/// function was defined first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signature {
+    /// Parameter types, in declaration order.
+    pub params: Vec<Ty>,
+    /// Declared return type.
+    pub ret: Ty,
+}
+
+/// Every signature visible while lowering one source.
+pub type Signatures = HashMap<String, Signature>;
+
+/// Collect the signature of every function in a source, without lowering any body.
+///
+/// This reads annotations only. Parameters and returns are mandatory, so nothing here needs
+/// inference — which is what makes the pass immune to definition order and safe to run first.
+///
+/// Malformed signatures are left for `lower_function` to report. Failing here would produce the
+/// same diagnostics from a different place, and the body pass reports them in source order.
+pub fn collect_signatures(parsed: &Parsed<ModModule>) -> Signatures {
+    let mut signatures = Signatures::new();
+    for stmt in &parsed.syntax().body {
+        let PyStmt::FunctionDef(def) = stmt else {
+            continue;
+        };
+        let Ok(params) = lower_parameters(&def.parameters, def.name.as_str()) else {
+            continue;
+        };
+        let Some(annotation) = def.returns.as_deref() else {
+            continue;
+        };
+        let Ok(ret) = lower_annotation(annotation, true) else {
+            continue;
+        };
+        signatures.insert(
+            def.name.to_string(),
+            Signature {
+                params: params.into_iter().map(|p| p.ty).collect(),
+                ret,
+            },
+        );
+    }
+    signatures
+}
+
 /// Lower every top-level function definition in a parsed source.
 ///
 /// Only function definitions are permitted at top level; a module-level statement such as an
 /// `if __name__ == '__main__':` guard has no meaning once the function is compiled into a
 /// shared artifact, so it is rejected rather than silently dropped.
 pub fn lower_source(parsed: &Parsed<ModModule>) -> Result<Vec<Function>, LowerError> {
+    // Pass one: every signature in the source, so a call to a function defined later types the
+    // same as a call to one defined earlier.
+    let signatures = collect_signatures(parsed);
     let mut functions = Vec::new();
     for stmt in &parsed.syntax().body {
         match stmt {
-            PyStmt::FunctionDef(def) => functions.push(lower_function(def)?),
+            PyStmt::FunctionDef(def) => functions.push(lower_function(def, &signatures)?),
             PyStmt::Import(_) | PyStmt::ImportFrom(_) => {
                 return Err(err(
                     LowerErrorKind::UnsupportedConstruct,
@@ -78,7 +132,7 @@ pub fn lower_source(parsed: &Parsed<ModModule>) -> Result<Vec<Function>, LowerEr
 }
 
 /// Lower a single function definition.
-pub fn lower_function(def: &StmtFunctionDef) -> Result<Function, LowerError> {
+pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Function, LowerError> {
     if def.is_async {
         return Err(err(
             LowerErrorKind::UnsupportedConstruct,
@@ -125,7 +179,24 @@ pub fn lower_function(def: &StmtFunctionDef) -> Result<Function, LowerError> {
         .map(|param| (param.name.clone(), param.ty))
         .collect();
     let (doc, rest) = split_docstring(&def.body);
-    let body = lower_body(rest, &mut scope, ret)?;
+    let body = lower_body(rest, &mut scope, ret, sigs)?;
+
+    // A function that declares a value must produce one. The subset has no branching, so this is
+    // structural rather than a reachability analysis: the last statement either returns or it does
+    // not. Catching it here makes it an ordinary located diagnostic; left to the backend it
+    // surfaces as an internal code-generation error describing the compiler's difficulty rather
+    // than the user's mistake.
+    if ret != Ty::Unit && !matches!(body.last(), Some(Stmt::Return(_))) {
+        return Err(err(
+            LowerErrorKind::MissingReturn,
+            format!(
+                "function '{}' declares a return type of '{}' but its body never returns a value",
+                def.name,
+                ret.python_name()
+            ),
+            def,
+        ));
+    }
 
     Ok(Function {
         name: def.name.to_string(),
@@ -273,19 +344,29 @@ fn lower_annotation(annotation: &PyExpr, allow_unit: bool) -> Result<Ty, LowerEr
 /// lowering; no backend ever has to match on a state that must not reach codegen.
 type TyResult = Option<Ty>;
 
-fn lower_body(body: &[PyStmt], scope: &mut Scope, ret: Ty) -> Result<Vec<Stmt>, LowerError> {
+fn lower_body(
+    body: &[PyStmt],
+    scope: &mut Scope,
+    ret: Ty,
+    sigs: &Signatures,
+) -> Result<Vec<Stmt>, LowerError> {
     let mut lowered = Vec::with_capacity(body.len());
     for stmt in body {
-        lowered.push(lower_stmt(stmt, scope, ret)?);
+        lowered.push(lower_stmt(stmt, scope, ret, sigs)?);
     }
     Ok(lowered)
 }
 
-fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ret: Ty) -> Result<Stmt, LowerError> {
+fn lower_stmt(
+    stmt: &PyStmt,
+    scope: &mut Scope,
+    ret: Ty,
+    sigs: &Signatures,
+) -> Result<Stmt, LowerError> {
     match stmt {
         PyStmt::Return(node) => match node.value.as_deref() {
             Some(value) => {
-                let (lowered, ty) = lower_expr(value, scope)?;
+                let (lowered, ty) = lower_expr(value, scope, sigs)?;
                 if ret == Ty::Unit {
                     return Err(err(
                         LowerErrorKind::TypeMismatch,
@@ -314,8 +395,8 @@ fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ret: Ty) -> Result<Stmt, LowerEr
             None => Ok(Stmt::ReturnUnit),
         },
         PyStmt::Pass(_) => Ok(Stmt::ReturnUnit),
-        PyStmt::AnnAssign(assign) => lower_annotated_binding(stmt, assign, scope),
-        PyStmt::Assign(assign) => lower_bare_binding(stmt, assign, scope),
+        PyStmt::AnnAssign(assign) => lower_annotated_binding(stmt, assign, scope, sigs),
+        PyStmt::Assign(assign) => lower_bare_binding(stmt, assign, scope, sigs),
         PyStmt::If(_) => Err(err(
             LowerErrorKind::UnsupportedConstruct,
             "conditional statements are not supported",
@@ -381,6 +462,7 @@ fn lower_annotated_binding(
     stmt: &PyStmt,
     assign: &ruff_python_ast::StmtAnnAssign,
     scope: &mut Scope,
+    sigs: &Signatures,
 ) -> Result<Stmt, LowerError> {
     let name = binding_target(&assign.target, stmt)?.to_string();
     ensure_unbound(&name, scope, stmt)?;
@@ -393,7 +475,7 @@ fn lower_annotated_binding(
             stmt,
         ));
     };
-    let (lowered, actual) = lower_expr(value, scope)?;
+    let (lowered, actual) = lower_expr(value, scope, sigs)?;
 
     // An undetermined initializer cannot be checked; the declared type is taken on trust.
     let value = match actual {
@@ -423,6 +505,7 @@ fn lower_bare_binding(
     stmt: &PyStmt,
     assign: &ruff_python_ast::StmtAssign,
     scope: &mut Scope,
+    sigs: &Signatures,
 ) -> Result<Stmt, LowerError> {
     if assign.targets.len() != 1 {
         return Err(err(
@@ -434,7 +517,7 @@ fn lower_bare_binding(
     let name = binding_target(&assign.targets[0], stmt)?.to_string();
     ensure_unbound(&name, scope, stmt)?;
 
-    let (value, inferred) = lower_expr(&assign.value, scope)?;
+    let (value, inferred) = lower_expr(&assign.value, scope, sigs)?;
 
     // Infer when the initializer's type is determined; otherwise the answer is genuinely
     // unknown here and an annotation is the only way to supply it.
@@ -529,7 +612,11 @@ fn build_binary(
 ///
 /// Shape and type are produced together so they cannot be computed from different traversals
 /// and disagree about what an expression means.
-fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<(Expr, TyResult), LowerError> {
+fn lower_expr(
+    expr: &PyExpr,
+    scope: &Scope,
+    sigs: &Signatures,
+) -> Result<(Expr, TyResult), LowerError> {
     match expr {
         PyExpr::NumberLiteral(literal) => match &literal.value {
             Number::Int(value) => match value.as_i64() {
@@ -569,7 +656,7 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<(Expr, TyResult), LowerErr
         }
         PyExpr::UnaryOp(unary) => match unary.op {
             UnaryOp::USub => {
-                let (operand, ty) = lower_expr(&unary.operand, scope)?;
+                let (operand, ty) = lower_expr(&unary.operand, scope, sigs)?;
                 match ty {
                     Some(ty) if ty.is_numeric() => Ok((Expr::Neg(Box::new(operand)), Some(ty))),
                     Some(ty) => Err(err(
@@ -612,8 +699,8 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<(Expr, TyResult), LowerErr
                     ));
                 }
             };
-            let (left, left_ty) = lower_expr(&binary.left, scope)?;
-            let (right, right_ty) = lower_expr(&binary.right, scope)?;
+            let (left, left_ty) = lower_expr(&binary.left, scope, sigs)?;
+            let (right, right_ty) = lower_expr(&binary.right, scope, sigs)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
                     let (node, ty) = build_binary(op, left, l, right, r, expr)?;
@@ -646,8 +733,8 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<(Expr, TyResult), LowerErr
                     ));
                 }
             };
-            let (left, left_ty) = lower_expr(&compare.left, scope)?;
-            let (right, right_ty) = lower_expr(&compare.comparators[0], scope)?;
+            let (left, left_ty) = lower_expr(&compare.left, scope, sigs)?;
+            let (right, right_ty) = lower_expr(&compare.comparators[0], scope, sigs)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
                     let (node, ty) = build_binary(op, left, l, right, r, expr)?;
@@ -672,17 +759,69 @@ fn lower_expr(expr: &PyExpr, scope: &Scope) -> Result<(Expr, TyResult), LowerErr
                 ));
             };
             let mut args = Vec::with_capacity(call.arguments.args.len());
+            let mut arg_types = Vec::with_capacity(call.arguments.args.len());
             for arg in &call.arguments.args {
-                args.push(lower_expr(arg, scope)?.0);
+                let (lowered, ty) = lower_expr(arg, scope, sigs)?;
+                args.push(lowered);
+                arg_types.push(ty);
             }
-            // The callee is not resolved here, so the call's type is undetermined. Unit
-            // validation checks the target once the whole unit is assembled.
+
+            let name = callee.id.as_str();
+            let Some(signature) = sigs.get(name) else {
+                // The callee is defined in another source, which lowering cannot see: it handles
+                // one source at a time, and a decorated function may legitimately call one in a
+                // module that has not been marked yet. Rejecting here would make acceptance
+                // depend on decoration order. The type stays undetermined, and
+                // `Unit::validate` catches a callee that exists nowhere at all.
+                return Ok((
+                    Expr::Call {
+                        callee: name.to_string(),
+                        args,
+                    },
+                    None,
+                ));
+            };
+
+            if signature.params.len() != args.len() {
+                return Err(err(
+                    LowerErrorKind::ArityMismatch,
+                    format!(
+                        "'{name}' takes {} argument{} but {} {} given",
+                        signature.params.len(),
+                        if signature.params.len() == 1 { "" } else { "s" },
+                        args.len(),
+                        if args.len() == 1 { "was" } else { "were" }
+                    ),
+                    expr,
+                ));
+            }
+
+            // Each argument is checked against the declared parameter type, with promotion, so an
+            // integer passed where a float is declared carries an explicit conversion rather than
+            // leaving a backend to notice. An undetermined argument cannot be checked.
+            for (index, (declared, actual)) in signature.params.iter().zip(&arg_types).enumerate() {
+                let Some(actual) = actual else { continue };
+                let taken = std::mem::replace(&mut args[index], Expr::Name(String::new()));
+                args[index] = coerce(taken, *actual, *declared).ok_or_else(|| {
+                    err(
+                        LowerErrorKind::TypeMismatch,
+                        format!(
+                            "argument {} of '{name}' is declared as '{}' but the value is '{}'",
+                            index + 1,
+                            declared.python_name(),
+                            actual.python_name()
+                        ),
+                        expr,
+                    )
+                })?;
+            }
+
             Ok((
                 Expr::Call {
-                    callee: callee.id.to_string(),
+                    callee: name.to_string(),
                     args,
                 },
-                None,
+                Some(signature.ret),
             ))
         }
         other => Err(err(

@@ -1,0 +1,178 @@
+---
+source: tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "helper",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Name(
+                    "n",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 0,
+            end: 39,
+        },
+    },
+    Function {
+        name: "f",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "b",
+                ty: Int,
+                value: Call {
+                    callee: "helper",
+                    args: [
+                        Name(
+                            "a",
+                        ),
+                    ],
+                },
+            },
+            Return(
+                Name(
+                    "b",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 42,
+            end: 94,
+        },
+    },
+    Function {
+        name: "forward",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Call {
+                    callee: "later",
+                    args: [
+                        Name(
+                            "a",
+                        ),
+                    ],
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 97,
+            end: 276,
+        },
+    },
+    Function {
+        name: "later",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Binary {
+                    op: Add,
+                    left: Name(
+                        "a",
+                    ),
+                    right: Literal(
+                        Int(
+                            1,
+                        ),
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 279,
+            end: 321,
+        },
+    },
+    Function {
+        name: "promoted",
+        params: [
+            Param {
+                name: "a",
+                ty: Int,
+            },
+        ],
+        ret: Float,
+        body: [
+            Return(
+                Call {
+                    callee: "scale",
+                    args: [
+                        ToFloat(
+                            Name(
+                                "a",
+                            ),
+                        ),
+                    ],
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 324,
+            end: 458,
+        },
+    },
+    Function {
+        name: "scale",
+        params: [
+            Param {
+                name: "x",
+                ty: Float,
+            },
+        ],
+        ret: Float,
+        body: [
+            Return(
+                Binary {
+                    op: Mul,
+                    left: Name(
+                        "x",
+                    ),
+                    right: Literal(
+                        Float(
+                            4611686018427387904,
+                        ),
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 461,
+            end: 509,
+        },
+    },
+]

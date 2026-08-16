@@ -70,11 +70,43 @@ class BuildPaths:
         return self.root / "state.json"
 
 
+#: Files that mark the top of a project, in the order they are preferred.
+#:
+#: An existing artifact directory wins: a project that has been built once should keep using what
+#: it built, even when a `pyproject.toml` sits further up. `.git` is deliberately absent — a
+#: monorepo holding several projects would collapse them into one artifact directory, which is
+#: worse than the problem being solved.
+_PROJECT_MARKERS = (".compylr", "pyproject.toml")
+
+
+def discover_root(start: Path | None = None) -> Path:
+    """Locate a project's artifact directory by searching upward for a marker.
+
+    The directory is a property of the project, not of the shell. Rooting it at the working
+    directory means running the same project from a subdirectory builds a second copy from
+    scratch, which reads as a cache bug and is really just a path.
+
+    The search stops at the filesystem root and falls back to the working directory, so a script
+    in an unmarked directory still works rather than selecting an arbitrary ancestor.
+    """
+    here = (start or Path.cwd()).resolve()
+    for directory in (here, *here.parents):
+        for marker in _PROJECT_MARKERS:
+            candidate = directory / marker
+            if candidate.exists():
+                # The marker may be the artifact directory itself, or the file that names the
+                # project it should sit beside.
+                return candidate if marker == ".compylr" else directory / ".compylr"
+    return here / ".compylr"
+
+
 class BuildPipeline:
     """Builds a compiled unit and hands back the imported module."""
 
     def __init__(self, root: Path | None = None) -> None:
-        self.paths = BuildPaths(Path(root) if root is not None else Path.cwd() / ".compylr")
+        # An explicit location skips discovery entirely: a caller who says where artifacts go has
+        # already answered the question the search exists to answer.
+        self.paths = BuildPaths(Path(root) if root is not None else discover_root())
 
     # -- toolchain -----------------------------------------------------------------------
 

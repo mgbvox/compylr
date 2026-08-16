@@ -106,8 +106,14 @@ defined later in the same source, and typing that call from a table built before
 answer either way. Signature collection reads annotations only — which are mandatory on parameters
 and returns — so it never depends on inference and cannot itself be order-sensitive.
 
-A call whose callee is not in the table SHALL be rejected during lowering, with a location. Arity
-SHALL be checked against the signature.
+A call whose callee is **in** the table SHALL be typed from that signature, and its arity and
+argument types SHALL be checked against it, with a location.
+
+A call whose callee is **not** in the table SHALL leave the call's type undetermined rather than
+being rejected. Lowering sees one source at a time, and a decorated function may legitimately call
+one defined in another module that has not been marked yet — rejecting here would make acceptance
+depend on decoration order, which is the property the unit's design exists to protect. Such a call
+is still caught, by unit validation, once every source has been assembled.
 
 #### Scenario: A function may call one defined later
 
@@ -119,10 +125,16 @@ SHALL be checked against the signature.
 - **WHEN** the same two mutually-referencing functions are lowered in both definition orders
 - **THEN** both produce identical IR
 
-#### Scenario: An unknown callee is rejected with a location
+#### Scenario: A callee in another source leaves the type undetermined
 
-- **WHEN** lowering a body containing a call to a name defined nowhere in the source
-- **THEN** lowering fails with a diagnostic naming the callee and reporting its line and column
+- **WHEN** lowering a body containing a call to a name not defined in this source
+- **THEN** lowering succeeds and the call's type is undetermined, so a binding from it still
+  requires an annotation
+
+#### Scenario: A genuinely unknown callee is still caught
+
+- **WHEN** a unit is assembled from every source and one call resolves to no function anywhere
+- **THEN** unit validation reports the unresolved callee
 
 #### Scenario: Wrong arity is rejected
 

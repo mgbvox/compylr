@@ -34,10 +34,12 @@ running the same project from a subdirectory builds it a second time, from scrat
 - **Infer a binding's type from a call.** A two-pass lowering collects every function's signature
   first, then lowers bodies against them, so a call's type is known without depending on the order
   functions arrived. `doubled = double(n)` needs no annotation.
-- **BREAKING**: a call to a function that is not in the unit now fails during *lowering* rather
-  than during validation, because typing the call requires resolving it. The diagnostic gains a
-  `line:column` it did not have, and the failure moves earlier — but a program that used to fail at
-  validation may now fail sooner, with a different message.
+- A call whose callee is **in the same source** is typed, and its arity and argument types are
+  checked with a location. A call to a callee defined elsewhere keeps its current behavior — the
+  type stays undetermined and unit validation catches a genuinely missing function. Lowering sees
+  one source at a time, and a decorated function may legitimately call one in another module that
+  has not been marked yet, so rejecting here would make acceptance depend on decoration order.
+  **Not breaking**: no program that lowers today stops lowering.
 - **Reject a non-unit function whose body cannot return.** `def f() -> int: pass` becomes a
   lowering error naming the function and its location, instead of a backend error.
 - **Add `--emit` to the CLI.** `compylr --emit rust <file>` prints the generated source; the
