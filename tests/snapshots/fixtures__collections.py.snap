@@ -1,0 +1,373 @@
+---
+source: tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "total",
+        params: [
+            Param {
+                name: "xs",
+                ty: List(
+                    Int,
+                ),
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "first",
+                ty: Int,
+                value: Subscript {
+                    base: Name(
+                        "xs",
+                    ),
+                    index: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                },
+            },
+            Bind {
+                name: "count",
+                ty: Int,
+                value: Len(
+                    Name(
+                        "xs",
+                    ),
+                ),
+            },
+            Return(
+                Binary {
+                    op: Add,
+                    left: Name(
+                        "first",
+                    ),
+                    right: Name(
+                        "count",
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 0,
+            end: 95,
+        },
+    },
+    Function {
+        name: "lookup",
+        params: [
+            Param {
+                name: "d",
+                ty: Dict(
+                    Str,
+                    Int,
+                ),
+            },
+            Param {
+                name: "key",
+                ty: Str,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Subscript {
+                    base: Name(
+                        "d",
+                    ),
+                    index: Name(
+                        "key",
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 98,
+            end: 163,
+        },
+    },
+    Function {
+        name: "build",
+        params: [],
+        ret: List(
+            Int,
+        ),
+        body: [
+            Bind {
+                name: "xs",
+                ty: List(
+                    Int,
+                ),
+                value: ListLit(
+                    [
+                        Literal(
+                            Int(
+                                1,
+                            ),
+                        ),
+                        Literal(
+                            Int(
+                                2,
+                            ),
+                        ),
+                        Literal(
+                            Int(
+                                3,
+                            ),
+                        ),
+                    ],
+                ),
+            },
+            Return(
+                Name(
+                    "xs",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 166,
+            end: 224,
+        },
+    },
+    Function {
+        name: "mapping",
+        params: [],
+        ret: Dict(
+            Str,
+            Int,
+        ),
+        body: [
+            Return(
+                DictLit(
+                    [
+                        (
+                            Literal(
+                                Str(
+                                    "a",
+                                ),
+                            ),
+                            Literal(
+                                Int(
+                                    1,
+                                ),
+                            ),
+                        ),
+                        (
+                            Literal(
+                                Str(
+                                    "b",
+                                ),
+                            ),
+                            Literal(
+                                Int(
+                                    2,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 227,
+            end: 287,
+        },
+    },
+    Function {
+        name: "unique",
+        params: [],
+        ret: Set(
+            Int,
+        ),
+        body: [
+            Return(
+                SetLit(
+                    [
+                        Literal(
+                            Int(
+                                1,
+                            ),
+                        ),
+                        Literal(
+                            Int(
+                                2,
+                            ),
+                        ),
+                        Literal(
+                            Int(
+                                2,
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 290,
+            end: 336,
+        },
+    },
+    Function {
+        name: "pair",
+        params: [],
+        ret: Str,
+        body: [
+            Bind {
+                name: "t",
+                ty: Tuple(
+                    [
+                        Int,
+                        Str,
+                    ],
+                ),
+                value: TupleLit(
+                    [
+                        Literal(
+                            Int(
+                                1,
+                            ),
+                        ),
+                        Literal(
+                            Str(
+                                "a",
+                            ),
+                        ),
+                    ],
+                ),
+            },
+            Return(
+                Subscript {
+                    base: Name(
+                        "t",
+                    ),
+                    index: Literal(
+                        Int(
+                            1,
+                        ),
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 339,
+            end: 390,
+        },
+    },
+    Function {
+        name: "nested",
+        params: [
+            Param {
+                name: "d",
+                ty: Dict(
+                    Str,
+                    List(
+                        Int,
+                    ),
+                ),
+            },
+            Param {
+                name: "key",
+                ty: Str,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "inner",
+                ty: List(
+                    Int,
+                ),
+                value: Subscript {
+                    base: Name(
+                        "d",
+                    ),
+                    index: Name(
+                        "key",
+                    ),
+                },
+            },
+            Return(
+                Subscript {
+                    base: Name(
+                        "inner",
+                    ),
+                    index: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 393,
+            end: 485,
+        },
+    },
+    Function {
+        name: "from_end",
+        params: [
+            Param {
+                name: "xs",
+                ty: List(
+                    Int,
+                ),
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Subscript {
+                    base: Name(
+                        "xs",
+                    ),
+                    index: Neg(
+                        Literal(
+                            Int(
+                                1,
+                            ),
+                        ),
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 488,
+            end: 541,
+        },
+    },
+    Function {
+        name: "characters",
+        params: [
+            Param {
+                name: "s",
+                ty: Str,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Len(
+                    Name(
+                        "s",
+                    ),
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 544,
+            end: 592,
+        },
+    },
+]

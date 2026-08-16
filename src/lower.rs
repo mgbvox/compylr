@@ -34,7 +34,7 @@ use ruff_python_parser::Parsed;
 use ruff_text_size::Ranged;
 
 use crate::error::{LowerError, LowerErrorKind};
-use crate::ir::{BinOp, Expr, Function, Param, Stmt, Ty};
+use crate::ir::{BinOp, Expr, Function, Literal, Param, Stmt, Ty};
 use crate::span::Span;
 
 /// Names visible inside a function body, with the type each was bound at.
@@ -178,6 +178,15 @@ pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Functi
         ));
     }
 
+    if def.name.as_str() == "len" {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            "'len' is reserved: it is a builtin, and a function of that name would make \
+             `len(x)` mean different things depending on what else was marked for compilation",
+            def,
+        ));
+    }
+
     let params = lower_parameters(&def.parameters, def.name.as_str())?;
 
     let ret = match def.returns.as_deref() {
@@ -193,10 +202,10 @@ pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Functi
 
     let mut scope: Scope = params
         .iter()
-        .map(|param| (param.name.clone(), param.ty))
+        .map(|param| (param.name.clone(), param.ty.clone()))
         .collect();
     let (doc, rest) = split_docstring(&def.body);
-    let body = lower_body(rest, &mut scope, ret, sigs)?;
+    let body = lower_body(rest, &mut scope, &ret, sigs)?;
 
     // A function that declares a value must produce one. The subset has no branching, so this is
     // structural rather than a reachability analysis: the last statement either returns or it does
@@ -336,15 +345,278 @@ fn lower_annotation(annotation: &PyExpr, allow_unit: bool) -> Result<Ty, LowerEr
                 ))
             }
         }
-        PyExpr::Subscript(_) => Err(err(
-            LowerErrorKind::UnsupportedType,
-            "generic type annotations are not supported",
-            annotation,
-        )),
+        PyExpr::Subscript(subscript) => lower_generic_annotation(subscript, annotation),
         other => Err(err(
             LowerErrorKind::UnsupportedType,
             "unsupported type annotation",
             other,
+        )),
+    }
+}
+
+/// Lower every element of a literal and unify their types.
+///
+/// Elements must agree. A literal whose elements disagree is a type error rather than a union:
+/// the IR has no union type, and inventing one here would put a decision in the compiler that the
+/// user should be making in the annotation.
+fn unify_elements(
+    elements: &[PyExpr],
+    scope: &Scope,
+    sigs: &Signatures,
+    node: &PyExpr,
+    what: &str,
+) -> Result<(Vec<Expr>, Option<Ty>), LowerError> {
+    let mut lowered = Vec::with_capacity(elements.len());
+    let mut types = Vec::with_capacity(elements.len());
+    for element in elements {
+        let (expr, ty) = lower_expr(element, scope, sigs)?;
+        lowered.push(expr);
+        types.push(ty);
+    }
+    let unified = agree(&types, node, &format!("{what} element"))?;
+
+    // Promotion inside a literal, matching promotion everywhere else: mixing integers and floats
+    // yields floats, and each integer element carries an explicit conversion.
+    if unified.as_ref() == Some(&Ty::Float) {
+        for (expr, ty) in lowered.iter_mut().zip(&types) {
+            if ty.as_ref() == Some(&Ty::Int) {
+                let taken = std::mem::replace(expr, Expr::Name(String::new()));
+                *expr = Expr::to_float(taken);
+            }
+        }
+    }
+    // An empty literal has nothing to infer from, so its type is undetermined and the binding
+    // rule demands an annotation -- the same sentence that already governs a call initializer.
+    if lowered.is_empty() {
+        return Ok((lowered, None));
+    }
+    Ok((lowered, unified))
+}
+
+/// The single type a list of maybe-determined types agrees on.
+///
+/// Returns `None` when any is undetermined, which propagates outward exactly as it does through
+/// arithmetic. Integers and floats agree on float, matching numeric promotion.
+fn agree(types: &[Option<Ty>], node: &PyExpr, what: &str) -> Result<Option<Ty>, LowerError> {
+    let mut settled: Option<Ty> = None;
+    for ty in types {
+        let Some(ty) = ty else { return Ok(None) };
+        settled = Some(match settled {
+            None => ty.clone(),
+            Some(current) if current == *ty => current,
+            Some(current) if current.is_numeric() && ty.is_numeric() => Ty::Float,
+            Some(current) => {
+                return Err(err(
+                    LowerErrorKind::TypeMismatch,
+                    format!(
+                        "every {what} must have the same type, but found '{}' and '{}'",
+                        current.python_name(),
+                        ty.python_name()
+                    ),
+                    node,
+                ));
+            }
+        });
+    }
+    Ok(settled)
+}
+
+/// Lower a subscript, typing it from the collection being read.
+fn lower_subscript(
+    subscript: &ruff_python_ast::ExprSubscript,
+    scope: &Scope,
+    sigs: &Signatures,
+    node: &PyExpr,
+) -> Result<(Expr, TyResult), LowerError> {
+    if matches!(subscript.slice.as_ref(), PyExpr::Slice(_)) {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            "slicing is not supported",
+            node,
+        ));
+    }
+
+    let (base, base_ty) = lower_expr(&subscript.value, scope, sigs)?;
+    let (index, index_ty) = lower_expr(&subscript.slice, scope, sigs)?;
+
+    let Some(base_ty) = base_ty else {
+        // The collection's own type is undetermined, so the element's is too.
+        return Ok((
+            Expr::Subscript {
+                base: Box::new(base),
+                index: Box::new(index),
+            },
+            None,
+        ));
+    };
+
+    let result = match &base_ty {
+        Ty::List(element) => {
+            expect_index(&index_ty, &Ty::Int, node, "a sequence index")?;
+            Some((**element).clone())
+        }
+        Ty::Dict(key, value) => {
+            expect_index(&index_ty, key, node, "a mapping key")?;
+            Some((**value).clone())
+        }
+        Ty::Tuple(elements) => {
+            // Each position has its own type, so a computed index has no single answer.
+            let Expr::Literal(Literal::Int(position)) = &index else {
+                return Err(err(
+                    LowerErrorKind::UnsupportedConstruct,
+                    "a tuple index must be a literal, because each position has its own type",
+                    node,
+                ));
+            };
+            let position = *position;
+            if position < 0 || position as usize >= elements.len() {
+                return Err(err(
+                    LowerErrorKind::TypeMismatch,
+                    format!(
+                        "index {position} is outside a tuple of {} element(s)",
+                        elements.len()
+                    ),
+                    node,
+                ));
+            }
+            Some(elements[position as usize].clone())
+        }
+        other => {
+            return Err(err(
+                LowerErrorKind::TypeMismatch,
+                format!("'{}' cannot be subscripted", other.python_name()),
+                node,
+            ));
+        }
+    };
+
+    Ok((
+        Expr::Subscript {
+            base: Box::new(base),
+            index: Box::new(index),
+        },
+        result,
+    ))
+}
+
+/// Check an index's type against what the collection expects.
+fn expect_index(
+    actual: &TyResult,
+    expected: &Ty,
+    node: &PyExpr,
+    what: &str,
+) -> Result<(), LowerError> {
+    let Some(actual) = actual else { return Ok(()) };
+    if actual == expected {
+        return Ok(());
+    }
+    Err(err(
+        LowerErrorKind::TypeMismatch,
+        format!(
+            "{what} must be '{}', but found '{}'",
+            expected.python_name(),
+            actual.python_name()
+        ),
+        node,
+    ))
+}
+
+/// Lower a parameterised annotation such as `list[int]` or `dict[str, int]`.
+///
+/// A bare `list` is rejected: an element type that is not written down is not a type compylr can
+/// compile against, and guessing one would put a decision in the compiler that belongs in the
+/// user's annotation.
+fn lower_generic_annotation(
+    subscript: &ruff_python_ast::ExprSubscript,
+    node: &PyExpr,
+) -> Result<Ty, LowerError> {
+    let PyExpr::Name(name) = subscript.value.as_ref() else {
+        return Err(err(
+            LowerErrorKind::UnsupportedType,
+            "unsupported generic type annotation",
+            node,
+        ));
+    };
+
+    // `dict[str, int]` puts a tuple in the slice; `list[int]` puts the element directly.
+    let parameters: Vec<&PyExpr> = match subscript.slice.as_ref() {
+        PyExpr::Tuple(tuple) => tuple.elts.iter().collect(),
+        single => vec![single],
+    };
+
+    let kind = name.id.as_str();
+    let lowered = |exprs: &[&PyExpr]| -> Result<Vec<Ty>, LowerError> {
+        exprs
+            .iter()
+            .map(|p| lower_annotation(p, false))
+            .collect::<Result<Vec<_>, _>>()
+    };
+
+    let wrong_arity = |wanted: &str| {
+        err(
+            LowerErrorKind::UnsupportedType,
+            format!(
+                "'{kind}' takes {wanted}, but {} were given",
+                parameters.len()
+            ),
+            node,
+        )
+    };
+
+    // Keys and set elements must be comparable and hashable. A floating-point key can never be
+    // retrieved once it is `nan`, and most targets cannot hash a float at all — so this is
+    // refused where the user wrote it, rather than surfacing later as a target-language
+    // complaint about a trait bound.
+    let must_key = |ty: Ty, what: &str| -> Result<Ty, LowerError> {
+        if ty.can_key() {
+            Ok(ty)
+        } else {
+            Err(err(
+                LowerErrorKind::UnsupportedType,
+                format!(
+                    "'{}' cannot be a {what}: only int, str, and bool can be compared and hashed",
+                    ty.python_name()
+                ),
+                node,
+            ))
+        }
+    };
+
+    match kind {
+        "list" => {
+            let mut types = lowered(&parameters)?;
+            if types.len() != 1 {
+                return Err(wrong_arity("one element type"));
+            }
+            Ok(Ty::List(Box::new(types.remove(0))))
+        }
+        "set" => {
+            let mut types = lowered(&parameters)?;
+            if types.len() != 1 {
+                return Err(wrong_arity("one element type"));
+            }
+            Ok(Ty::Set(Box::new(must_key(types.remove(0), "set element")?)))
+        }
+        "dict" => {
+            let mut types = lowered(&parameters)?;
+            if types.len() != 2 {
+                return Err(wrong_arity("a key type and a value type"));
+            }
+            let value = types.remove(1);
+            let key = must_key(types.remove(0), "mapping key")?;
+            Ok(Ty::Dict(Box::new(key), Box::new(value)))
+        }
+        "tuple" => {
+            let types = lowered(&parameters)?;
+            if types.is_empty() {
+                return Err(wrong_arity("at least one element type"));
+            }
+            Ok(Ty::Tuple(types))
+        }
+        other => Err(err(
+            LowerErrorKind::UnsupportedType,
+            format!("'{other}[...]' is not a supported type annotation"),
+            node,
         )),
     }
 }
@@ -364,7 +636,7 @@ type TyResult = Option<Ty>;
 fn lower_body(
     body: &[PyStmt],
     scope: &mut Scope,
-    ret: Ty,
+    ret: &Ty,
     sigs: &Signatures,
 ) -> Result<Vec<Stmt>, LowerError> {
     let mut lowered = Vec::with_capacity(body.len());
@@ -377,14 +649,14 @@ fn lower_body(
 fn lower_stmt(
     stmt: &PyStmt,
     scope: &mut Scope,
-    ret: Ty,
+    ret: &Ty,
     sigs: &Signatures,
 ) -> Result<Stmt, LowerError> {
     match stmt {
         PyStmt::Return(node) => match node.value.as_deref() {
             Some(value) => {
                 let (lowered, ty) = lower_expr(value, scope, sigs)?;
-                if ret == Ty::Unit {
+                if *ret == Ty::Unit {
                     return Err(err(
                         LowerErrorKind::TypeMismatch,
                         "function is declared to return no value, but a value is returned here",
@@ -393,7 +665,7 @@ fn lower_stmt(
                 }
                 // Only check when the type is determined; a returned call cannot be checked.
                 match ty {
-                    Some(actual) => Ok(Stmt::Return(coerce(lowered, actual, ret).ok_or_else(
+                    Some(actual) => Ok(Stmt::Return(coerce(lowered, &actual, ret).ok_or_else(
                         || {
                             err(
                                 LowerErrorKind::TypeMismatch,
@@ -442,11 +714,11 @@ fn lower_stmt(
 /// The only adaptation is widening an integer to a float, which is Python's own promotion.
 /// Narrowing a float to an integer is deliberately not offered: it would lose information
 /// silently, which is exactly the kind of quiet wrongness this compiler is meant to avoid.
-fn coerce(expr: Expr, actual: Ty, expected: Ty) -> Option<Expr> {
+fn coerce(expr: Expr, actual: &Ty, expected: &Ty) -> Option<Expr> {
     if actual == expected {
         return Some(expr);
     }
-    if actual == Ty::Int && expected == Ty::Float {
+    if *actual == Ty::Int && *expected == Ty::Float {
         return Some(expr.to_float());
     }
     None
@@ -496,7 +768,7 @@ fn lower_annotated_binding(
 
     // An undetermined initializer cannot be checked; the declared type is taken on trust.
     let value = match actual {
-        Some(actual) => coerce(lowered, actual, declared).ok_or_else(|| {
+        Some(actual) => coerce(lowered, &actual, &declared).ok_or_else(|| {
             err(
                 LowerErrorKind::TypeMismatch,
                 format!(
@@ -510,7 +782,7 @@ fn lower_annotated_binding(
         None => lowered,
     };
 
-    scope.insert(name.clone(), declared);
+    scope.insert(name.clone(), declared.clone());
     Ok(Stmt::Bind {
         name,
         ty: declared,
@@ -549,14 +821,14 @@ fn lower_bare_binding(
         ));
     };
 
-    scope.insert(name.clone(), ty);
+    scope.insert(name.clone(), ty.clone());
     Ok(Stmt::Bind { name, ty, value })
 }
 
 /// Result type of an arithmetic operator applied to two determined operand types.
-fn arithmetic_result(op: BinOp, left: Ty, right: Ty) -> Option<Ty> {
+fn arithmetic_result(op: BinOp, left: &Ty, right: &Ty) -> Option<Ty> {
     // Python's `+` is overloaded on strings; every other arithmetic operator is numeric only.
-    if op == BinOp::Add && left == Ty::Str && right == Ty::Str {
+    if op == BinOp::Add && *left == Ty::Str && *right == Ty::Str {
         return Some(Ty::Str);
     }
     if !left.is_numeric() || !right.is_numeric() {
@@ -567,7 +839,7 @@ fn arithmetic_result(op: BinOp, left: Ty, right: Ty) -> Option<Ty> {
     if op == BinOp::TrueDiv {
         return Some(Ty::Float);
     }
-    if left == Ty::Float || right == Ty::Float {
+    if *left == Ty::Float || *right == Ty::Float {
         Some(Ty::Float)
     } else {
         Some(Ty::Int)
@@ -578,9 +850,9 @@ fn arithmetic_result(op: BinOp, left: Ty, right: Ty) -> Option<Ty> {
 fn build_binary(
     op: BinOp,
     left: Expr,
-    left_ty: Ty,
+    left_ty: &Ty,
     right: Expr,
-    right_ty: Ty,
+    right_ty: &Ty,
     node: &impl Ranged,
 ) -> Result<(Expr, Ty), LowerError> {
     let mismatch = |extra: &str| {
@@ -599,19 +871,19 @@ fn build_binary(
     if op.is_comparison() {
         // Comparison operands must agree, except that numbers compare across int and float.
         let operand = if left_ty == right_ty {
-            left_ty
+            left_ty.clone()
         } else if left_ty.is_numeric() && right_ty.is_numeric() {
             Ty::Float
         } else {
             return Err(mismatch(""));
         };
-        let left = coerce(left, left_ty, operand).ok_or_else(|| mismatch(""))?;
-        let right = coerce(right, right_ty, operand).ok_or_else(|| mismatch(""))?;
+        let left = coerce(left, left_ty, &operand).ok_or_else(|| mismatch(""))?;
+        let right = coerce(right, right_ty, &operand).ok_or_else(|| mismatch(""))?;
         return Ok((Expr::binary(op, left, right), Ty::Bool));
     }
 
     let result = arithmetic_result(op, left_ty, right_ty).ok_or_else(|| {
-        if left_ty == Ty::Bool || right_ty == Ty::Bool {
+        if *left_ty == Ty::Bool || *right_ty == Ty::Bool {
             mismatch("; booleans are not numbers in compylr")
         } else {
             mismatch("")
@@ -619,9 +891,13 @@ fn build_binary(
     })?;
 
     // Operands are widened to the result type so a backend can emit them positionally.
-    let operand = if result == Ty::Str { Ty::Str } else { result };
-    let left = coerce(left, left_ty, operand).ok_or_else(|| mismatch(""))?;
-    let right = coerce(right, right_ty, operand).ok_or_else(|| mismatch(""))?;
+    let operand = if result == Ty::Str {
+        Ty::Str
+    } else {
+        result.clone()
+    };
+    let left = coerce(left, left_ty, &operand).ok_or_else(|| mismatch(""))?;
+    let right = coerce(right, right_ty, &operand).ok_or_else(|| mismatch(""))?;
     Ok((Expr::binary(op, left, right), result))
 }
 
@@ -663,7 +939,7 @@ fn lower_expr(
         PyExpr::Name(name) => {
             let id = name.id.as_str();
             match scope.get(id) {
-                Some(ty) => Ok((Expr::name(id), Some(*ty))),
+                Some(ty) => Ok((Expr::name(id), Some(ty.clone()))),
                 None => Err(err(
                     LowerErrorKind::Unresolved,
                     format!("'{id}' is not defined"),
@@ -720,7 +996,7 @@ fn lower_expr(
             let (right, right_ty) = lower_expr(&binary.right, scope, sigs)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
-                    let (node, ty) = build_binary(op, left, l, right, r, expr)?;
+                    let (node, ty) = build_binary(op, left, &l, right, &r, expr)?;
                     Ok((node, Some(ty)))
                 }
                 // Undetermined propagates outward rather than becoming a type error.
@@ -754,12 +1030,99 @@ fn lower_expr(
             let (right, right_ty) = lower_expr(&compare.comparators[0], scope, sigs)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
-                    let (node, ty) = build_binary(op, left, l, right, r, expr)?;
+                    let (node, ty) = build_binary(op, left, &l, right, &r, expr)?;
                     Ok((node, Some(ty)))
                 }
                 _ => Ok((Expr::binary(op, left, right), None)),
             }
         }
+        PyExpr::List(list) => {
+            let (items, element) = unify_elements(&list.elts, scope, sigs, expr, "list")?;
+            Ok((
+                Expr::ListLit(items),
+                element.map(|ty| Ty::List(Box::new(ty))),
+            ))
+        }
+        PyExpr::Set(set) => {
+            let (items, element) = unify_elements(&set.elts, scope, sigs, expr, "set")?;
+            let element = match element {
+                Some(ty) if !ty.can_key() => {
+                    return Err(err(
+                        LowerErrorKind::UnsupportedType,
+                        format!(
+                            "'{}' cannot be a set element: only int, str, and bool can be \
+                             compared and hashed",
+                            ty.python_name()
+                        ),
+                        expr,
+                    ));
+                }
+                other => other,
+            };
+            Ok((Expr::SetLit(items), element.map(|ty| Ty::Set(Box::new(ty)))))
+        }
+        PyExpr::Tuple(tuple) => {
+            // A type per position, so nothing is unified: elements need not agree.
+            let mut items = Vec::with_capacity(tuple.elts.len());
+            let mut types = Vec::with_capacity(tuple.elts.len());
+            let mut determined = true;
+            for element in &tuple.elts {
+                let (lowered, ty) = lower_expr(element, scope, sigs)?;
+                items.push(lowered);
+                match ty {
+                    Some(ty) => types.push(ty),
+                    None => determined = false,
+                }
+            }
+            let ty = if determined && !items.is_empty() {
+                Some(Ty::Tuple(types))
+            } else {
+                None
+            };
+            Ok((Expr::TupleLit(items), ty))
+        }
+        PyExpr::Dict(dict) => {
+            let mut pairs = Vec::with_capacity(dict.items.len());
+            let mut keys = Vec::with_capacity(dict.items.len());
+            let mut values = Vec::with_capacity(dict.items.len());
+            for item in &dict.items {
+                let Some(key_expr) = item.key.as_ref() else {
+                    return Err(err(
+                        LowerErrorKind::UnsupportedConstruct,
+                        "dictionary unpacking is not supported",
+                        expr,
+                    ));
+                };
+                let (key, key_ty) = lower_expr(key_expr, scope, sigs)?;
+                let (value, value_ty) = lower_expr(&item.value, scope, sigs)?;
+                pairs.push((key, value));
+                keys.push(key_ty);
+                values.push(value_ty);
+            }
+            let key_ty = agree(&keys, expr, "mapping key")?;
+            let value_ty = agree(&values, expr, "mapping value")?;
+            if let Some(key) = &key_ty
+                && !key.can_key()
+            {
+                return Err(err(
+                    LowerErrorKind::UnsupportedType,
+                    format!(
+                        "'{}' cannot be a mapping key: only int, str, and bool can be compared \
+                         and hashed",
+                        key.python_name()
+                    ),
+                    expr,
+                ));
+            }
+            let ty = match (key_ty, value_ty) {
+                (Some(key), Some(value)) if !pairs.is_empty() => {
+                    Some(Ty::Dict(Box::new(key), Box::new(value)))
+                }
+                _ => None,
+            };
+            Ok((Expr::DictLit(pairs), ty))
+        }
+        PyExpr::Subscript(subscript) => lower_subscript(subscript, scope, sigs, expr),
         PyExpr::Call(call) => {
             if !call.arguments.keywords.is_empty() {
                 return Err(err(
@@ -784,6 +1147,41 @@ fn lower_expr(
             }
 
             let name = callee.id.as_str();
+
+            // `len` is a builtin, lowered to its own node rather than resolved against the unit.
+            // Left as a call it would mean different things depending on whether someone had
+            // decorated a function of that name, which is the order-dependence the unit's design
+            // exists to prevent. The name is reserved to make that impossible.
+            if name == "len" {
+                if args.len() != 1 {
+                    return Err(err(
+                        LowerErrorKind::ArityMismatch,
+                        format!(
+                            "'len' takes exactly one argument but {} were given",
+                            args.len()
+                        ),
+                        expr,
+                    ));
+                }
+                let operand = args.remove(0);
+                let ty = arg_types.remove(0);
+                return match ty {
+                    // A tuple's length is known here, so it is folded to a literal and never
+                    // reaches the backend as a runtime query.
+                    Some(Ty::Tuple(elements)) => {
+                        Ok((Expr::int(elements.len() as i64), Some(Ty::Int)))
+                    }
+                    Some(Ty::List(_) | Ty::Dict(_, _) | Ty::Set(_) | Ty::Str) | None => {
+                        Ok((Expr::Len(Box::new(operand)), Some(Ty::Int)))
+                    }
+                    Some(other) => Err(err(
+                        LowerErrorKind::TypeMismatch,
+                        format!("'len' is not defined for '{}'", other.python_name()),
+                        expr,
+                    )),
+                };
+            }
+
             let Some(signature) = sigs.get(name) else {
                 // The callee is defined in another source, which lowering cannot see: it handles
                 // one source at a time, and a decorated function may legitimately call one in a
@@ -819,7 +1217,7 @@ fn lower_expr(
             for (index, (declared, actual)) in signature.params.iter().zip(&arg_types).enumerate() {
                 let Some(actual) = actual else { continue };
                 let taken = std::mem::replace(&mut args[index], Expr::Name(String::new()));
-                args[index] = coerce(taken, *actual, *declared).ok_or_else(|| {
+                args[index] = coerce(taken, actual, declared).ok_or_else(|| {
                     err(
                         LowerErrorKind::TypeMismatch,
                         format!(
@@ -838,7 +1236,7 @@ fn lower_expr(
                     callee: name.to_string(),
                     args,
                 },
-                Some(signature.ret),
+                Some(signature.ret.clone()),
             ))
         }
         other => Err(err(
@@ -1004,8 +1402,13 @@ mod tests {
         assert_eq!(complex.kind(), LowerErrorKind::UnsupportedType);
         assert!(complex.message().contains("complex"));
 
-        let generic = error_for("def f(a: list[int]) -> int:\n    return 1\n");
-        assert_eq!(generic.kind(), LowerErrorKind::UnsupportedType);
+        // `list[int]` is supported now; an unsupported *parameter* is still rejected, and so is
+        // a generic compylr does not model.
+        let bad_parameter = error_for("def f(a: list[complex]) -> int:\n    return 1\n");
+        assert_eq!(bad_parameter.kind(), LowerErrorKind::UnsupportedType);
+
+        let unknown_generic = error_for("def f(a: frozenset[int]) -> int:\n    return 1\n");
+        assert_eq!(unknown_generic.kind(), LowerErrorKind::UnsupportedType);
 
         let none_param = error_for("def f(a: None) -> int:\n    return 1\n");
         assert_eq!(none_param.kind(), LowerErrorKind::UnsupportedType);
@@ -1194,7 +1597,7 @@ mod tests {
             if let Stmt::Bind { name, ty, .. } = stmt
                 && name == want
             {
-                return *ty;
+                return ty.clone();
             }
         }
         panic!("no binding named {want}");

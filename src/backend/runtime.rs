@@ -27,12 +27,19 @@
 use std::fmt;
 
 /// A failure inside compiled code that Python reports to the program rather than crashing on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
     /// A division or remainder whose divisor was zero.
     DivisionByZero,
     /// A result outside the range of a 64-bit signed integer.
     Overflow,
+    /// A sequence index outside its bounds, in either direction.
+    IndexOutOfRange,
+    /// A key that is not present in a mapping.
+    ///
+    /// Carries the key rendered as text because Python's `KeyError` shows it. Making the error
+    /// generic over the key type would infect every signature here for one message.
+    MissingKey(String),
 }
 
 impl fmt::Display for RuntimeError {
@@ -40,6 +47,8 @@ impl fmt::Display for RuntimeError {
         match self {
             Self::DivisionByZero => write!(f, "division by zero"),
             Self::Overflow => write!(f, "integer overflow"),
+            Self::IndexOutOfRange => write!(f, "index out of range"),
+            Self::MissingKey(key) => write!(f, "{key}"),
         }
     }
 }
@@ -190,4 +199,110 @@ pub fn py_truediv(lhs: &f64, rhs: &f64) -> Result<f64, RuntimeError> {
         return Err(RuntimeError::DivisionByZero);
     }
     Ok(lhs / rhs)
+}
+
+/// Read a sequence element the way Python indexes.
+///
+/// Python counts a negative index from the end; Rust does not, and `xs[-1]` would either fail to
+/// compile or wrap into an enormous positive index. Reading past either end is reported rather
+/// than panicking, because Python reports it to the program.
+///
+/// The element is cloned out, which is what lets the read-only subset work without threading
+/// borrows through generated code. For a scalar that is free.
+pub fn py_index<T: Clone>(items: &[T], index: i64) -> Result<T, RuntimeError> {
+    let length = items.len() as i64;
+    let resolved = if index < 0 { index + length } else { index };
+    if resolved < 0 || resolved >= length {
+        return Err(RuntimeError::IndexOutOfRange);
+    }
+    Ok(items[resolved as usize].clone())
+}
+
+/// Read a mapping value, reporting a missing key the way Python does.
+pub fn py_key<K, V>(map: &std::collections::HashMap<K, V>, key: &K) -> Result<V, RuntimeError>
+where
+    K: std::hash::Hash + Eq + std::fmt::Debug,
+    V: Clone,
+{
+    map.get(key)
+        .cloned()
+        .ok_or_else(|| RuntimeError::MissingKey(format!("{key:?}")))
+}
+
+/// The number of characters in a string.
+///
+/// **Not** `String::len`, which counts UTF-8 bytes. Python counts code points, so `len("é")` is 1
+/// there and 2 in Rust — correct for ASCII and silently wrong for anything else, which is the
+/// same class of mistake as mapping `//` onto `/`.
+pub fn py_str_len(value: &str) -> i64 {
+    value.chars().count() as i64
+}
+
+/// Reading one element of a collection, dispatched by the collection's type.
+///
+/// A trait for the same reason arithmetic is one: the IR does not annotate expressions with their
+/// types, so the backend emits `py_subscript(&(c), &(i))?` and Rust selects the implementation.
+/// Unlike arithmetic, the *result* type differs per container, which is what `Output` carries.
+pub trait PyIndexable<I> {
+    /// What reading an element yields.
+    type Output;
+    /// Read one element.
+    fn py_get(&self, index: &I) -> Result<Self::Output, RuntimeError>;
+}
+
+impl<T: Clone> PyIndexable<i64> for Vec<T> {
+    type Output = T;
+    fn py_get(&self, index: &i64) -> Result<T, RuntimeError> {
+        py_index(self, *index)
+    }
+}
+
+impl<K, V> PyIndexable<K> for std::collections::HashMap<K, V>
+where
+    K: std::hash::Hash + Eq + std::fmt::Debug,
+    V: Clone,
+{
+    type Output = V;
+    fn py_get(&self, key: &K) -> Result<V, RuntimeError> {
+        py_key(self, key)
+    }
+}
+
+/// Read one element of a collection.
+pub fn py_subscript<C, I>(collection: &C, index: &I) -> Result<C::Output, RuntimeError>
+where
+    C: PyIndexable<I>,
+{
+    collection.py_get(index)
+}
+
+/// The number of elements Python would report.
+pub trait PyLen {
+    /// The length.
+    fn py_len(&self) -> i64;
+}
+
+impl<T> PyLen for Vec<T> {
+    fn py_len(&self) -> i64 {
+        self.len() as i64
+    }
+}
+
+impl<K, V> PyLen for std::collections::HashMap<K, V> {
+    fn py_len(&self) -> i64 {
+        self.len() as i64
+    }
+}
+
+impl<T> PyLen for std::collections::HashSet<T> {
+    fn py_len(&self) -> i64 {
+        self.len() as i64
+    }
+}
+
+impl PyLen for String {
+    /// Characters, not bytes — see [`py_str_len`].
+    fn py_len(&self) -> i64 {
+        py_str_len(self)
+    }
 }

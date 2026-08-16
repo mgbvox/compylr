@@ -80,7 +80,7 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
         let params = function
             .params
             .iter()
-            .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(p.ty)))
+            .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(&p.ty)))
             .collect::<Vec<_>>()
             .join(", ");
         let args = function
@@ -98,7 +98,7 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
         let _ = writeln!(
             out,
             "fn __compylr_export_{index}({params}) -> PyResult<{}> {{",
-            rust_ty(function.ret)
+            rust_ty(&function.ret)
         );
         let _ = writeln!(
             out,
@@ -139,7 +139,9 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
 /// function is compiled, because the compiled version raises the same thing.
 const PREAMBLE: &str = r#"//! The Python boundary for the translated functions.
 
-use pyo3::exceptions::{PyOverflowError, PyZeroDivisionError};
+use std::collections::{HashMap, HashSet};
+
+use pyo3::exceptions::{PyIndexError, PyKeyError, PyOverflowError, PyZeroDivisionError};
 use pyo3::prelude::*;
 
 use crate::compat::RuntimeError;
@@ -152,6 +154,8 @@ fn __compylr_to_py_err(error: RuntimeError) -> PyErr {
         RuntimeError::Overflow => {
             PyOverflowError::new_err("integer arithmetic overflowed a 64-bit signed integer")
         }
+        RuntimeError::IndexOutOfRange => PyIndexError::new_err("index out of range"),
+        RuntimeError::MissingKey(key) => PyKeyError::new_err(key),
     }
 }
 

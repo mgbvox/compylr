@@ -35,7 +35,7 @@ fn binding_ty(function: &Function, name: &str) -> Ty {
         } = stmt
             && bound == name
         {
-            return *ty;
+            return ty.clone();
         }
     }
     panic!("no binding named {name} in {:?}", function.body);

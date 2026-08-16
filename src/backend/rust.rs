@@ -64,13 +64,25 @@ pub fn rust_ident(name: &str) -> String {
 ///
 /// This mapping is the backend's alone. Nothing in `src/ir.rs` names a Rust type, which is what
 /// lets a Go or TypeScript backend consume the same tree and choose differently.
-pub fn rust_ty(ty: Ty) -> &'static str {
+pub fn rust_ty(ty: &Ty) -> String {
     match ty {
-        Ty::Int => "i64",
-        Ty::Float => "f64",
-        Ty::Bool => "bool",
-        Ty::Str => "String",
-        Ty::Unit => "()",
+        Ty::Int => "i64".to_string(),
+        Ty::Float => "f64".to_string(),
+        Ty::Bool => "bool".to_string(),
+        Ty::Str => "String".to_string(),
+        Ty::Unit => "()".to_string(),
+        Ty::List(element) => format!("Vec<{}>", rust_ty(element)),
+        Ty::Dict(key, value) => format!("HashMap<{}, {}>", rust_ty(key), rust_ty(value)),
+        Ty::Set(element) => format!("HashSet<{}>", rust_ty(element)),
+        Ty::Tuple(elements) => {
+            let inner: Vec<String> = elements.iter().map(rust_ty).collect();
+            // A one-element tuple needs the trailing comma, or it is just a parenthesised type.
+            if inner.len() == 1 {
+                format!("({},)", inner[0])
+            } else {
+                format!("({})", inner.join(", "))
+            }
+        }
     }
 }
 
@@ -195,7 +207,9 @@ fn emit_generated(functions: &str) -> String {
     format!(
         "//! Translated from Python by compylr.\n\
          \n\
-         use crate::compat::{{PyAdd, PyNum, RuntimeError, py_truediv}};\n\
+         use std::collections::{{HashMap, HashSet}};\n\
+         \n\
+         use crate::compat::{{PyAdd, PyLen, PyNum, RuntimeError, py_subscript, py_truediv}};\n\
          \n\
          {functions}"
     )
@@ -237,7 +251,7 @@ fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendErro
     let params = function
         .params
         .iter()
-        .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(p.ty)))
+        .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(&p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -246,7 +260,7 @@ fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendErro
         "pub fn {}({}) -> Result<{}, RuntimeError> {{",
         rust_ident(&function.name),
         params,
-        rust_ty(function.ret)
+        rust_ty(&function.ret)
     );
 
     let body = emit_body(function, unit)?;
@@ -267,17 +281,17 @@ fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
         let is_last = index == last;
         match stmt {
             Stmt::Bind { name, ty, value } => {
-                let value = emit_expr(value, unit, *ty)?;
+                let value = emit_expr(value, unit, ty)?;
                 let _ = writeln!(
                     out,
                     "    let {}: {} = {};",
                     rust_ident(name),
-                    rust_ty(*ty),
+                    rust_ty(ty),
                     value
                 );
             }
             Stmt::Return(expr) => {
-                let value = emit_expr(expr, unit, function.ret)?;
+                let value = emit_expr(expr, unit, &function.ret)?;
                 if is_last {
                     let _ = writeln!(out, "    Ok({value})");
                 } else {
@@ -322,7 +336,7 @@ fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
 /// `expected` is the type the surrounding context wants. It is used for exactly one thing:
 /// deciding whether an owned `String` has to be produced where a value is consumed, so that a
 /// string parameter used twice is not moved on first use.
-fn emit_expr(expr: &Expr, unit: &Unit, expected: Ty) -> Result<String, BackendError> {
+fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendError> {
     Ok(match expr {
         Expr::Literal(literal) => match literal {
             Literal::Int(value) => int_literal(*value),
@@ -336,7 +350,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: Ty) -> Result<String, BackendEr
         },
         Expr::Name(name) => {
             let name = rust_ident(name);
-            if expected == Ty::Str {
+            if !expected.is_trivially_copyable() {
                 // Cloning rather than moving: the same name may be read again later, and Python
                 // has no notion of a value being consumed by being used.
                 format!("{name}.clone()")
@@ -351,8 +365,60 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: Ty) -> Result<String, BackendEr
         Expr::ToFloat(inner) => {
             // The operand is an integer expression; `expected` describes the float context it is
             // being widened into, so it must not be propagated inward.
-            let inner = emit_expr(inner, unit, Ty::Int)?;
+            let inner = emit_expr(inner, unit, &Ty::Int)?;
             format!("(({inner}) as f64)")
+        }
+        Expr::ListLit(items) => {
+            let element = element_ty(expected);
+            let rendered = render_all(items, unit, &element)?;
+            format!("vec![{}]", rendered.join(", "))
+        }
+        Expr::SetLit(items) => {
+            let element = element_ty(expected);
+            let rendered = render_all(items, unit, &element)?;
+            format!("HashSet::from([{}])", rendered.join(", "))
+        }
+        Expr::TupleLit(items) => {
+            // A type per position, so each element is rendered against its own.
+            let types: Vec<Ty> = match expected {
+                Ty::Tuple(types) if types.len() == items.len() => types.clone(),
+                _ => vec![Ty::Unit; items.len()],
+            };
+            let mut rendered = Vec::with_capacity(items.len());
+            for (item, ty) in items.iter().zip(&types) {
+                rendered.push(emit_expr(item, unit, ty)?);
+            }
+            // A one-element tuple needs the trailing comma to be a tuple at all.
+            if rendered.len() == 1 {
+                format!("({},)", rendered[0])
+            } else {
+                format!("({})", rendered.join(", "))
+            }
+        }
+        Expr::DictLit(pairs) => {
+            let (key_ty, value_ty) = match expected {
+                Ty::Dict(key, value) => ((**key).clone(), (**value).clone()),
+                _ => (Ty::Unit, Ty::Unit),
+            };
+            let mut rendered = Vec::with_capacity(pairs.len());
+            for (key, value) in pairs {
+                rendered.push(format!(
+                    "({}, {})",
+                    emit_expr(key, unit, &key_ty)?,
+                    emit_expr(value, unit, &value_ty)?
+                ));
+            }
+            format!("HashMap::from([{}])", rendered.join(", "))
+        }
+        Expr::Subscript { base, index } => {
+            // The base is borrowed rather than consumed, so a collection read twice is not moved.
+            let base = emit_expr(base, unit, &Ty::Unit)?;
+            let index = emit_expr(index, unit, &Ty::Unit)?;
+            format!("py_subscript(&({base}), &({index}))?")
+        }
+        Expr::Len(inner) => {
+            let inner = emit_expr(inner, unit, &Ty::Unit)?;
+            format!("PyLen::py_len(&({inner}))")
         }
         Expr::Binary { op, left, right } => emit_binary(*op, left, right, unit, expected)?,
         Expr::Call { callee, args } => {
@@ -374,11 +440,27 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: Ty) -> Result<String, BackendEr
             let rendered = args
                 .iter()
                 .zip(&signature.params)
-                .map(|(arg, param)| emit_expr(arg, unit, param.ty))
+                .map(|(arg, param)| emit_expr(arg, unit, &param.ty))
                 .collect::<Result<Vec<_>, _>>()?;
             format!("{}({})?", rust_ident(callee), rendered.join(", "))
         }
     })
+}
+
+/// The element type of an expected collection type, or unit when the context says nothing.
+fn element_ty(expected: &Ty) -> Ty {
+    match expected {
+        Ty::List(element) | Ty::Set(element) => (**element).clone(),
+        _ => Ty::Unit,
+    }
+}
+
+/// Render every expression against one expected type.
+fn render_all(items: &[Expr], unit: &Unit, expected: &Ty) -> Result<Vec<String>, BackendError> {
+    items
+        .iter()
+        .map(|item| emit_expr(item, unit, expected))
+        .collect()
 }
 
 /// Emit a binary operation as a trait call, letting Rust choose the implementation by type.
@@ -387,14 +469,14 @@ fn emit_binary(
     left: &Expr,
     right: &Expr,
     unit: &Unit,
-    expected: Ty,
+    expected: &Ty,
 ) -> Result<String, BackendError> {
     // Comparisons yield a bool regardless of operand type, so the expected type says nothing
     // about the operands. They are emitted by reference, which both avoids moving a string and
     // works uniformly for every comparable type.
     if op.is_comparison() {
-        let left = emit_expr(left, unit, Ty::Unit)?;
-        let right = emit_expr(right, unit, Ty::Unit)?;
+        let left = emit_expr(left, unit, &Ty::Unit)?;
+        let right = emit_expr(right, unit, &Ty::Unit)?;
         let symbol = match op {
             BinOp::Eq => "==",
             BinOp::NotEq => "!=",
@@ -409,20 +491,20 @@ fn emit_binary(
 
     // True division's operands are always floats: lowering inserted the promotion nodes.
     if op == BinOp::TrueDiv {
-        let left = emit_expr(left, unit, Ty::Float)?;
-        let right = emit_expr(right, unit, Ty::Float)?;
+        let left = emit_expr(left, unit, &Ty::Float)?;
+        let right = emit_expr(right, unit, &Ty::Float)?;
         return Ok(format!("py_truediv(&({left}), &({right}))?"));
     }
 
     // Arithmetic operands share the expression's own type, except that a string operand must not
     // be cloned here: the trait takes a reference.
-    let operand = if expected == Ty::Str {
+    let operand = if *expected == Ty::Str {
         Ty::Unit
     } else {
-        expected
+        expected.clone()
     };
-    let left = emit_expr(left, unit, operand)?;
-    let right = emit_expr(right, unit, operand)?;
+    let left = emit_expr(left, unit, &operand)?;
+    let right = emit_expr(right, unit, &operand)?;
     let call = match op {
         BinOp::Add => "PyAdd::py_add",
         BinOp::Sub => "PyNum::py_sub",

@@ -1,2 +1,2 @@
-def f(a: list[int]) -> int:
+def f(a: frozenset[int]) -> int:
     return 1
