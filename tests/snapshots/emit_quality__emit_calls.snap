@@ -1,0 +1,20 @@
+---
+source: tests/emit_quality.rs
+expression: functions.trim()
+---
+use super::runtime::{PyAdd, PyNum, RuntimeError, py_truediv};
+
+    pub fn double(n: i64) -> Result<i64, RuntimeError> {
+        Ok(PyNum::py_mul(&(n), &(2i64))?)
+    }
+
+    pub fn nested_expression(a: i64, b: i64) -> Result<i64, RuntimeError> {
+        let total: i64 = PyAdd::py_add(&(double(a)?), &(double(b)?))?;
+        Ok(total)
+    }
+
+    pub fn quadruple(n: i64) -> Result<i64, RuntimeError> {
+        Ok(double(double(n)?)?)
+    }
+
+}

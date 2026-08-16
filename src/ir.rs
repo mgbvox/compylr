@@ -19,11 +19,31 @@ use std::collections::BTreeMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use crate::error::{LowerError, LowerErrorKind};
+use serde::{Deserialize, Serialize};
+
+use crate::error::{ArtifactError, LowerError, LowerErrorKind};
 use crate::span::Span;
 
+/// Format version of the on-disk artifact.
+///
+/// Recorded in every artifact and checked on load, so a file written by a future build fails
+/// with an explanation rather than deserializing into a subtly wrong unit.
+const ARTIFACT_VERSION: u32 = 1;
+
+/// The on-disk envelope around a unit.
+///
+/// Carrying the fingerprint alongside the functions makes the artifact self-checking, and makes
+/// it possible to answer "does this artifact match the current source?" by reading one field
+/// instead of reconstructing the whole unit.
+#[derive(Debug, Serialize, Deserialize)]
+struct UnitArtifact {
+    version: u32,
+    fingerprint: String,
+    functions: Vec<Function>,
+}
+
 /// A type in the supported subset, described by meaning rather than by any target's spelling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Ty {
     /// A 64-bit signed integer.
     Int,
@@ -61,7 +81,7 @@ impl Ty {
 }
 
 /// A literal value appearing directly in the source.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Literal {
     /// Integer literal, already checked to fit the supported integer range.
     Int(i64),
@@ -106,7 +126,7 @@ impl Literal {
 }
 
 /// A binary operator, carrying Python's semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BinOp {
     /// Addition.
     Add,
@@ -167,7 +187,7 @@ impl BinOp {
 }
 
 /// An expression.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Expr {
     /// A literal value.
     Literal(Literal),
@@ -262,7 +282,7 @@ impl Expr {
 }
 
 /// A statement in a function body.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Stmt {
     /// Return a value.
     Return(Expr),
@@ -283,7 +303,7 @@ pub enum Stmt {
 }
 
 /// A function parameter.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Param {
     /// Parameter name.
     pub name: String,
@@ -292,7 +312,7 @@ pub struct Param {
 }
 
 /// A function in the IR.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Function {
     /// Function name, unique within a unit.
     pub name: String,
@@ -303,6 +323,13 @@ pub struct Function {
     /// Body statements, in source order.
     pub body: Vec<Stmt>,
     /// Where the function was declared, for diagnostics.
+    ///
+    /// Deliberately absent from the serialized artifact. A span is a byte offset into a source
+    /// text the artifact does not contain, so it is meaningless once written out — and including
+    /// it would make two units that differ only in comments and indentation serialize
+    /// differently, which is exactly what the artifact must not do. This matches the IR's own
+    /// definition of structure: [`Function::fingerprint`] does not hash the span either.
+    #[serde(skip)]
     pub span: Span,
 }
 
@@ -397,6 +424,53 @@ impl Unit {
         let mut hasher = DefaultHasher::new();
         prints.hash(&mut hasher);
         hasher.finish()
+    }
+
+    /// Serialize the unit to its on-disk artifact form.
+    ///
+    /// The artifact is the pipeline's window between lowering and code generation: it belongs to
+    /// the IR rather than to any one backend, because every backend consumes the same tree.
+    ///
+    /// Output is deterministic. Functions are held in a [`BTreeMap`], so they serialize in name
+    /// order regardless of the order they were added, and spans are excluded, so reformatting the
+    /// source does not change the bytes.
+    pub fn to_json(&self) -> Result<String, ArtifactError> {
+        let artifact = UnitArtifact {
+            version: ARTIFACT_VERSION,
+            fingerprint: format!("{:016x}", self.fingerprint()),
+            functions: self.functions.values().cloned().collect(),
+        };
+        Ok(serde_json::to_string_pretty(&artifact)?)
+    }
+
+    /// Rebuild a unit from its artifact form.
+    ///
+    /// The recorded fingerprint is recomputed and compared, so a truncated or hand-edited
+    /// artifact fails loudly instead of loading as a valid but different unit — which would let
+    /// the rebuild cache reuse a build corresponding to no source at all.
+    pub fn from_json(json: &str) -> Result<Self, ArtifactError> {
+        let artifact: UnitArtifact = serde_json::from_str(json)?;
+        if artifact.version != ARTIFACT_VERSION {
+            return Err(ArtifactError::UnsupportedVersion {
+                found: artifact.version,
+                expected: ARTIFACT_VERSION,
+            });
+        }
+
+        let mut unit = Self::new();
+        for function in artifact.functions {
+            unit.add_function(function)
+                .map_err(|e| ArtifactError::DuplicateFunction(Box::new(e)))?;
+        }
+
+        let computed = format!("{:016x}", unit.fingerprint());
+        if computed != artifact.fingerprint {
+            return Err(ArtifactError::FingerprintMismatch {
+                recorded: artifact.fingerprint,
+                computed,
+            });
+        }
+        Ok(unit)
     }
 
     /// Check that every call resolves to a function in this unit with matching arity.

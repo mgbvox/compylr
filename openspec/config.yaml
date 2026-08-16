@@ -3,29 +3,58 @@ schema: spec-driven
 context: |
   compylr transpiles a strict, fully annotated Python subset to Rust.
 
-  Target end state (see CLAUDE.md):
-    - Users `uv add compylr` and decorate functions with `@compylr.compyle`.
-    - First run: the decorated function is transpiled to Rust with PyO3 bindings,
-      built via maturin, and installed into the project venv.
+  Target end state (see CLAUDE.md). The user-facing API is a configured manager:
+
+      import compylr
+
+      # Global configuration. `backend` names the transpilation target.
+      c = compylr.initialize(backend="rust", llm_assist=False)
+
+      # Per-function override of any global setting.
+      @c.compyle(backend="typescript", llm_assist=True)
+      def my_cool_fn(a: int) -> int: ...
+
+      # Bare form inherits the global settings (rust, here).
+      @c.compyle
+      def other_fn(a: int) -> int: ...
+
+    - `uv add compylr` installs the package; the decorator does the rest.
+    - The decorator compiles decorated Python to the Rust BACKEND, emitting the IR and
+      Rust source as artifacts, then building the Rust into a Python extension module
+      via maturin and installing it into the project venv.
     - Subsequent runs: the decorator swaps in the compiled implementation at runtime.
     - ALL decorated functions in a project are exposed by ONE shared maturin crate.
     - Adding or editing a decorated function rebuilds that one shared artifact.
+
+  Pipeline, with both intermediate artifacts written to disk for inspection:
+
+      source text -> ruff AST -> compylr IR -> Rust source -> maturin -> extension
+
+  `llm_assist` is DECLARED BUT NOT IMPLEMENTED. Reserved intent: when enabled it pipes
+  the source to a user-configurable backend agent that assists translation into the IR
+  and into the target backend. The API must accept the flag and reject enabling it with
+  a clear error, so the surface does not have to change when it lands.
 
   Architecture constraints:
     - Input arrives as source TEXT from inspect.getsource(fn), not as a file path.
     - The IR is independent of both Python and any target language. Rust is the first
       backend; Go, C++, and TypeScript should be able to consume the same IR. Concrete
       type spellings (int -> i64, str -> String) belong to a backend capability, never
-      to the IR itself.
+      to the IR itself. Backend names are a registry: unimplemented targets are valid
+      names that fail with a clear error, not unknown-key errors.
     - IR operators carry PYTHON semantics: floor division rounds toward negative
-      infinity, remainder takes the sign of the divisor. Backends must emit
-      semantics-preserving code rather than mapping to same-named native operators,
-      which differ on negative operands.
+      infinity, remainder takes the sign of the divisor, and true division always
+      yields a float. Backends must emit semantics-preserving code rather than mapping
+      to same-named native operators, which differ on negative and integer operands.
     - Rebuild decisions key off an IR fingerprint, not source text, so comments and
       reformatting do not trigger recompiles. Unit fingerprints are order-independent.
+    - Python reaches the compiler through a PyO3 extension module built from THIS crate.
+      Note the two distinct PyO3 roles: one exposes the compiler to Python, the other is
+      generated onto the user's compiled functions.
 
   Tech stack: Rust (edition 2024); ruff parser and AST vendored at vendored/ruff and
-  consumed via path dependencies. Python tooling is run with uv.
+  consumed via path dependencies. Python tooling is run with uv. PyO3 and maturin for
+  the native boundary.
 
   Testing: TDD - write tests before implementation. Run cargo test and
   cargo clippy -- -D warnings before committing. Target >80% coverage.

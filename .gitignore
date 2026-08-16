@@ -1,5 +1,14 @@
+/scratch
 # Build output
 /target
+
+# Generated compilation artifacts: the IR, the emitted target source, the shared
+# generated crate, and the build state. Regenerated from source on demand.
+.compylr/
+*.so
+*.pyd
+/dist
+/wheels
 
 # Secrets — never commit
 .env
@@ -8,6 +17,11 @@
 
 # Python bytecode
 __pycache__/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+/.venv
 
 # Editor / OS
 .idea/
