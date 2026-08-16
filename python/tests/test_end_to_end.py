@@ -40,6 +40,13 @@ def _concat(a: str, b: str) -> str:
     return a + b
 
 
+def _via_call(n: int) -> int:
+    # Calls another marked function with no annotation on the binding -- the case that only
+    # works because signatures are gathered across every source before any is lowered.
+    doubled = _add(n, n)
+    return doubled + 1
+
+
 def _documented(n: int) -> int:
     """Triple a value.
 
@@ -64,6 +71,7 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> compylr.Manager:
     c.compyle(_ratio)
     c.compyle(_concat)
     c.compyle(_documented)
+    c.compyle(_via_call)
     c.ensure_built()
     return c
 
@@ -120,7 +128,15 @@ class TestArtifacts:
     def test_the_ir_is_written_and_readable(self, project: compylr.Manager) -> None:
         artifact = json.loads(project.paths.ir.read_text())
         names = {f["name"] for f in artifact["functions"]}
-        assert {"_add", "_floordiv", "_modulo", "_ratio", "_concat", "_documented"} <= names
+        assert {
+            "_add",
+            "_floordiv",
+            "_modulo",
+            "_ratio",
+            "_concat",
+            "_documented",
+            "_via_call",
+        } <= names
 
     def test_the_generated_rust_is_written(self, project: compylr.Manager) -> None:
         source = project.paths.target_source.read_text()
@@ -141,6 +157,7 @@ class TestArtifacts:
             "_ratio",
             "_concat",
             "_documented",
+            "_via_call",
         }
 
 
@@ -214,6 +231,7 @@ class TestReuseAcrossProcesses:
         fresh.compyle(_ratio)
         fresh.compyle(_concat)
         fresh.compyle(_documented)
+        fresh.compyle(_via_call)
 
         assert fresh._functions["_floordiv"](-7, 2) == -4
 
@@ -260,8 +278,23 @@ class TestArtifactsFollowTheProject:
         monkeypatch.setattr(BuildPipeline, "build", fail)
 
         fresh = compylr.initialize()
-        for fn in (_add, _floordiv, _modulo, _ratio, _concat, _documented):
+        for fn in (_add, _floordiv, _modulo, _ratio, _concat, _documented, _via_call):
             fresh.compyle(fn)
 
         assert fresh.paths.root == root
         assert fresh._functions["_floordiv"](-7, 2) == -4
+
+
+class TestCrossSourceCallInference:
+    def test_a_call_typed_binding_compiles_and_matches(self, project: compylr.Manager) -> None:
+        # The whole point of the change, end to end: no annotation on `doubled`, and the compiled
+        # result equals the interpreted one.
+        compiled = project._functions["_via_call"]
+        assert compiled(5) == _via_call(5)
+
+    def test_the_generated_rust_types_it_correctly(self, project: compylr.Manager) -> None:
+        source = project.paths.target_source.read_text()
+        assert "pub fn _via_call(n: i64) -> Result<i64, RuntimeError>" in source
+        assert "let doubled: i64" in source, (
+            "the binding must carry the callee's return type, taken from its signature"
+        )

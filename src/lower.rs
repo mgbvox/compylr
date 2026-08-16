@@ -98,9 +98,26 @@ pub fn collect_signatures(parsed: &Parsed<ModModule>) -> Signatures {
 /// `if __name__ == '__main__':` guard has no meaning once the function is compiled into a
 /// shared artifact, so it is rejected rather than silently dropped.
 pub fn lower_source(parsed: &Parsed<ModModule>) -> Result<Vec<Function>, LowerError> {
+    lower_source_with(parsed, &Signatures::new())
+}
+
+/// Lower a source with signatures from elsewhere already known.
+///
+/// The decorator submits each function as its own source, so a call between two decorated
+/// functions is a call across sources. Supplying the signatures gathered from every source lets
+/// those calls be typed, which is the difference between the decorator inferring
+/// `doubled = double(n)` and demanding an annotation for it.
+///
+/// Signatures found in `parsed` take precedence, so a source is always typed against its own
+/// definitions first.
+pub fn lower_source_with(
+    parsed: &Parsed<ModModule>,
+    external: &Signatures,
+) -> Result<Vec<Function>, LowerError> {
     // Pass one: every signature in the source, so a call to a function defined later types the
     // same as a call to one defined earlier.
-    let signatures = collect_signatures(parsed);
+    let mut signatures = external.clone();
+    signatures.extend(collect_signatures(parsed));
     let mut functions = Vec::new();
     for stmt in &parsed.syntax().body {
         match stmt {
@@ -523,10 +540,10 @@ fn lower_bare_binding(
     // unknown here and an annotation is the only way to supply it.
     let Some(ty) = inferred else {
         return Err(err(
-            LowerErrorKind::MissingAnnotation,
+            LowerErrorKind::UndeterminedBinding,
             format!(
-                "'{name}' needs an explicit type annotation: its value contains a call, whose \
-                 type is not known while lowering"
+                "'{name}' needs an explicit type annotation: its value contains a call to a \
+                 function this source does not define"
             ),
             stmt,
         ));
@@ -1145,7 +1162,7 @@ mod tests {
     #[test]
     fn unannotated_binding_from_a_call_is_rejected() {
         let error = error_for("def f(a: int) -> int:\n    b = helper(a)\n    return b\n");
-        assert_eq!(error.kind(), LowerErrorKind::MissingAnnotation);
+        assert_eq!(error.kind(), LowerErrorKind::UndeterminedBinding);
     }
 
     #[test]
@@ -1353,7 +1370,7 @@ mod tests {
         // The case a naive implementation gets wrong: it must demand an annotation, not
         // report a type error, when a call is buried inside arithmetic.
         let error = error_for("def f(a: int) -> int:\n    b = helper(a) + 1\n    return b\n");
-        assert_eq!(error.kind(), LowerErrorKind::MissingAnnotation);
+        assert_eq!(error.kind(), LowerErrorKind::UndeterminedBinding);
         assert!(error.message().contains("call"));
 
         // ...and with an annotation it lowers fine, unchecked.
@@ -1436,7 +1453,7 @@ mod tests {
         let source =
             "def f(a: int) -> int:\n    x = helper(a)\n    if a:\n        pass\n    return a\n";
         let error = lower(source).unwrap_err();
-        assert_eq!(error.kind(), LowerErrorKind::MissingAnnotation);
+        assert_eq!(error.kind(), LowerErrorKind::UndeterminedBinding);
     }
 
     #[test]

@@ -156,6 +156,18 @@ is still caught, by unit validation, once every source has been assembled.
 - **WHEN** lowering a function whose body calls itself
 - **THEN** lowering succeeds, since its own signature is in the table
 
+#### Scenario: Signatures may be supplied from outside the source
+
+- **WHEN** a source is lowered together with signatures gathered from other sources
+- **THEN** a call to one of those functions is typed from its signature, exactly as a call within
+  the source would be
+
+#### Scenario: A source's own definitions take precedence
+
+- **WHEN** a source defines a function whose name also appears in the supplied signatures
+- **THEN** the source's own definition is used, so a source is always typed against what it
+  actually contains
+
 #### Scenario: Cross-source calls still resolve at the unit
 
 - **WHEN** two functions in separate sources call each other and both are added to one unit

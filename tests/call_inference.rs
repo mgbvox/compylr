@@ -228,8 +228,9 @@ mod deferred_resolution {
         // function happened to be decorated first.
         assert_eq!(
             reject("def f(n: int) -> int:\n    b = elsewhere(n)\n    return b\n"),
-            LowerErrorKind::MissingAnnotation,
-            "an unseen callee must leave the binding needing an annotation, not fail outright"
+            LowerErrorKind::UndeterminedBinding,
+            "an unseen callee must leave the binding undetermined -- a category the caller can \
+             defer once it sees every source -- rather than failing outright"
         );
     }
 
