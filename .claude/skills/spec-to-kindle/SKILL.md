@@ -1,13 +1,23 @@
 ---
 name: spec-to-kindle
-description: Runs the compylr spec review cycle - make sure the OpenSpec change artifacts are current, render them to a single EPUB, and email it to the user's Kindle. Use this whenever the user wants to read, review, proofread, or take a change's spec away from the screen - phrases like "send the spec to my kindle", "epub the change", "I want to read the proposal on my kindle", "ship me the design doc", "put this on my e-reader", or just "send it to my kindle". Also use it when they ask to regenerate or re-send a spec they already received, since the artifacts usually changed underneath. Reach for this even if they only say "kindle" or "epub" without naming a change.
+description: Runs the compylr spec review cycle - make sure the OpenSpec change artifacts are current, render them to a single EPUB, and hand it back as an attachment. Use this whenever the user wants to read, review, proofread, or take a change's spec away from the screen - phrases like "epub the change", "I want to read the proposal", "ship me the design doc", "render the spec", "put this on my e-reader", or "send the spec to my kindle". Also use it when they ask to regenerate a spec they already received, since the artifacts usually changed underneath. Reach for this even if they only say "kindle" or "epub" without naming a change.
 ---
 
 # Spec to Kindle
 
-The point of this cycle is to get planning artifacts off the terminal and onto a device where
-long prose is actually readable. Specs are written to be reviewed carefully; scrollback is a
-bad medium for that. Three steps: confirm the artifacts are current, render, send.
+The point of this cycle is to get planning artifacts off the terminal and into a form that reads
+well away from a screen. Specs are written to be reviewed carefully; scrollback is a bad medium
+for that. Three steps: confirm the artifacts are current, render, deliver.
+
+## Delivery: attach it, do not email it
+
+**The default is to attach the EPUB to your reply.** The user asked on 2026-08-16 for exactly
+this — "no more direct emailing kindle" — so surfacing the file is the whole of step 3 unless
+they say otherwise in the moment.
+
+The mail path still exists and still works; it is described at the end for the case where someone
+explicitly asks for it. Do not reach for it on your own initiative, and do not treat the skill's
+name as authorisation: the name records where this cycle started, not how it delivers now.
 
 ## 1. Confirm the artifacts are current
 
@@ -50,15 +60,29 @@ shebang handles it. If `uv` is missing, `uv run scripts/render_change_epub.py` w
 Read the summary it prints. It lists every chapter and its source file, which is the fastest
 way to catch a spec that silently did not get included because it was in an unexpected place.
 
-## 3. Send it to the Kindle
+## 3. Hand it back
+
+Attach `reports/<change-name>.epub` to your reply. That is the delivery step; there is nothing
+outward-facing about it, so no confirmation is needed.
+
+`reports/` is tracked in this repository, so commit the EPUB alongside the artifacts it was
+rendered from. When a change lives on its own branch, commit it there, so the branch carries its
+own rendered spec.
+
+Say what the reader is getting — the change name, the chapter count, and anything that would
+affect the reading order if several are sent at once. The chapter list the render script prints
+is the fastest source for that.
+
+## Sending by email — only when explicitly asked
+
+Superseded as the default (see above). Kept because the machinery works and someone may want it.
 
 ```bash
 ./scripts/send_to_kindle.py reports/<change-name>.epub
 ```
 
 Sending is outward-facing and lands on someone's device, so confirm before the first send in a
-session unless the user has already said to just send it. A short "sending `<change>.epub` to
-your Kindle now?" is enough. Use `--dry-run` to validate configuration and print the redacted
+session even when asked. Use `--dry-run` to validate configuration and print the redacted
 sender/recipient without connecting to anything — a good way to check setup before committing
 to a real send.
 
