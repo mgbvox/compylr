@@ -4,7 +4,9 @@ expression: functions.trim()
 ---
 //! Translated from Python by compylr.
 
-use crate::compat::{PyAdd, PyNum, RuntimeError, py_truediv};
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{PyAdd, PyLen, PyNum, RuntimeError, py_subscript, py_truediv};
 
 pub fn compare_mixed(a: i64, b: f64) -> Result<bool, RuntimeError> {
     Ok(((&(((a) as f64))) < (&(b))))

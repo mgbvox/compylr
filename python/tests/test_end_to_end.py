@@ -47,6 +47,18 @@ def _via_call(n: int) -> int:
     return doubled + 1
 
 
+def _sum_first(xs: list[int]) -> int:
+    return xs[0] + len(xs)
+
+
+def _from_mapping(d: dict[str, int], key: str) -> int:
+    return d[key]
+
+
+def _make_pair() -> tuple[int, str]:
+    return (1, "a")
+
+
 def _documented(n: int) -> int:
     """Triple a value.
 
@@ -72,6 +84,9 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> compylr.Manager:
     c.compyle(_concat)
     c.compyle(_documented)
     c.compyle(_via_call)
+    c.compyle(_sum_first)
+    c.compyle(_from_mapping)
+    c.compyle(_make_pair)
     c.ensure_built()
     return c
 
@@ -136,6 +151,9 @@ class TestArtifacts:
             "_concat",
             "_documented",
             "_via_call",
+            "_sum_first",
+            "_from_mapping",
+            "_make_pair",
         } <= names
 
     def test_the_generated_rust_is_written(self, project: compylr.Manager) -> None:
@@ -180,6 +198,9 @@ class TestArtifacts:
             "_concat",
             "_documented",
             "_via_call",
+            "_sum_first",
+            "_from_mapping",
+            "_make_pair",
         }
 
 
@@ -247,13 +268,19 @@ class TestReuseAcrossProcesses:
         monkeypatch.setattr(BuildPipeline, "build", fail)
 
         fresh = compylr.initialize(root=root)
-        fresh.compyle(_add)
-        fresh.compyle(_floordiv)
-        fresh.compyle(_modulo)
-        fresh.compyle(_ratio)
-        fresh.compyle(_concat)
-        fresh.compyle(_documented)
-        fresh.compyle(_via_call)
+        for fn in (
+            _add,
+            _floordiv,
+            _modulo,
+            _ratio,
+            _concat,
+            _documented,
+            _via_call,
+            _sum_first,
+            _from_mapping,
+            _make_pair,
+        ):
+            fresh.compyle(fn)
 
         assert fresh._functions["_floordiv"](-7, 2) == -4
 
@@ -300,7 +327,18 @@ class TestArtifactsFollowTheProject:
         monkeypatch.setattr(BuildPipeline, "build", fail)
 
         fresh = compylr.initialize()
-        for fn in (_add, _floordiv, _modulo, _ratio, _concat, _documented, _via_call):
+        for fn in (
+            _add,
+            _floordiv,
+            _modulo,
+            _ratio,
+            _concat,
+            _documented,
+            _via_call,
+            _sum_first,
+            _from_mapping,
+            _make_pair,
+        ):
             fresh.compyle(fn)
 
         assert fresh.paths.root == root
@@ -320,3 +358,43 @@ class TestCrossSourceCallInference:
         assert "let doubled: i64" in source, (
             "the binding must carry the callee's return type, taken from its signature"
         )
+
+
+class TestCollections:
+    def test_compiled_results_match_the_interpreted_originals(
+        self, project: compylr.Manager
+    ) -> None:
+        assert project._functions["_sum_first"]([10, 20, 30]) == _sum_first([10, 20, 30])
+        assert project._functions["_from_mapping"]({"a": 5}, "a") == _from_mapping({"a": 5}, "a")
+
+    def test_a_negative_index_counts_from_the_end(self, project: compylr.Manager) -> None:
+        # Rust's native indexing does not do this; the emitted code has to.
+        assert project._functions["_sum_first"]([1, 2, 3]) == 4
+
+    def test_a_tuple_returns_as_a_tuple_not_a_list(self, project: compylr.Manager) -> None:
+        result = project._functions["_make_pair"]()
+        assert result == (1, "a")
+        assert isinstance(result, tuple)
+
+    def test_a_list_returns_as_a_list(self, project: compylr.Manager) -> None:
+        assert isinstance(project._functions["_sum_first"]([1]), int)
+
+    def test_a_missing_key_raises_key_error(self, project: compylr.Manager) -> None:
+        with pytest.raises(KeyError):
+            project._functions["_from_mapping"]({}, "absent")
+
+    def test_an_index_out_of_range_raises_index_error(self, project: compylr.Manager) -> None:
+        with pytest.raises(IndexError):
+            project._functions["_sum_first"]([])
+
+    def test_a_wrong_element_type_raises_type_error(self, project: compylr.Manager) -> None:
+        with pytest.raises(TypeError):
+            project._functions["_sum_first"](["a"])
+
+    def test_the_callers_list_is_unchanged(self, project: compylr.Manager) -> None:
+        # Collections cross by value, so a compiled function cannot affect what its caller holds.
+        # Nothing in the subset can mutate, so this is currently unobservable -- asserted anyway,
+        # so that adding mutation has to confront it deliberately.
+        xs = [1, 2, 3]
+        project._functions["_sum_first"](xs)
+        assert xs == [1, 2, 3]

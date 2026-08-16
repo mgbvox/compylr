@@ -4,7 +4,9 @@ expression: functions.trim()
 ---
 //! Translated from Python by compylr.
 
-use crate::compat::{PyAdd, PyNum, RuntimeError, py_truediv};
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{PyAdd, PyLen, PyNum, RuntimeError, py_subscript, py_truediv};
 
 pub fn caller(n: i64) -> Result<i64, RuntimeError> {
     Ok(remote_helper(n)?)

@@ -119,11 +119,37 @@ Functions at top level only, with mandatory parameter and return annotations.
 | `bool` | bool | deliberately **not** a number; `True + 1` is rejected |
 | `str` | string | UTF-8 |
 | `None` | unit | return annotation only |
+| `list[T]` | sequence | any element type, nested to any depth |
+| `dict[K, V]` | mapping | keys restricted to `int`/`str`/`bool` |
+| `set[T]` | set | elements restricted the same way |
+| `tuple[A, B]` | tuple | a type per position |
 
 Operators: `+` `-` `*` `/` `//` `%` and the comparisons `==` `!=` `<` `<=` `>` `>=`, plus unary
 negation and calls to functions in the same unit.
 
 Statements: `return`, `pass`, and local bindings.
+
+Collections support literals, subscripting, and `len`, read-only:
+
+```python
+@c.compyle
+def total(xs: list[int]) -> int:
+    first = xs[0]        # int
+    last = xs[-1]        # counts from the end, as Python does
+    return first + last + len(xs)
+```
+
+Two divergences worth knowing. **Collections cross the boundary by value**, so a compiled function
+cannot affect a list its caller still holds — currently unobservable, since nothing in the subset
+mutates, but stated so that adding mutation has to confront it. And **a returned `dict` does not
+preserve insertion order**, and its order varies between runs; sort explicitly if you need one.
+Sequences and tuples keep their order.
+
+Keys and set elements are restricted to `int`, `str`, and `bool`: a float key can never be
+retrieved once it is `nan`, and most targets cannot hash a float at all.
+
+Not supported: mutation (`append`, `xs[0] = v`), iteration, comprehensions, slicing, and
+membership.
 
 A **docstring** is permitted in first position and carries no runtime meaning, so ordinary
 documented code compiles:
@@ -183,7 +209,7 @@ assembled into one unit.
 A function that declares a return type must return one: `def f() -> int: pass` is rejected with
 its location.
 
-Not supported yet: control flow, loops, classes, imports, collections, generics, and reassignment.
+Not supported yet: control flow, loops, classes, imports, generics, and reassignment.
 
 ## Getting started
 

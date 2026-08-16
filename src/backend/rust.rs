@@ -207,7 +207,9 @@ fn emit_generated(functions: &str) -> String {
     format!(
         "//! Translated from Python by compylr.\n\
          \n\
-         use crate::compat::{{PyAdd, PyNum, RuntimeError, py_truediv}};\n\
+         use std::collections::{{HashMap, HashSet}};\n\
+         \n\
+         use crate::compat::{{PyAdd, PyLen, PyNum, RuntimeError, py_subscript, py_truediv}};\n\
          \n\
          {functions}"
     )
@@ -366,6 +368,58 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             let inner = emit_expr(inner, unit, &Ty::Int)?;
             format!("(({inner}) as f64)")
         }
+        Expr::ListLit(items) => {
+            let element = element_ty(expected);
+            let rendered = render_all(items, unit, &element)?;
+            format!("vec![{}]", rendered.join(", "))
+        }
+        Expr::SetLit(items) => {
+            let element = element_ty(expected);
+            let rendered = render_all(items, unit, &element)?;
+            format!("HashSet::from([{}])", rendered.join(", "))
+        }
+        Expr::TupleLit(items) => {
+            // A type per position, so each element is rendered against its own.
+            let types: Vec<Ty> = match expected {
+                Ty::Tuple(types) if types.len() == items.len() => types.clone(),
+                _ => vec![Ty::Unit; items.len()],
+            };
+            let mut rendered = Vec::with_capacity(items.len());
+            for (item, ty) in items.iter().zip(&types) {
+                rendered.push(emit_expr(item, unit, ty)?);
+            }
+            // A one-element tuple needs the trailing comma to be a tuple at all.
+            if rendered.len() == 1 {
+                format!("({},)", rendered[0])
+            } else {
+                format!("({})", rendered.join(", "))
+            }
+        }
+        Expr::DictLit(pairs) => {
+            let (key_ty, value_ty) = match expected {
+                Ty::Dict(key, value) => ((**key).clone(), (**value).clone()),
+                _ => (Ty::Unit, Ty::Unit),
+            };
+            let mut rendered = Vec::with_capacity(pairs.len());
+            for (key, value) in pairs {
+                rendered.push(format!(
+                    "({}, {})",
+                    emit_expr(key, unit, &key_ty)?,
+                    emit_expr(value, unit, &value_ty)?
+                ));
+            }
+            format!("HashMap::from([{}])", rendered.join(", "))
+        }
+        Expr::Subscript { base, index } => {
+            // The base is borrowed rather than consumed, so a collection read twice is not moved.
+            let base = emit_expr(base, unit, &Ty::Unit)?;
+            let index = emit_expr(index, unit, &Ty::Unit)?;
+            format!("py_subscript(&({base}), &({index}))?")
+        }
+        Expr::Len(inner) => {
+            let inner = emit_expr(inner, unit, &Ty::Unit)?;
+            format!("PyLen::py_len(&({inner}))")
+        }
         Expr::Binary { op, left, right } => emit_binary(*op, left, right, unit, expected)?,
         Expr::Call { callee, args } => {
             let signature = unit.get(callee).ok_or_else(|| BackendError::Unsupported {
@@ -391,6 +445,22 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             format!("{}({})?", rust_ident(callee), rendered.join(", "))
         }
     })
+}
+
+/// The element type of an expected collection type, or unit when the context says nothing.
+fn element_ty(expected: &Ty) -> Ty {
+    match expected {
+        Ty::List(element) | Ty::Set(element) => (**element).clone(),
+        _ => Ty::Unit,
+    }
+}
+
+/// Render every expression against one expected type.
+fn render_all(items: &[Expr], unit: &Unit, expected: &Ty) -> Result<Vec<String>, BackendError> {
+    items
+        .iter()
+        .map(|item| emit_expr(item, unit, expected))
+        .collect()
 }
 
 /// Emit a binary operation as a trait call, letting Rust choose the implementation by type.

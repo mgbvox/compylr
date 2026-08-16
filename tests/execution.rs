@@ -374,3 +374,145 @@ fn compiled_results_match_the_interpreted_originals() {
     ];
     assert_eq!(out.lines().collect::<Vec<_>>(), expected);
 }
+
+/// Collection semantics, executed rather than inspected.
+///
+/// Two of these are the same class of trap as `//` and `%`: Python indexes from the end for a
+/// negative index and counts a string's *characters*, where Rust does neither. Both are correct
+/// for the easy cases and silently wrong for the ones a test written in English would miss.
+mod collections {
+    use super::*;
+
+    #[test]
+    fn a_negative_index_counts_from_the_end() {
+        let out = run(
+            "neg_index",
+            concat!(
+                "def last(xs: list[int]) -> int:\n    return xs[-1]\n\n",
+                "def first(xs: list[int]) -> int:\n    return xs[-3]\n\n",
+                "def front(xs: list[int]) -> int:\n    return xs[0]\n",
+            ),
+            r#"
+    let xs = vec![10i64, 20, 30];
+    println!("{}", last(xs.clone()).unwrap());
+    println!("{}", first(xs.clone()).unwrap());
+    println!("{}", front(xs.clone()).unwrap());
+"#,
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["30", "10", "10"]);
+    }
+
+    #[test]
+    fn an_index_past_either_end_is_recoverable() {
+        let out = run(
+            "index_range",
+            "def at(xs: list[int], i: int) -> int:\n    return xs[i]\n",
+            r#"
+    let xs = vec![1i64, 2, 3];
+    println!("{:?}", at(xs.clone(), 5).is_err());
+    println!("{:?}", at(xs.clone(), -5).is_err());
+    println!("{}", at(xs.clone(), 1).unwrap());
+"#,
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["true", "true", "2"]);
+    }
+
+    #[test]
+    fn a_missing_key_is_recoverable_and_names_the_key() {
+        let out = run(
+            "missing_key",
+            "def get(d: dict[str, int], k: str) -> int:\n    return d[k]\n",
+            r#"
+    let mut d = std::collections::HashMap::new();
+    d.insert(String::from("a"), 1i64);
+    println!("{}", get(d.clone(), String::from("a")).unwrap());
+    match get(d.clone(), String::from("zzz")) {
+        Err(e) => println!("{e}"),
+        Ok(v) => println!("unexpected {v}"),
+    }
+"#,
+        );
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], "1");
+        assert!(
+            lines[1].contains("zzz"),
+            "the key must be named: {}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn len_counts_characters_not_bytes() {
+        // The case that catches a byte count. `len("é")` is 1 in Python and 2 in Rust.
+        let out = run(
+            "len_chars",
+            concat!(
+                "def size(s: str) -> int:\n    return len(s)\n\n",
+                "def items(xs: list[int]) -> int:\n    return len(xs)\n",
+            ),
+            r#"
+    println!("{}", size(String::from("abc")).unwrap());
+    println!("{}", size(String::from("é")).unwrap());
+    println!("{}", size(String::from("héllo")).unwrap());
+    println!("{}", items(vec![1i64, 2, 3]).unwrap());
+"#,
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["3", "1", "5", "3"]);
+    }
+
+    #[test]
+    fn literals_construct_what_python_would() {
+        let out = run(
+            "literals",
+            concat!(
+                "def list_lit() -> list[int]:\n    return [1, 2, 3]\n\n",
+                "def set_lit() -> set[int]:\n    return {1, 2, 2}\n\n",
+                "def dict_lit() -> dict[str, int]:\n    return {\"a\": 1, \"b\": 2}\n\n",
+                "def tuple_lit() -> tuple[int, str]:\n    return (1, \"a\")\n",
+            ),
+            r#"
+    println!("{:?}", list_lit().unwrap());
+    println!("{}", set_lit().unwrap().len());
+    println!("{}", dict_lit().unwrap()["a"]);
+    let (n, s) = tuple_lit().unwrap();
+    println!("{n} {s}");
+"#,
+        );
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], "[1, 2, 3]", "sequence order is preserved");
+        assert_eq!(
+            lines[1], "2",
+            "a set literal de-duplicates, as Python's does"
+        );
+        assert_eq!(lines[2], "1");
+        assert_eq!(lines[3], "1 a");
+    }
+
+    #[test]
+    fn a_collection_read_twice_is_not_moved() {
+        // Python has no notion of a value being consumed by being read. If emission moved the
+        // collection, this would fail to compile rather than fail an assertion.
+        let out = run(
+            "no_move",
+            "def both(xs: list[int]) -> int:\n    a = xs[0]\n    b = len(xs)\n    return a + b\n",
+            r#"
+    println!("{}", both(vec![7i64, 8, 9]).unwrap());
+"#,
+        );
+        assert_eq!(out.trim(), "10");
+    }
+
+    #[test]
+    fn nested_collections_work() {
+        let out = run(
+            "nested",
+            "def inner(d: dict[str, list[int]], k: str) -> int:\n    xs = d[k]\n    return xs[0]\n",
+            r#"
+    let mut d = std::collections::HashMap::new();
+    d.insert(String::from("k"), vec![42i64, 43]);
+    println!("{}", inner(d, String::from("k")).unwrap());
+"#,
+        );
+        assert_eq!(out.trim(), "42");
+    }
+}

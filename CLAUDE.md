@@ -40,8 +40,8 @@ source text ──frontend──> ruff AST ──lower──> IR ──backend�
 validating it immediately and compiling the whole project on the first call. Both intermediates
 (the IR as JSON, the generated Rust) are written under `.compylr/` on every build.
 
-Supported Python subset: top-level `def`s only, fully annotated (`int`/`float`/`bool`/`str`, plus
-`None` as a return type); bodies of `return`, `pass`, and assignment, optionally preceded by a
+Supported Python subset: top-level `def`s only, fully annotated (`int`/`float`/`bool`/`str`, the
+collections `list[T]`/`dict[K,V]`/`set[T]`/`tuple[...]`, plus `None` as a return type); bodies of `return`, `pass`, and assignment, optionally preceded by a
 docstring; expressions of literals, names, unary minus, `+ - * / // %`, comparisons, and calls.
 Local bindings infer their type whenever the initializer determines it, **including calls to
 functions in the same source**: signatures are collected in a first pass, so a function may call
@@ -61,6 +61,9 @@ is either dead code or a side effect the subset cannot express.
 
 Known gaps worth knowing before you trip on them:
 
+* **Collections are read-only and cross by value**, and a returned `dict` has no guaranteed key
+  order — it varies between runs. Chosen deliberately; `add-collection-types` design D7 records
+  what reversing it costs.
 * **Compiling needs `cargo` and `maturin` at runtime.** Installing compylr gets the compiler,
   not the ability to build what it generates.
 * **`llm_assist` is accepted but refused when enabled**, and `typescript`/`go`/`cpp` are reserved

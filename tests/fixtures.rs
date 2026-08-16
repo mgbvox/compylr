@@ -46,6 +46,7 @@ fn accepted_fixtures_lower_to_stable_ir() {
         "division.py",
         "documented.py",
         "call_inference.py",
+        "collections.py",
     ] {
         let functions = accepted(name);
         insta::assert_debug_snapshot!(name, functions);
@@ -99,6 +100,15 @@ fn every_rejected_fixture_fails_with_the_expected_kind() {
         ("wrong_arity.py", LowerErrorKind::ArityMismatch),
         ("wrong_argument_type.py", LowerErrorKind::TypeMismatch),
         ("missing_return.py", LowerErrorKind::MissingReturn),
+        ("float_dict_key.py", LowerErrorKind::UnsupportedType),
+        ("bare_list_annotation.py", LowerErrorKind::UnsupportedType),
+        ("mismatched_literal.py", LowerErrorKind::TypeMismatch),
+        (
+            "computed_tuple_index.py",
+            LowerErrorKind::UnsupportedConstruct,
+        ),
+        ("slicing.py", LowerErrorKind::UnsupportedConstruct),
+        ("reserved_len.py", LowerErrorKind::UnsupportedConstruct),
     ];
 
     for (name, expected) in cases {
@@ -120,7 +130,7 @@ fn every_rejected_fixture_is_covered_by_the_table() {
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "py"))
         .count();
-    assert_eq!(count, 35, "update the rejection table when adding fixtures");
+    assert_eq!(count, 41, "update the rejection table when adding fixtures");
 }
 
 #[test]

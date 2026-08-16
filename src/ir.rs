@@ -253,6 +253,27 @@ pub enum Expr {
         /// Right operand.
         right: Box<Expr>,
     },
+    /// A sequence literal, elements in source order.
+    ListLit(Vec<Expr>),
+    /// A mapping literal, pairs in source order.
+    DictLit(Vec<(Expr, Expr)>),
+    /// A set literal.
+    SetLit(Vec<Expr>),
+    /// A tuple literal, which unlike the others carries a type per position.
+    TupleLit(Vec<Expr>),
+    /// Reading one element of a collection.
+    Subscript {
+        /// The collection being read.
+        base: Box<Expr>,
+        /// The index or key.
+        index: Box<Expr>,
+    },
+    /// The length of a collection or string.
+    ///
+    /// A distinct node rather than a call: a call is resolved against the unit during validation,
+    /// so leaving `len` as one would make its meaning depend on whether someone had decorated a
+    /// function of that name.
+    Len(Box<Expr>),
     /// A call to a function by name.
     Call {
         /// Name of the target function.
@@ -308,7 +329,22 @@ impl Expr {
             Self::Literal(_) | Self::Name(_) => {}
             // ToFloat must descend, or a call wrapped in a promotion would be invisible to
             // Unit::validate and its target would never be checked.
-            Self::Neg(inner) | Self::ToFloat(inner) => inner.walk_calls(visit),
+            Self::Neg(inner) | Self::ToFloat(inner) | Self::Len(inner) => inner.walk_calls(visit),
+            Self::ListLit(items) | Self::SetLit(items) | Self::TupleLit(items) => {
+                for item in items {
+                    item.walk_calls(visit);
+                }
+            }
+            Self::DictLit(pairs) => {
+                for (key, value) in pairs {
+                    key.walk_calls(visit);
+                    value.walk_calls(visit);
+                }
+            }
+            Self::Subscript { base, index } => {
+                base.walk_calls(visit);
+                index.walk_calls(visit);
+            }
             Self::Binary { left, right, .. } => {
                 left.walk_calls(visit);
                 right.walk_calls(visit);
