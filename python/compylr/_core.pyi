@@ -22,6 +22,9 @@ class CompilationError(CompylrError):
 
     line: int
     column: int
+    #: Stable identifier for the category, or None for a syntax error. Branch on this rather
+    #: than on the message, which is prose.
+    code: str | None
 
 class SourceSyntaxError(CompilationError):
     """The source is not valid Python."""

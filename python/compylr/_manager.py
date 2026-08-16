@@ -30,6 +30,11 @@ from ._source import capture_source
 
 __all__ = ["CompiledFunction", "Manager", "initialize"]
 
+#: The one diagnostic category the decorator defers to build time.
+#:
+#: Matched on the stable code rather than the message, which is prose and free to be reworded.
+_DEFERRED_UNTIL_BUILD = "undetermined_binding"
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -119,9 +124,25 @@ class Manager:
 
     def _register(self, function: Callable[P, R], settings: Settings) -> CompiledFunction[P, R]:
         source = capture_source(function)
-        # Raises here, with a line and column, if the function is outside the subset. Deliberately
-        # does not resolve calls: a callee may not be marked yet.
-        _core.validate_source(source)
+        # Raises here, with a line and column, if the function is outside the subset -- which is
+        # the point of validating at all: the failure should point at the decorator, not at a call
+        # site reached much later.
+        #
+        # One category is deferred. A binding whose initializer calls a function this source does
+        # not define cannot be typed yet, because each decorated function is captured as its own
+        # source and its callees live in other ones. Refusing here would demand an annotation for
+        # `doubled = double(n)` in exactly the arrangement the decorator always produces. The
+        # build sees every source at once and types it then, so nothing goes unchecked -- it is
+        # checked once there is enough information to check it with.
+        #
+        # The cost, stated plainly: if that callee is never marked, the failure arrives at the
+        # first call rather than here. That is the same lateness unresolved callees already have,
+        # since they are likewise only resolvable across the assembled unit.
+        try:
+            _core.validate_source(source)
+        except _core.UnsupportedProgramError as error:
+            if getattr(error, "code", None) != _DEFERRED_UNTIL_BUILD:
+                raise
 
         name = function.__name__
         if name in self._sources and self._sources[name] != source:

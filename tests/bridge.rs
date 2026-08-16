@@ -255,3 +255,68 @@ mod python_exceptions {
         });
     }
 }
+
+/// Typing calls that cross source boundaries.
+///
+/// The decorator captures each function with `inspect.getsource`, so every decorated function is
+/// its own source and a call between two of them is a call across sources. Signatures are
+/// therefore gathered from every source before any is lowered — without that, the inference this
+/// compiler advertises would work everywhere except the arrangement its main interface produces.
+mod cross_source_inference {
+    use super::*;
+
+    const DOUBLE: &str = "def double(n: int) -> int:\n    return n * 2\n";
+    const USES: &str =
+        "def uses(n: int) -> int:\n    doubled = double(n)\n    return doubled + 1\n";
+
+    #[test]
+    fn a_call_into_another_source_is_typed() {
+        let compiled = compile(&[DOUBLE.to_string(), USES.to_string()], "rust")
+            .expect("a cross-source call must be typed, not demand an annotation");
+        assert_eq!(compiled.function_names, ["double", "uses"]);
+    }
+
+    #[test]
+    fn source_order_does_not_matter() {
+        let forward = compile(&[DOUBLE.to_string(), USES.to_string()], "rust").unwrap();
+        let backward = compile(&[USES.to_string(), DOUBLE.to_string()], "rust").unwrap();
+        assert_eq!(
+            forward.fingerprint, backward.fingerprint,
+            "signatures are gathered before any body is lowered, so arrival order cannot matter"
+        );
+    }
+
+    #[test]
+    fn a_callee_in_no_source_is_still_reported() {
+        // Deferring is not the same as ignoring: once every source is present, a binding that
+        // still cannot be typed is an error.
+        let failure = compile(
+            &["def f(n: int) -> int:\n    b = nowhere(n)\n    return b\n".to_string()],
+            "rust",
+        )
+        .expect_err("a callee that exists nowhere must fail");
+        match failure {
+            CompileFailure::Unsupported { code, .. } => {
+                assert_eq!(code, "undetermined_binding");
+            }
+            other => panic!("expected an unsupported-program failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_failure_category_is_machine_readable() {
+        // The decorator branches on this to decide what to defer, so it must not be prose.
+        let failure = compile(
+            &["def f(n: int) -> int:\n    while n:\n        pass\n    return n\n".to_string()],
+            "rust",
+        )
+        .expect_err("must fail");
+        match failure {
+            CompileFailure::Unsupported { code, .. } => {
+                assert_eq!(code, "unsupported_construct");
+                assert_ne!(code, "undetermined_binding");
+            }
+            other => panic!("unexpected failure: {other:?}"),
+        }
+    }
+}

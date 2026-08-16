@@ -18,7 +18,7 @@ use crate::backend::{self, BackendError};
 use crate::error::{FrontendError, LowerError};
 use crate::frontend::parse_source;
 use crate::ir::Unit;
-use crate::lower::lower_source;
+use crate::lower::{Signatures, collect_signatures, lower_source, lower_source_with};
 
 /// Everything a successful compilation produces.
 #[derive(Debug, Clone)]
@@ -53,6 +53,8 @@ pub enum CompileFailure {
     Unsupported {
         /// What lowering objected to.
         message: String,
+        /// Stable identifier for the category, so callers can branch without matching prose.
+        code: &'static str,
         /// 1-based line.
         line: usize,
         /// 1-based column.
@@ -67,6 +69,7 @@ impl CompileFailure {
         let at = error.span().line_column(source);
         Self::Unsupported {
             message: error.message().to_string(),
+            code: error.kind().code(),
             line: at.line,
             column: at.column,
         }
@@ -87,7 +90,12 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     // error is about the backend rather than about whichever source happened to be malformed.
     let backend = backend::lookup(backend_name).map_err(CompileFailure::Backend)?;
 
-    let mut unit = Unit::new();
+    // Every source is parsed before any is lowered, so signatures can be gathered across all of
+    // them. The decorator submits each function as its own source, which makes a call between two
+    // decorated functions a call *across* sources; without this, such a call could never be typed
+    // and `doubled = double(n)` would demand an annotation in exactly the arrangement the
+    // decorator always produces.
+    let mut parsed_sources = Vec::with_capacity(sources.len());
     for source in sources {
         let parsed = parse_source(source).map_err(|error| match error {
             FrontendError::Syntax { message, span } => {
@@ -105,9 +113,18 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
                 column: 1,
             },
         })?;
+        parsed_sources.push((source, parsed));
+    }
 
-        let functions =
-            lower_source(&parsed).map_err(|error| CompileFailure::from_lower(&error, source))?;
+    let mut signatures = Signatures::new();
+    for (_, parsed) in &parsed_sources {
+        signatures.extend(collect_signatures(parsed));
+    }
+
+    let mut unit = Unit::new();
+    for (source, parsed) in &parsed_sources {
+        let functions = lower_source_with(parsed, &signatures)
+            .map_err(|error| CompileFailure::from_lower(&error, source))?;
         for function in functions {
             unit.add_function(function)
                 .map_err(|error| CompileFailure::from_lower(&error, source))?;
@@ -119,6 +136,7 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     unit.validate()
         .map_err(|error| CompileFailure::Unsupported {
             message: error.message().to_string(),
+            code: error.kind().code(),
             line: 1,
             column: 1,
         })?;
@@ -189,23 +207,27 @@ impl CompileFailure {
                 column,
             } => (
                 SourceSyntaxError::new_err(format!("{line}:{column}: {message}")),
-                Some((line, column)),
+                Some((line, column, None)),
             ),
             Self::Unsupported {
                 message,
+                code,
                 line,
                 column,
             } => (
                 UnsupportedProgramError::new_err(format!("{line}:{column}: {message}")),
-                Some((line, column)),
+                Some((line, column, Some(code))),
             ),
             Self::Backend(error) => (BackendNotAvailableError::new_err(error.to_string()), None),
         };
 
-        if let Some((line, column)) = location {
+        if let Some((line, column, code)) = location {
             let value = err.value(py);
             let _ = value.setattr("line", line);
             let _ = value.setattr("column", column);
+            // The category, so a caller can act on *which* rule was broken without matching on
+            // message text. The decorator uses this to defer one specific case.
+            let _ = value.setattr("code", code);
         }
         err
     }

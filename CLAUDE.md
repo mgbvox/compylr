@@ -43,8 +43,15 @@ validating it immediately and compiling the whole project on the first call. Bot
 Supported Python subset: top-level `def`s only, fully annotated (`int`/`float`/`bool`/`str`, plus
 `None` as a return type); bodies of `return`, `pass`, and assignment, optionally preceded by a
 docstring; expressions of literals, names, unary minus, `+ - * / // %`, comparisons, and calls.
-Local bindings infer their type whenever the initializer determines it; an initializer containing
-a call still needs an annotation, because lowering does not resolve callees.
+Local bindings infer their type whenever the initializer determines it, **including calls to
+functions in the same source**: signatures are collected in a first pass, so a function may call
+one defined below it. A call to a function in another module stays undetermined and needs an
+annotation — the decorator validates one function at a time, so rejecting an unseen callee would
+make acceptance depend on decoration order. `Unit::validate` still catches a callee that exists
+nowhere.
+
+A function declaring a return type must return one; `def f() -> int: pass` is a located lowering
+error rather than a backend failure.
 
 A **docstring** is accepted in first position and carries no runtime meaning; it is kept on the IR
 function, emitted as a `///` comment, and deliberately **excluded from the fingerprint**, so
@@ -99,7 +106,9 @@ extension module under a name already in `sys.modules`.
 cargo test
 cargo clippy -p compylr --all-targets -- -D warnings
 cargo llvm-cov -p compylr --ignore-filename-regex '(vendored/|/main\.rs)' --summary-only
-cargo run -- python/fixtures/accepted/aliases.py   # CLI: stops at the IR
+cargo run -- python/fixtures/accepted/aliases.py            # summary
+cargo run -- --emit ir   python/fixtures/accepted/aliases.py   # the IR as JSON
+cargo run -- --emit rust python/fixtures/accepted/aliases.py   # generated Rust, no build
 
 # Python (needs the venv; `maturin develop` rebuilds compylr._core after Rust changes)
 uv venv && source .venv/bin/activate
