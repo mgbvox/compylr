@@ -124,15 +124,38 @@ pub fn lower_function(def: &StmtFunctionDef) -> Result<Function, LowerError> {
         .iter()
         .map(|param| (param.name.clone(), param.ty))
         .collect();
-    let body = lower_body(&def.body, &mut scope, ret)?;
+    let (doc, rest) = split_docstring(&def.body);
+    let body = lower_body(rest, &mut scope, ret)?;
 
     Ok(Function {
         name: def.name.to_string(),
         params,
         ret,
         body,
+        doc,
         span: Span::from(def.range()),
     })
+}
+
+/// Split a leading docstring off a function body.
+///
+/// Python treats a bare string literal in first position as documentation: the interpreter records
+/// it from the code object rather than by executing the statement, so it contributes nothing to
+/// what the function does. Removing it here means the rest of lowering never sees it, and the
+/// catch-all that rejects discarded expression statements keeps working everywhere else — a string
+/// in *second* position is still an error, because there it really is a value thrown away.
+///
+/// Adjacent literals (`"a" "b"`) are concatenated by the parser into one node, so they are covered
+/// without special handling. An f-string is a different node and is not matched, which is correct:
+/// Python does not treat an f-string as a docstring either.
+fn split_docstring(body: &[PyStmt]) -> (Option<String>, &[PyStmt]) {
+    let Some(PyStmt::Expr(statement)) = body.first() else {
+        return (None, body);
+    };
+    let PyExpr::StringLiteral(literal) = statement.value.as_ref() else {
+        return (None, body);
+    };
+    (Some(literal.value.to_str().to_string()), &body[1..])
 }
 
 fn lower_parameters(parameters: &Parameters, owner: &str) -> Result<Vec<Param>, LowerError> {

@@ -40,6 +40,15 @@ def _concat(a: str, b: str) -> str:
     return a + b
 
 
+def _documented(n: int) -> int:
+    """Triple a value.
+
+    Included so the end-to-end path covers a documented function, which was rejected
+    outright until docstrings were accepted.
+    """
+    return n * 3
+
+
 @pytest.fixture(scope="module")
 def project(tmp_path_factory: pytest.TempPathFactory) -> compylr.Manager:
     """A manager with several functions marked and built once for the whole module."""
@@ -54,6 +63,7 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> compylr.Manager:
     c.compyle(_modulo)
     c.compyle(_ratio)
     c.compyle(_concat)
+    c.compyle(_documented)
     c.ensure_built()
     return c
 
@@ -110,7 +120,7 @@ class TestArtifacts:
     def test_the_ir_is_written_and_readable(self, project: compylr.Manager) -> None:
         artifact = json.loads(project.paths.ir.read_text())
         names = {f["name"] for f in artifact["functions"]}
-        assert {"_add", "_floordiv", "_modulo", "_ratio", "_concat"} <= names
+        assert {"_add", "_floordiv", "_modulo", "_ratio", "_concat", "_documented"} <= names
 
     def test_the_generated_rust_is_written(self, project: compylr.Manager) -> None:
         source = project.paths.target_source.read_text()
@@ -130,6 +140,7 @@ class TestArtifacts:
             "_modulo",
             "_ratio",
             "_concat",
+            "_documented",
         }
 
 
@@ -202,5 +213,24 @@ class TestReuseAcrossProcesses:
         fresh.compyle(_modulo)
         fresh.compyle(_ratio)
         fresh.compyle(_concat)
+        fresh.compyle(_documented)
 
         assert fresh._functions["_floordiv"](-7, 2) == -4
+
+
+class TestDocumentedFunctions:
+    def test_a_documented_function_compiles_and_matches(self, project: compylr.Manager) -> None:
+        compiled = project._functions["_documented"]
+        assert compiled(5) == _documented(5)
+
+    def test_the_docstring_reaches_the_generated_rust(self, project: compylr.Manager) -> None:
+        source = project.paths.target_source.read_text()
+        assert "/// Triple a value." in source, (
+            "the generated source is written to be read, and a translated function stripped of "
+            "its explanation is harder to check against the original"
+        )
+
+    def test_the_docstring_is_readable_on_the_marked_function(
+        self, project: compylr.Manager
+    ) -> None:
+        assert project._functions["_documented"].__doc__ == _documented.__doc__
