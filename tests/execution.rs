@@ -36,13 +36,26 @@ fn run(label: &str, source: &str, main_body: &str) -> String {
     let unit = unit_from(source);
     let emitted = lookup("rust").unwrap().emit(&unit).expect("must emit");
 
+    // The crate is written out and a `main.rs` added beside it, so the code under test is
+    // compiled exactly as it ships rather than concatenated into a shape it never takes.
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(label);
-    std::fs::create_dir_all(&dir).expect("scratch directory");
-    let source_path = dir.join("main.rs");
+    let _ = std::fs::remove_dir_all(&dir);
+    for (relative, contents) in &emitted {
+        let path = dir.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).expect("scratch directory");
+        std::fs::write(&path, contents).expect("write generated source");
+    }
+    let source_path = dir.join("src/main.rs");
     let binary_path = dir.join("program");
 
-    let program = format!("{emitted}\nuse generated::*;\nfn main() {{\n{main_body}\n}}\n");
-    std::fs::write(&source_path, &program).expect("write generated source");
+    let program = format!(
+        "#![allow(unused_parens, non_snake_case, unused_variables, dead_code, unused_imports)]\n\
+         mod compat;\n\
+         mod generated;\n\
+         use generated::*;\n\
+         fn main() {{\n{main_body}\n}}\n"
+    );
+    std::fs::write(&source_path, &program).expect("write the harness");
 
     let compile = Command::new("rustc")
         .arg("--edition")
@@ -55,9 +68,9 @@ fn run(label: &str, source: &str, main_body: &str) -> String {
 
     assert!(
         compile.status.success(),
-        "generated Rust did not compile:\n{}\n--- source ---\n{}",
+        "generated Rust did not compile:\n{}\n--- translated ---\n{}",
         String::from_utf8_lossy(&compile.stderr),
-        program
+        emitted["src/generated.rs"]
     );
 
     let output = Command::new(&binary_path)

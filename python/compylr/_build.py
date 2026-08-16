@@ -32,7 +32,11 @@ from ._errors import BuildError, ToolchainMissingError
 __all__ = ["BuildPaths", "BuildPipeline"]
 
 #: Version of the on-disk build state, so a future layout change is detected rather than misread.
-_STATE_VERSION = 1
+#:
+#: Bumped to 2 when the generated crate went from one `lib.rs` to a file per concern. Without the
+#: bump an unchanged project would skip the rebuild and keep the old single file on disk -- never
+#: compiled against, but shown to anyone who opens it, contradicting the documented layout.
+_STATE_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,8 +54,17 @@ class BuildPaths:
         return self.root / "crate"
 
     @property
+    def src(self) -> Path:
+        return self.crate / "src"
+
+    @property
     def target_source(self) -> Path:
-        return self.crate / "src" / "lib.rs"
+        """The file holding the translated functions.
+
+        Named specifically because it is the one worth reading: `lib.rs` is module declarations,
+        `compat.rs` is identical in every project, and `bindings.rs` is boundary plumbing.
+        """
+        return self.src / "generated.rs"
 
     @property
     def manifest(self) -> Path:
@@ -180,8 +193,21 @@ class BuildPipeline:
         self.paths.ir.parent.mkdir(parents=True, exist_ok=True)
         self.paths.ir.write_text(compiled.ir_artifact + "\n")
 
-        self.paths.target_source.parent.mkdir(parents=True, exist_ok=True)
-        self.paths.target_source.write_text(compiled.target_source)
+        # `src/` holds nothing hand-authored, so it is rewritten wholesale rather than diffed
+        # against a record of the last build. A file a previous build wrote and this one did not
+        # would still compile, and could still be reachable if a module declaration outlived it --
+        # a failure that presents as "my change had no effect".
+        #
+        # Scoped to `src/`: the manifest, the cargo configuration, and `target/` sit outside it,
+        # and losing `target/` would make every build a cold build.
+        if self.paths.src.exists():
+            shutil.rmtree(self.paths.src)
+        for relative, contents in compiled.target_sources.items():
+            path = self.paths.crate / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(contents)
+
+        self.paths.crate.mkdir(parents=True, exist_ok=True)
         self.paths.manifest.write_text(compiled.manifest)
 
         # An extension module resolves the interpreter's symbols at load time instead of linking

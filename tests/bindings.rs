@@ -42,10 +42,14 @@ fn build_extension(label: &str, source: &str) -> (PathBuf, String) {
     let emitted = emit_extension(&unit).expect("must emit");
 
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(label);
-    let src = root.join("src");
-    std::fs::create_dir_all(&src).expect("crate directory");
+    let _ = std::fs::remove_dir_all(root.join("src"));
+    std::fs::create_dir_all(&root).expect("crate directory");
     std::fs::write(root.join("Cargo.toml"), cargo_manifest(&unit, PYO3_VERSION)).unwrap();
-    std::fs::write(src.join("lib.rs"), &emitted).unwrap();
+    for (relative, contents) in &emitted {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+    }
 
     // An extension module resolves Python's symbols from the interpreter that loads it rather
     // than linking libpython, which is what `extension-module` asks for. On macOS the linker has
@@ -88,9 +92,9 @@ fn build_extension(label: &str, source: &str) -> (PathBuf, String) {
     let output = command.output().expect("cargo must be available");
     assert!(
         output.status.success(),
-        "generated crate did not build:\n{}\n--- source ---\n{}",
+        "generated crate did not build:\n{}\n--- translated ---\n{}",
         String::from_utf8_lossy(&output.stderr),
-        emitted
+        emitted["src/generated.rs"]
     );
 
     // Python imports `<name>.so`; cargo produces `lib<name>.dylib` or `lib<name>.so`.

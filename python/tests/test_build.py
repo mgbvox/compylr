@@ -165,7 +165,7 @@ class TestCache:
         pipeline.paths.state.write_text(
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "fingerprint": "abc123",
                     "module_name": "compylr_generated_abc123",
                     "functions": ["f"],

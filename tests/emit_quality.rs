@@ -60,8 +60,16 @@ fn every_accepted_fixture_compiles_without_warnings() {
     for (label, names) in fixture_groups() {
         let unit = unit_from_fixtures(&names);
         let emitted = backend.emit(&unit).expect("must emit");
-        let path = tmp.join(format!("{label}.rs"));
-        std::fs::write(&path, &emitted).unwrap();
+        // Written out and compiled from the crate root, as the build pipeline does. The files
+        // cannot be concatenated: `lib.rs` opens with inner attributes.
+        let dir = tmp.join(label);
+        let _ = std::fs::remove_dir_all(&dir);
+        for (relative, contents) in &emitted {
+            let path = dir.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, contents).unwrap();
+        }
+        let path = dir.join("src/lib.rs");
 
         let output = Command::new("rustc")
             .arg("--edition")
@@ -92,14 +100,10 @@ fn emitted_source_is_stable() {
     for (label, names) in fixture_groups() {
         let unit = unit_from_fixtures(&names);
         let emitted = backend.emit(&unit).expect("must emit");
-        // The embedded runtime is a verbatim copy of `src/backend/runtime.rs` and is already
-        // covered by its own tests; snapshotting it here would turn every comment edit in that
-        // file into a snapshot review with nothing to review.
-        let marker = "pub mod generated {";
-        let index = emitted
-            .find(marker)
-            .expect("generated module must be present");
-        let functions = &emitted[index + marker.len()..];
+        // The translated functions are their own file now, so this is a lookup. It used to be
+        // string surgery, to keep a comment edit in the runtime from forcing a snapshot review;
+        // splitting the crate made the workaround unnecessary.
+        let functions = &emitted["src/generated.rs"];
         insta::assert_snapshot!(format!("emit_{label}"), functions.trim());
     }
 }
@@ -108,7 +112,7 @@ fn emitted_source_is_stable() {
 fn formatting_is_best_effort_and_never_loses_the_source() {
     let backend = lookup("rust").unwrap();
     let unit = unit_from_fixtures(&["arithmetic.py"]);
-    let emitted = backend.emit(&unit).unwrap();
+    let emitted = backend.emit(&unit).unwrap()["src/generated.rs"].clone();
     let formatted = format_source(&emitted);
 
     // Whether or not rustfmt ran, the result must still be the same program.
@@ -127,16 +131,19 @@ fn formatting_is_best_effort_and_never_loses_the_source() {
 
 #[test]
 fn formatting_does_not_change_what_the_code_does() {
-    // If rustfmt is present, the formatted source must still compile; if it is absent,
-    // `format_source` returns the input and this is the same assertion as above.
+    // If rustfmt is present, the formatted crate must still compile; if it is absent,
+    // `format_source` returns its input and this is the same assertion as above.
     let backend = lookup("rust").unwrap();
     let unit = unit_from_fixtures(&["division.py"]);
-    let formatted = format_source(&backend.emit(&unit).unwrap());
+    let emitted = backend.emit(&unit).unwrap();
 
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("fmt");
-    std::fs::create_dir_all(&tmp).unwrap();
-    let path = tmp.join("formatted.rs");
-    std::fs::write(&path, &formatted).unwrap();
+    let _ = std::fs::remove_dir_all(&tmp);
+    for (relative, contents) in &emitted {
+        let path = tmp.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, format_source(contents)).unwrap();
+    }
 
     let output = Command::new("rustc")
         .arg("--edition")
@@ -147,7 +154,7 @@ fn formatting_does_not_change_what_the_code_does() {
         .arg("metadata")
         .arg("-o")
         .arg(tmp.join("formatted.rmeta"))
-        .arg(&path)
+        .arg(tmp.join("src/lib.rs"))
         .output()
         .expect("rustc must be available");
 
