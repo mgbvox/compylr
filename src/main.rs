@@ -20,11 +20,13 @@ use compylr::ir::Unit;
 use compylr::lower::lower_source;
 
 const USAGE: &str = "\
-usage: compylr [--emit summary|ir|rust] [--backend NAME] <file.py>
+usage: compylr [--emit summary|ir|rust|crate] [--out DIR] [--backend NAME] <file.py>
 
   --emit summary   unit fingerprint and each function's signature (default)
   --emit ir        the IR artifact, as JSON
-  --emit rust      generated target source, without performing a build
+  --emit rust      the translated functions, without performing a build
+  --emit crate     every generated file; requires --out
+  --out DIR        destination for --emit crate
   --backend NAME   target backend (default: rust)
 ";
 
@@ -33,7 +35,10 @@ usage: compylr [--emit summary|ir|rust] [--backend NAME] <file.py>
 enum Emit {
     Summary,
     Ir,
+    /// The translated functions alone — what a reader is usually after, and pipeable.
     Target,
+    /// Every generated file, written to a directory.
+    Crate,
 }
 
 impl Emit {
@@ -42,8 +47,9 @@ impl Emit {
             "summary" => Ok(Self::Summary),
             "ir" => Ok(Self::Ir),
             "rust" | "target" => Ok(Self::Target),
+            "crate" => Ok(Self::Crate),
             other => Err(format!(
-                "unknown --emit value '{other}'; expected one of: summary, ir, rust"
+                "unknown --emit value '{other}'; expected one of: summary, ir, rust, crate"
             )),
         }
     }
@@ -55,6 +61,7 @@ struct Options {
     path: PathBuf,
     emit: Emit,
     backend: String,
+    out: Option<PathBuf>,
 }
 
 /// Parse arguments by hand.
@@ -65,6 +72,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut path: Option<PathBuf> = None;
     let mut emit = Emit::Summary;
     let mut backend = "rust".to_string();
+    let mut out: Option<PathBuf> = None;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -75,6 +83,9 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
             }
             "--backend" => {
                 backend = args.next().ok_or("--backend needs a value")?;
+            }
+            "--out" => {
+                out = Some(PathBuf::from(args.next().ok_or("--out needs a value")?));
             }
             "-h" | "--help" => return Err(String::new()),
             other if other.starts_with('-') => {
@@ -89,11 +100,18 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
         }
     }
 
-    Ok(Options {
+    let options = Options {
         path: path.ok_or("no input file given")?,
         emit,
         backend,
-    })
+        out,
+    };
+    // Required rather than defaulted: writing several files somewhere the user did not name is a
+    // side effect a command should not have.
+    if options.emit == Emit::Crate && options.out.is_none() {
+        return Err("--emit crate needs --out DIR to write to".to_string());
+    }
+    Ok(options)
 }
 
 fn main() -> ExitCode {
@@ -159,9 +177,50 @@ fn run(options: &Options) -> Result<String, String> {
             .to_json()
             .map(|json| format!("{json}\n"))
             .map_err(|error| error.to_string()),
-        Emit::Target => backend
-            .emit_python_extension(&unit)
-            .map_err(|error| error.to_string()),
+        Emit::Target => {
+            // Only the translated functions. Printing every file as one stream would produce
+            // something that no longer compiles when redirected to a single `.rs`, quietly
+            // breaking the obvious use of the flag.
+            let files = backend
+                .emit_python_extension(&unit)
+                .map_err(|error| error.to_string())?;
+            files
+                .get(compylr::backend::rust::GENERATED_PATH)
+                .cloned()
+                .ok_or_else(|| "this backend emits no translated-code file".to_string())
+        }
+        Emit::Crate => {
+            let files = backend
+                .emit_python_extension(&unit)
+                .map_err(|error| error.to_string())?;
+            let root = options
+                .out
+                .as_ref()
+                .expect("checked while parsing arguments");
+            let mut written = Vec::new();
+            for (relative, contents) in &files {
+                let path = root.join(relative);
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+                }
+                std::fs::write(&path, contents)
+                    .map_err(|e| format!("could not write {}: {e}", path.display()))?;
+                written.push(relative.clone());
+            }
+            let manifest = backend
+                .build_manifest(&unit)
+                .map_err(|error| error.to_string())?;
+            std::fs::write(root.join("Cargo.toml"), manifest)
+                .map_err(|e| format!("could not write the manifest: {e}"))?;
+            written.push("Cargo.toml".to_string());
+            // A report of what was written, never source: the source went to files.
+            Ok(format!(
+                "wrote {} to {}\n",
+                written.join(", "),
+                root.display()
+            ))
+        }
     }
 }
 

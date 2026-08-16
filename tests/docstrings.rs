@@ -268,18 +268,26 @@ mod still_rejected {
 mod emission {
     use super::*;
 
-    /// Emit, keeping only the generated functions.
+    /// The translated functions.
     ///
-    /// The embedded runtime is itself documented, so asserting against the whole file would find
-    /// `///` whether or not the function under test carried a docstring.
+    /// The helpers are themselves documented, so asserting against the whole crate would find
+    /// `///` whether or not the function under test carried a docstring. Now they are a
+    /// different file, so this is a lookup rather than string surgery.
     fn emit(source: &str) -> String {
-        let emitted = lookup("rust")
+        lookup("rust")
             .unwrap()
             .emit(&unit_from(source))
-            .expect("must emit");
-        let marker = "pub mod generated {";
-        let index = emitted.find(marker).expect("generated module");
-        emitted[index + marker.len()..].to_string()
+            .expect("must emit")
+            .remove("src/generated.rs")
+            .expect("a translated-code file must be emitted")
+    }
+
+    /// Every emitted file, as the crate it describes.
+    fn whole_crate(source: &str) -> std::collections::BTreeMap<String, String> {
+        lookup("rust")
+            .unwrap()
+            .emit(&unit_from(source))
+            .expect("must emit")
     }
 
     #[test]
@@ -324,16 +332,26 @@ mod emission {
     /// `label` must be unique per test. `cargo test` runs these in parallel, and sharing one
     /// scratch path makes them race — which surfaces as a suite that passes on one run and fails
     /// on the next, the worst kind of failure to chase.
-    fn compiles(label: &str, emitted: &str) -> Result<(), String> {
+    fn compiles(
+        label: &str,
+        files: &std::collections::BTreeMap<String, String>,
+    ) -> Result<(), String> {
         use std::path::PathBuf;
         use std::process::Command;
 
+        // Written out and compiled from the crate root, which is what the build pipeline does.
+        // Concatenating the files would not work: `lib.rs` opens with inner attributes, which are
+        // only valid at the top of a file.
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("docstrings")
             .join(label);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("lib.rs");
-        std::fs::write(&path, emitted).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        for (relative, contents) in files {
+            let path = dir.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, contents).unwrap();
+        }
+        let path = dir.join("src/lib.rs");
 
         let output = Command::new("rustc")
             .args([
@@ -367,9 +385,13 @@ mod emission {
             "    and spans lines\"\"\"\n",
             "    return a\n",
         );
-        let whole = lookup("rust").unwrap().emit(&unit_from(source)).unwrap();
+        let whole = whole_crate(source);
 
-        assert!(whole.contains("/// closes */ a block"), "{}", emit(source));
+        assert!(
+            whole["src/generated.rs"].contains("/// closes */ a block"),
+            "{}",
+            emit(source)
+        );
         if let Err(stderr) = compiles("risky", &whole) {
             panic!("emitted source did not compile:\n{stderr}");
         }
@@ -377,11 +399,7 @@ mod emission {
 
     #[test]
     fn a_documented_unit_still_compiles() {
-        let whole = lookup("rust")
-            .unwrap()
-            .emit(&unit_from(DOCUMENTED))
-            .unwrap();
-        if let Err(stderr) = compiles("documented", &whole) {
+        if let Err(stderr) = compiles("documented", &whole_crate(DOCUMENTED)) {
             panic!("emitted source did not compile:\n{stderr}");
         }
     }

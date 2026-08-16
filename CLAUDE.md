@@ -108,7 +108,8 @@ cargo clippy -p compylr --all-targets -- -D warnings
 cargo llvm-cov -p compylr --ignore-filename-regex '(vendored/|/main\.rs)' --summary-only
 cargo run -- python/fixtures/accepted/aliases.py            # summary
 cargo run -- --emit ir   python/fixtures/accepted/aliases.py   # the IR as JSON
-cargo run -- --emit rust python/fixtures/accepted/aliases.py   # generated Rust, no build
+cargo run -- --emit rust python/fixtures/accepted/aliases.py   # translated code only
+cargo run -- --emit crate --out ./out python/fixtures/accepted/aliases.py
 
 # Python (needs the venv; `maturin develop` rebuilds compylr._core after Rust changes)
 uv venv && source .venv/bin/activate
@@ -119,6 +120,10 @@ ruff check python/ && mypy python/compylr
 ./scripts/render_change_epub.py             # spec -> EPUB in reports/
 ./scripts/send_to_kindle.py <file> --dry-run
 ```
+
+**Run `cargo llvm-cov` with the venv deactivated.** The bridge tests auto-initialize a Python
+interpreter, and an active venv makes that mismatch what PyO3 linked against — the suite aborts
+with "no Python frame", which looks like a real failure and is not. `cargo test` is unaffected.
 
 **Never lint `python/fixtures/`.** They are compiler inputs, and `rejected/` is deliberately
 invalid — `ruff check --fix` once deleted the `import os` from `import_statement.py`, silently

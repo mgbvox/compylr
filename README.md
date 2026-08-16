@@ -43,10 +43,16 @@ compiled artifact is a black box:
 
 ```
 .compylr/
-  ir/unit.json        the IR, as JSON
-  crate/src/lib.rs    the generated Rust
-  state.json          fingerprint of the last successful build
+  ir/unit.json            the IR, as JSON
+  crate/src/generated.rs  your functions, translated — the file worth reading
+  crate/src/compat.rs     Python semantics in Rust; identical in every project
+  crate/src/bindings.rs   the PyO3 boundary
+  crate/src/lib.rs        module declarations and the module registration
+  state.json              fingerprint of the last successful build
 ```
+
+The crate is split by concern so `generated.rs` opens on your code. It used to be one file, where
+a single one-line function produced 238 lines and the translation was lines 200–212.
 
 | Capability | What it covers |
 | --- | --- |
@@ -92,8 +98,9 @@ unit fingerprint: bcddf18219a7c991
 gives you a usable file:
 
 ```bash
-cargo run -- --emit ir   python/fixtures/accepted/inference.py   # the IR, as JSON
-cargo run -- --emit rust python/fixtures/accepted/inference.py > out.rs
+cargo run -- --emit ir    python/fixtures/accepted/inference.py   # the IR, as JSON
+cargo run -- --emit rust  python/fixtures/accepted/inference.py   # just the translated code
+cargo run -- --emit crate --out ./out python/fixtures/accepted/inference.py
 ```
 
 Artifacts live in `.compylr/`, found by searching upward from the working directory for a

@@ -102,16 +102,18 @@ mod emit {
     }
 
     #[test]
-    fn the_generated_source_is_emitted_without_a_build() {
+    fn only_the_translated_code_is_printed() {
+        // The part a reader is after, and the part that stays useful piped into a pager. Printing
+        // every file as one stream would produce something that no longer compiles when
+        // redirected to a single `.rs`.
         let output = cli(&["--emit", "rust", ACCEPTED]);
         assert!(output.status.success(), "{}", stderr(&output));
 
         let out = stdout(&output);
-        assert!(out.contains("pub mod generated"), "{out}");
-        assert!(out.contains("#[pymodule]"), "{out}");
-        // The whole point is getting here without a toolchain run: emitting is pure, so the
-        // output is complete generated source and nothing was compiled to produce it.
-        assert!(out.contains("pub mod runtime"), "{out}");
+        assert!(out.contains("pub fn comparisons"), "{out}");
+        assert!(!out.contains("#[pymodule]"), "no boundary code:\n{out}");
+        assert!(!out.contains("py_floordiv(lhs"), "no helpers:\n{out}");
+        assert!(!out.contains("pub mod compat;"), "no crate root:\n{out}");
     }
 
     #[test]
@@ -163,5 +165,70 @@ mod backends {
         let output = cli(&["--backend", "nonesuch", "does/not/exist.py"]);
         assert!(!output.status.success());
         assert!(stderr(&output).contains("nonesuch"), "{}", stderr(&output));
+    }
+}
+
+mod crate_form {
+    use super::*;
+
+    fn out_dir(name: &str) -> PathBuf {
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join("cli-crate")
+            .join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn every_file_is_written() {
+        let dir = out_dir("every-file");
+        let output = cli(&["--emit", "crate", "--out", dir.to_str().unwrap(), ACCEPTED]);
+        assert!(output.status.success(), "{}", stderr(&output));
+
+        for expected in [
+            "src/lib.rs",
+            "src/generated.rs",
+            "src/bindings.rs",
+            "src/compat.rs",
+            "Cargo.toml",
+        ] {
+            assert!(dir.join(expected).exists(), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn a_missing_directory_is_created() {
+        let dir = out_dir("nested").join("deeper").join("still");
+        let output = cli(&["--emit", "crate", "--out", dir.to_str().unwrap(), ACCEPTED]);
+        assert!(output.status.success(), "{}", stderr(&output));
+        assert!(dir.join("src/lib.rs").exists());
+    }
+
+    #[test]
+    fn no_source_goes_to_the_output_stream() {
+        let dir = out_dir("quiet");
+        let output = cli(&["--emit", "crate", "--out", dir.to_str().unwrap(), ACCEPTED]);
+        let out = stdout(&output);
+        assert!(out.contains("wrote"), "a report is fine: {out}");
+        assert!(!out.contains("pub fn"), "but not source:\n{out}");
+    }
+
+    #[test]
+    fn the_destination_is_required() {
+        let output = cli(&["--emit", "crate", ACCEPTED]);
+        assert!(!output.status.success());
+        assert!(stderr(&output).contains("--out"), "{}", stderr(&output));
+    }
+
+    #[test]
+    fn writing_a_crate_invokes_no_toolchain() {
+        // No `target/` appears, because nothing was compiled to produce the files.
+        let dir = out_dir("no-build");
+        let output = cli(&["--emit", "crate", "--out", dir.to_str().unwrap(), ACCEPTED]);
+        assert!(output.status.success());
+        assert!(
+            !dir.join("target").exists(),
+            "nothing should have been built"
+        );
     }
 }

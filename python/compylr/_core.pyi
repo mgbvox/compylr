@@ -7,7 +7,8 @@ the Rust side promises; if the two drift, the Python package type-checks against
 class CompiledUnit:
     """Everything a successful compilation produces."""
 
-    target_source: str
+    #: Generated files, keyed by path relative to the crate root.
+    target_sources: dict[str, str]
     ir_artifact: str
     fingerprint: str
     module_name: str

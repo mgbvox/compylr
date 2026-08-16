@@ -14,7 +14,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
-use crate::backend::{self, BackendError};
+use crate::backend::{self, BackendError, GeneratedFiles};
 use crate::error::{FrontendError, LowerError};
 use crate::frontend::parse_source;
 use crate::ir::Unit;
@@ -23,8 +23,11 @@ use crate::lower::{Signatures, collect_signatures, lower_source, lower_source_wi
 /// Everything a successful compilation produces.
 #[derive(Debug, Clone)]
 pub struct Compiled {
-    /// Generated target source, bindings included.
-    pub target_source: String,
+    /// Generated target files, keyed by path relative to the crate root.
+    ///
+    /// A mapping rather than one string: a backend emits a crate, and the paths are relative so
+    /// the caller decides where it lands.
+    pub target_sources: GeneratedFiles,
     /// The IR, serialized for inspection.
     pub ir_artifact: String,
     /// Fingerprint of the compiled unit.
@@ -141,7 +144,7 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
             column: 1,
         })?;
 
-    let target_source = backend
+    let target_sources = backend
         .emit_python_extension(&unit)
         .map_err(CompileFailure::Backend)?;
     let manifest = backend
@@ -154,7 +157,7 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     })?;
 
     Ok(Compiled {
-        target_source,
+        target_sources,
         ir_artifact,
         fingerprint: unit.fingerprint(),
         module_name: crate::backend::bindings::module_name(&unit),
@@ -244,9 +247,9 @@ impl CompileFailure {
 )]
 #[derive(Debug, Clone)]
 pub struct PyCompiledUnit {
-    /// Generated target source, bindings included.
+    /// Generated target files, keyed by path relative to the crate root.
     #[pyo3(get)]
-    pub target_source: String,
+    pub target_sources: std::collections::BTreeMap<String, String>,
     /// The IR, serialized for inspection.
     #[pyo3(get)]
     pub ir_artifact: String,
@@ -267,7 +270,7 @@ pub struct PyCompiledUnit {
 impl From<Compiled> for PyCompiledUnit {
     fn from(compiled: Compiled) -> Self {
         Self {
-            target_source: compiled.target_source,
+            target_sources: compiled.target_sources,
             ir_artifact: compiled.ir_artifact,
             fingerprint: format!("{:016x}", compiled.fingerprint),
             module_name: compiled.module_name,

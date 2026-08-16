@@ -13,10 +13,14 @@ const ADD: &str = "def add(a: int, b: int) -> int:\n    return a + b\n";
 fn one_source_compiles_to_target_source_ir_and_a_fingerprint() {
     let compiled = compile(&[ADD.to_string()], "rust").expect("must compile");
 
-    assert!(compiled.target_source.contains("pub mod generated"));
+    assert!(compiled.target_sources.contains_key("src/generated.rs"));
     assert!(
-        compiled.target_source.contains("#[pymodule]"),
-        "the target source must include the bindings that make it importable"
+        compiled.target_sources["src/lib.rs"].contains("#[pymodule]"),
+        "the crate root must include the registration that makes it importable"
+    );
+    assert!(
+        compiled.target_sources.keys().all(|p| !p.starts_with('/')),
+        "paths must be relative, so the caller decides where the crate lands"
     );
     assert!(compiled.ir_artifact.contains("\"add\""));
     assert_ne!(compiled.fingerprint, 0);

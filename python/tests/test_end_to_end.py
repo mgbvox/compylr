@@ -140,8 +140,30 @@ class TestArtifacts:
 
     def test_the_generated_rust_is_written(self, project: compylr.Manager) -> None:
         source = project.paths.target_source.read_text()
-        assert "pub mod generated" in source
-        assert "py_floordiv" in source, "the semantics-preserving helper must be in the output"
+        assert "pub fn _floordiv" in source
+        assert "py_floordiv" in source, "the semantics-preserving helper must be called"
+
+    def test_the_crate_is_split_by_concern(self, project: compylr.Manager) -> None:
+        src = project.paths.src
+        assert {p.name for p in src.iterdir()} == {
+            "lib.rs",
+            "generated.rs",
+            "bindings.rs",
+            "compat.rs",
+        }
+
+    def test_the_translated_file_opens_on_the_translated_code(
+        self, project: compylr.Manager
+    ) -> None:
+        # The whole point: a reader opening this file sees their functions, not two hundred lines
+        # of helpers that are identical in every project.
+        lines = project.paths.target_source.read_text().splitlines()
+        first_fn = next(i for i, line in enumerate(lines) if line.startswith("pub fn"))
+        assert first_fn < 10, f"translated code should be near the top, found at line {first_fn}"
+
+    def test_the_crate_root_does_not_grow_with_the_program(self, project: compylr.Manager) -> None:
+        root = (project.paths.src / "lib.rs").read_text().splitlines()
+        assert len(root) < 20, "the crate root must stay lean regardless of function count"
 
     def test_all_generated_files_share_one_root(self, project: compylr.Manager) -> None:
         root = project.paths.root

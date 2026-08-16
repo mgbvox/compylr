@@ -15,6 +15,7 @@
 //! target exists, which is both false and discouraging. An enum could not express `Reserved`
 //! without carrying a second list beside it.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
@@ -22,6 +23,12 @@ use crate::ir::Unit;
 
 pub mod bindings;
 pub mod rust;
+
+/// The files of a generated crate, keyed by path relative to the crate root.
+///
+/// Paths are relative so the caller decides where the crate lands; ordered so that emitting the
+/// same unit twice iterates identically.
+pub type GeneratedFiles = BTreeMap<String, String>;
 
 /// A target language backend.
 ///
@@ -31,11 +38,17 @@ pub trait Backend: fmt::Debug + Send + Sync {
     /// The registry name this backend is selected by.
     fn name(&self) -> &'static str;
 
-    /// Render a unit as source text in this backend's target language.
+    /// Render a unit as the files of a crate, keyed by relative path.
     ///
-    /// Emission is a pure function of the unit: no I/O, no filesystem, no environment. That is
-    /// what makes output byte-reproducible, which the rebuild cache depends on.
-    fn emit(&self, unit: &Unit) -> Result<String, BackendError>;
+    /// A map rather than one string, because generated source is written to disk to be *read*,
+    /// and one file that opens with two hundred identical lines in every project buries the dozen
+    /// the reader came for. A [`BTreeMap`] rather than a hash map so iteration order is
+    /// deterministic, for the same reason [`Unit`] holds its functions in one.
+    ///
+    /// Emission is still a pure function of the unit: no I/O, no filesystem, no environment.
+    /// Returning a set of files must not become *writing* files — that is the build pipeline's
+    /// job, and keeping it there is what makes the determinism guarantee mean anything.
+    fn emit(&self, unit: &Unit) -> Result<GeneratedFiles, BackendError>;
 
     /// Render a unit as a Python extension module, bindings included.
     ///
@@ -44,7 +57,7 @@ pub trait Backend: fmt::Debug + Send + Sync {
     /// by an entirely different route. The default refuses rather than pretending, so a backend
     /// that gains code generation without gaining bindings cannot silently appear to support the
     /// decorator.
-    fn emit_python_extension(&self, _unit: &Unit) -> Result<String, BackendError> {
+    fn emit_python_extension(&self, _unit: &Unit) -> Result<GeneratedFiles, BackendError> {
         Err(BackendError::Unsupported {
             detail: format!(
                 "the '{}' backend can generate source but cannot yet expose it to Python",

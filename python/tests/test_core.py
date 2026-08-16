@@ -20,15 +20,24 @@ class TestCompileUnit:
         compiled = _core.compile_unit([ADD])
 
         assert compiled.function_names == ["add"]
-        assert "pub mod generated" in compiled.target_source
-        assert "#[pymodule]" in compiled.target_source
+        assert set(compiled.target_sources) == {
+            "src/lib.rs",
+            "src/generated.rs",
+            "src/bindings.rs",
+            "src/compat.rs",
+        }
+        assert "pub fn add" in compiled.target_sources["src/generated.rs"]
+        assert "#[pymodule]" in compiled.target_sources["src/lib.rs"]
+        assert all(not p.startswith("/") for p in compiled.target_sources), (
+            "paths must be relative, so the caller chooses where the crate lands"
+        )
         assert compiled.module_name.startswith("compylr_generated_")
         assert "pyo3" in compiled.manifest
 
     def test_defaults_to_the_rust_backend(self) -> None:
         assert (
-            _core.compile_unit([ADD]).target_source
-            == _core.compile_unit([ADD], "rust").target_source
+            _core.compile_unit([ADD]).target_sources
+            == _core.compile_unit([ADD], "rust").target_sources
         )
 
     def test_an_empty_project_is_not_an_error(self) -> None:
