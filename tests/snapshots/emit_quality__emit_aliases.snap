@@ -2,24 +2,28 @@
 source: tests/emit_quality.rs
 expression: functions.trim()
 ---
-pub fn alias_chain(a: bool) -> Result<bool, RuntimeError> {
-    let b: bool = a;
-    let c: bool = b;
-    Ok(c)
-}
+use super::runtime::{PyAdd, PyNum, RuntimeError, py_truediv};
 
-pub fn alias_local() -> Result<String, RuntimeError> {
-    let x: String = String::from("hi");
-    let y: String = x.clone();
-    Ok(y.clone())
-}
+    pub fn alias_chain(a: bool) -> Result<bool, RuntimeError> {
+        let b: bool = a;
+        let c: bool = b;
+        Ok(c)
+    }
 
-pub fn alias_parameter(a: i64) -> Result<i64, RuntimeError> {
-    let b: i64 = a;
-    Ok(b)
-}
+    pub fn alias_local() -> Result<String, RuntimeError> {
+        let x: String = String::from("hi");
+        let y: String = x.clone();
+        Ok(y.clone())
+    }
 
-pub fn annotated_alias(a: i64) -> Result<i64, RuntimeError> {
-    let b: i64 = a;
-    Ok(b)
+    pub fn alias_parameter(a: i64) -> Result<i64, RuntimeError> {
+        let b: i64 = a;
+        Ok(b)
+    }
+
+    pub fn annotated_alias(a: i64) -> Result<i64, RuntimeError> {
+        let b: i64 = a;
+        Ok(b)
+    }
+
 }

@@ -50,7 +50,7 @@ const RUST_KEYWORDS: &[&str] = &[
 const UNRAWABLE_KEYWORDS: &[&str] = &["crate", "self", "Self", "super"];
 
 /// The Rust spelling of a Python name.
-fn rust_ident(name: &str) -> String {
+pub fn rust_ident(name: &str) -> String {
     if UNRAWABLE_KEYWORDS.contains(&name) {
         format!("{name}_")
     } else if RUST_KEYWORDS.contains(&name) {
@@ -64,7 +64,7 @@ fn rust_ident(name: &str) -> String {
 ///
 /// This mapping is the backend's alone. Nothing in `src/ir.rs` names a Rust type, which is what
 /// lets a Go or TypeScript backend consume the same tree and choose differently.
-fn rust_ty(ty: Ty) -> &'static str {
+pub fn rust_ty(ty: Ty) -> &'static str {
     match ty {
         Ty::Int => "i64",
         Ty::Float => "f64",
@@ -129,9 +129,24 @@ fn int_literal(value: i64) -> String {
 #[derive(Debug)]
 pub struct RustBackend;
 
+/// PyO3 version generated crates depend on.
+///
+/// Pinned to match this crate's own dependency: the bindings emitted here are written against
+/// that API, so letting a generated crate float to a different major version would produce code
+/// that does not compile.
+pub const PYO3_VERSION: &str = "0.29.2";
+
 impl Backend for RustBackend {
     fn name(&self) -> &'static str {
         "rust"
+    }
+
+    fn emit_python_extension(&self, unit: &Unit) -> Result<String, BackendError> {
+        super::bindings::emit_extension(unit)
+    }
+
+    fn build_manifest(&self, unit: &Unit) -> Result<String, BackendError> {
+        Ok(super::bindings::cargo_manifest(unit, PYO3_VERSION))
     }
 
     fn emit(&self, unit: &Unit) -> Result<String, BackendError> {
@@ -146,15 +161,29 @@ impl Backend for RustBackend {
             }
         }
         out.push_str("}\n\n");
-        out.push_str("use runtime::{PyAdd, PyNum, RuntimeError, py_truediv};\n\n");
 
+        // The translated functions live in their own module so nothing a user named can collide
+        // with the binding layer that wraps them. A Python function called `to_py_err` is
+        // perfectly legal, and without this it would clash with the helper of that name.
+        out.push_str(GENERATED_MODULE_HEADER);
         for function in unit.functions() {
-            out.push_str(&emit_function(function, unit)?);
+            for line in emit_function(function, unit)?.lines() {
+                if line.is_empty() {
+                    out.push('\n');
+                } else {
+                    let _ = writeln!(out, "    {line}");
+                }
+            }
             out.push('\n');
         }
+        out.push_str("}\n");
         Ok(out)
     }
 }
+
+/// Opening of the module holding the translated functions.
+pub const GENERATED_MODULE_HEADER: &str =
+    "pub mod generated {\n    use super::runtime::{PyAdd, PyNum, RuntimeError, py_truediv};\n\n";
 
 /// The preamble every generated file carries.
 ///

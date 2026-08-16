@@ -41,7 +41,7 @@ fn run(label: &str, source: &str, main_body: &str) -> String {
     let source_path = dir.join("main.rs");
     let binary_path = dir.join("program");
 
-    let program = format!("{emitted}\nfn main() {{\n{main_body}\n}}\n");
+    let program = format!("{emitted}\nuse generated::*;\nfn main() {{\n{main_body}\n}}\n");
     std::fs::write(&source_path, &program).expect("write generated source");
 
     let compile = Command::new("rustc")

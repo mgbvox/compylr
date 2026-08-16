@@ -30,19 +30,42 @@ git submodule update --init
 
 # Current state
 
-The pipeline is implemented up to the IR:
+The pipeline is complete end to end for the supported subset:
 
 ```
-source text ──frontend──> ruff AST ──lower──> compylr IR ──backend──> target code
-                                                             (not built yet)
+source text ──frontend──> ruff AST ──lower──> IR ──backend──> Rust ──maturin──> extension
 ```
 
-Supported Python subset: top-level `def`s only, fully annotated (`int`/`bool`/`str`, plus
-`None` as a return type); bodies of `return`, `pass`, and annotated assignment; expressions
-of literals, names, unary minus, `+ - * // %`, comparisons, and calls.
+`import compylr` works. `compylr.initialize()` returns a manager; `@c.compyle` marks a function,
+validating it immediately and compiling the whole project on the first call. Both intermediates
+(the IR as JSON, the generated Rust) are written under `.compylr/` on every build.
 
-One inference rule: `b = a` infers `b`'s type from `a` when the initializer is a bare name.
-Literals, expressions, and calls still require an annotation.
+Supported Python subset: top-level `def`s only, fully annotated (`int`/`float`/`bool`/`str`, plus
+`None` as a return type); bodies of `return`, `pass`, and assignment; expressions of literals,
+names, unary minus, `+ - * / // %`, comparisons, and calls. Local bindings infer their type
+whenever the initializer determines it; an initializer containing a call still needs an
+annotation, because lowering does not resolve callees.
+
+Known gaps worth knowing before you trip on them:
+
+* **A docstring is rejected.** It lowers as an expression statement, which the subset does not
+  allow, so `@c.compyle` cannot be applied to a documented function. Recorded as an xfail in
+  `python/tests/test_api.py`.
+* **Compiling needs `cargo` and `maturin` at runtime.** Installing compylr gets the compiler,
+  not the ability to build what it generates.
+* **`llm_assist` is accepted but refused when enabled**, and `typescript`/`go`/`cpp` are reserved
+  backend names that fail with a message saying they are planned.
+
+# Two PyO3 roles
+
+Do not conflate them:
+
+* `src/bridge.rs` exposes **the compiler** to Python as `compylr._core`, built from this repo.
+* `src/backend/bindings.rs` **generates** PyO3 code onto the user's functions, built at runtime
+  into a separate crate (`compylr_generated_<fingerprint>`).
+
+The fingerprint is in the generated module's name because CPython cannot reliably re-import an
+extension module under a name already in `sys.modules`.
 
 # Conventions
 
@@ -69,11 +92,22 @@ Literals, expressions, and calls still require an annotation.
 # Commands
 
 ```bash
-cargo test                                  # 82 tests
+# Rust
+cargo test
 cargo clippy -p compylr --all-targets -- -D warnings
 cargo llvm-cov -p compylr --ignore-filename-regex '(vendored/|/main\.rs)' --summary-only
-cargo run -- python/fixtures/accepted/aliases.py
+cargo run -- python/fixtures/accepted/aliases.py   # CLI: stops at the IR
+
+# Python (needs the venv; `maturin develop` rebuilds compylr._core after Rust changes)
+uv venv && source .venv/bin/activate
+uv pip install maturin pytest pytest-cov ruff mypy && maturin develop --release
+pytest                    # includes slow tests that compile Rust; -m "not slow" to skip
+ruff check python/ && mypy python/compylr
 
 ./scripts/render_change_epub.py             # spec -> EPUB in reports/
 ./scripts/send_to_kindle.py <file> --dry-run
 ```
+
+**Never lint `python/fixtures/`.** They are compiler inputs, and `rejected/` is deliberately
+invalid — `ruff check --fix` once deleted the `import os` from `import_statement.py`, silently
+removing the construct the fixture exists to test. `pyproject.toml` excludes them.

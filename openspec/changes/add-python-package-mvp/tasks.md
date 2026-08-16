@@ -56,67 +56,67 @@
 
 ## 7. PyO3 binding emission
 
-- [ ] 7.1 Write tests asserting a built unit exposes every function as a module attribute, and exposes nothing else beyond standard module attributes
-- [ ] 7.2 Write tests asserting parameters are accepted both positionally and by keyword under their Python names
-- [ ] 7.3 Write tests asserting each type round-trips across the boundary, that a unit return is `None`, and that a `bool` return is a Python `bool` rather than an `int`
-- [ ] 7.4 Write tests asserting a wrong argument type and a wrong argument count each raise `TypeError`
-- [ ] 7.5 Write tests asserting division by zero raises `ZeroDivisionError`, overflow raises `OverflowError`, the process survives both, and a failure in a nested compiled call propagates
-- [ ] 7.6 Implement binding emission as a layer over the pure-Rust functions per design.md D2, mapping `RuntimeError` onto the Python exception types
-- [ ] 7.7 Emit the module under a fingerprinted name per design.md D13
+- [x] 7.1 Write tests asserting a built unit exposes every function as a module attribute, and exposes nothing else beyond standard module attributes
+- [x] 7.2 Write tests asserting parameters are accepted both positionally and by keyword under their Python names
+- [x] 7.3 Write tests asserting each type round-trips across the boundary, that a unit return is `None`, and that a `bool` return is a Python `bool` rather than an `int`
+- [x] 7.4 Write tests asserting a wrong argument type and a wrong argument count each raise `TypeError`
+- [x] 7.5 Write tests asserting division by zero raises `ZeroDivisionError`, overflow raises `OverflowError`, the process survives both, and a failure in a nested compiled call propagates
+- [x] 7.6 Implement binding emission as a layer over the pure-Rust functions per design.md D2, mapping `RuntimeError` onto the Python exception types
+- [x] 7.7 Emit the module under a fingerprinted name per design.md D13
 
 ## 8. Native bridge
 
-- [ ] 8.1 Write tests for the compile entry point: one source compiles and returns target source, IR artifact, and fingerprint; an empty collection succeeds with an empty unit
-- [ ] 8.2 Write tests asserting sources are assembled into one unit — a cross-source call resolves, both supply orders give the same fingerprint, and duplicate names fail naming the conflict
-- [ ] 8.3 Write tests asserting compilation accepts source text with no file behind it
-- [ ] 8.4 Write tests asserting a syntax error and a subset rejection raise distinguishable exceptions, both carrying message and `line:column`, and both catchable through one base type
-- [ ] 8.5 Write tests asserting the backend registry's three-way behavior surfaces through the bridge
-- [ ] 8.6 Write tests asserting the reported fingerprint is unchanged by comments and reformatting, and changes when a body changes
-- [ ] 8.7 Implement `src/bridge.rs` as the `compylr._core` module with the exception taxonomy from design.md D15
-- [ ] 8.8 Add the root `pyproject.toml` with the maturin backend and the layout from design.md D14, and confirm the module imports from Python
+- [x] 8.1 Write tests for the compile entry point: one source compiles and returns target source, IR artifact, and fingerprint; an empty collection succeeds with an empty unit
+- [x] 8.2 Write tests asserting sources are assembled into one unit — a cross-source call resolves, both supply orders give the same fingerprint, and duplicate names fail naming the conflict
+- [x] 8.3 Write tests asserting compilation accepts source text with no file behind it
+- [x] 8.4 Write tests asserting a syntax error and a subset rejection raise distinguishable exceptions, both carrying message and `line:column`, and both catchable through one base type
+- [x] 8.5 Write tests asserting the backend registry's three-way behavior surfaces through the bridge
+- [x] 8.6 Write tests asserting the reported fingerprint is unchanged by comments and reformatting, and changes when a body changes
+- [x] 8.7 Implement `src/bridge.rs` as the `compylr._core` module with the exception taxonomy from design.md D15
+- [x] 8.8 Add the root `pyproject.toml` with the maturin backend and the layout from design.md D14, and confirm the module imports from Python
 
 ## 9. Python package — API surface
 
-- [ ] 9.1 Create `python/compylr/` and confirm `python/fixtures/` is untouched and `tests/fixtures.rs` still passes
-- [ ] 9.2 Write tests for initialization: explicit settings, defaults with no arguments, a repeat call with identical settings returning the same manager, and a repeat call with different settings raising and naming the conflicting setting
-- [ ] 9.3 Write tests for both decorator forms — bare, called with no arguments, and called with settings — asserting the first two are equivalent
-- [ ] 9.4 Write tests for setting resolution: an override applies to one function only, and unspecified settings are inherited
-- [ ] 9.5 Write tests asserting a reserved backend and an unknown backend each fail at decoration with their distinct messages
-- [ ] 9.6 Write tests asserting the assist mode raises when enabled globally or per-function, and is silent when disabled or omitted
-- [ ] 9.7 Write tests asserting an unsupported function is rejected at decoration with `line:column`, before any call, with no silent fallback
-- [ ] 9.8 Write tests asserting source is captured by introspection, that the decorator line is excluded, and that surrounding indentation does not cause a rejection
-- [ ] 9.9 Write tests asserting a marked function preserves name, docstring, module, and annotations, exposes the original through `__wrapped__`, and works anywhere a callable is accepted
-- [ ] 9.10 Implement the manager, both decorator forms, settings resolution, and the wrapper object per design.md D10 and D12
-- [ ] 9.11 Configure ruff and mypy for `python/compylr/`, and confirm the package is clean under both
+- [x] 9.1 Create `python/compylr/` and confirm `python/fixtures/` is untouched and `tests/fixtures.rs` still passes
+- [x] 9.2 Write tests for initialization: explicit settings, defaults with no arguments, a repeat call with identical settings returning the same manager, and a repeat call with different settings raising and naming the conflicting setting
+- [x] 9.3 Write tests for both decorator forms — bare, called with no arguments, and called with settings — asserting the first two are equivalent
+- [x] 9.4 Write tests for setting resolution: an override applies to one function only, and unspecified settings are inherited
+- [x] 9.5 Write tests asserting a reserved backend and an unknown backend each fail at decoration with their distinct messages
+- [x] 9.6 Write tests asserting the assist mode raises when enabled globally or per-function, and is silent when disabled or omitted
+- [x] 9.7 Write tests asserting an unsupported function is rejected at decoration with `line:column`, before any call, with no silent fallback
+- [x] 9.8 Write tests asserting source is captured by introspection, that the decorator line is excluded, and that surrounding indentation does not cause a rejection
+- [x] 9.9 Write tests asserting a marked function preserves name, docstring, module, and annotations, exposes the original through `__wrapped__`, and works anywhere a callable is accepted
+- [x] 9.10 Implement the manager, both decorator forms, settings resolution, and the wrapper object per design.md D10 and D12
+- [x] 9.11 Configure ruff and mypy for `python/compylr/`, and confirm the package is clean under both
 
 ## 10. Build pipeline
 
-- [ ] 10.1 Write tests asserting three marked functions produce exactly one build and one module, that a fourth rebuilds the same shared artifact, and that compiled functions can call each other
-- [ ] 10.2 Write tests asserting the IR artifact and generated target source are both written on every build, survive a skipped rebuild, and reflect an edited function after a rebuild
-- [ ] 10.3 Write tests asserting all generated files share one root and that deleting it causes a clean rebuild with identical behavior
-- [ ] 10.4 Write tests for the fingerprint cache: an unchanged project skips the toolchain, reformatting does not rebuild, an edit rebuilds, marking a function rebuilds, and a failed build is not recorded as successful
-- [ ] 10.5 Write tests asserting a toolchain failure raises an error carrying the toolchain's output, with no silent fallback to interpreted execution
-- [ ] 10.6 Write tests asserting a missing Rust toolchain and a missing build tool are each named with install instructions, and are reported before a build is attempted
-- [ ] 10.7 Implement crate assembly, artifact writing, and the fingerprint-keyed rebuild decision using the layout in design.md D8
-- [ ] 10.8 Implement the build and install step per design.md D9, including cache invalidation and uninstalling the previous generated distribution
-- [ ] 10.9 Write a test asserting a rebuild triggered mid-process loads and is used in that same process, exercising the fingerprinted module name
+- [x] 10.1 Write tests asserting three marked functions produce exactly one build and one module, that a fourth rebuilds the same shared artifact, and that compiled functions can call each other
+- [x] 10.2 Write tests asserting the IR artifact and generated target source are both written on every build, survive a skipped rebuild, and reflect an edited function after a rebuild
+- [x] 10.3 Write tests asserting all generated files share one root and that deleting it causes a clean rebuild with identical behavior
+- [x] 10.4 Write tests for the fingerprint cache: an unchanged project skips the toolchain, reformatting does not rebuild, an edit rebuilds, marking a function rebuilds, and a failed build is not recorded as successful
+- [x] 10.5 Write tests asserting a toolchain failure raises an error carrying the toolchain's output, with no silent fallback to interpreted execution
+- [x] 10.6 Write tests asserting a missing Rust toolchain and a missing build tool are each named with install instructions, and are reported before a build is attempted
+- [x] 10.7 Implement crate assembly, artifact writing, and the fingerprint-keyed rebuild decision using the layout in design.md D8
+- [x] 10.8 Implement the build and install step per design.md D9, including cache invalidation and uninstalling the previous generated distribution
+- [x] 10.9 Write a test asserting a rebuild triggered mid-process loads and is used in that same process, exercising the fingerprinted module name
 
 ## 11. End to end
 
-- [ ] 11.1 Write an end-to-end test that marks a function, calls it, and asserts the result equals what the interpreted function returns
-- [ ] 11.2 Write an end-to-end test asserting a single build covers several marked functions and that repeated calls do not rebuild
-- [ ] 11.3 Write an end-to-end test over the accepted fixtures comparing compiled results against the interpreted originals across a table of inputs including negative operands — the case where Python and Rust semantics diverge
-- [ ] 11.4 Verify a second process reuses the built artifact without invoking the toolchain
-- [ ] 11.5 Measure and record first-build and cached-run timings so the cost claimed in design.md is a number rather than an assertion
+- [x] 11.1 Write an end-to-end test that marks a function, calls it, and asserts the result equals what the interpreted function returns
+- [x] 11.2 Write an end-to-end test asserting a single build covers several marked functions and that repeated calls do not rebuild
+- [x] 11.3 Write an end-to-end test over the accepted fixtures comparing compiled results against the interpreted originals across a table of inputs including negative operands — the case where Python and Rust semantics diverge
+- [x] 11.4 Verify a second process reuses the built artifact without invoking the toolchain
+- [x] 11.5 Measure and record first-build and cached-run timings so the cost claimed in design.md is a number rather than an assertion
 
 ## 12. Documentation and verification
 
-- [ ] 12.1 Rewrite the README: remove the "no Python package yet" note and the `TARGET DESIGN` marker, document the real API, and state plainly that a Rust toolchain and maturin are required at runtime
-- [ ] 12.2 Update the README pipeline diagram and capability table, and document `.compylr/` and its artifacts
+- [x] 12.1 Rewrite the README: remove the "no Python package yet" note and the `TARGET DESIGN` marker, document the real API, and state plainly that a Rust toolchain and maturin are required at runtime
+- [x] 12.2 Update the README pipeline diagram and capability table, and document `.compylr/` and its artifacts
 - [x] 12.3 Extend `tests/readme.rs` so the backend claim is enforced in both directions — the existing check falls silent once a backend exists, which is the moment it stops protecting anything
-- [ ] 12.4 Update `CLAUDE.md`: current state, the new commands, and the two distinct PyO3 roles
-- [ ] 12.5 Run `cargo fmt`, `cargo clippy -p compylr --all-targets -- -D warnings`, and `cargo test`, resolving all findings
-- [ ] 12.6 Run the Python test suite with coverage and confirm it exceeds the project threshold
-- [ ] 12.7 Confirm Rust coverage over `src/` still exceeds 80%, adding tests for uncovered branches in the backend
-- [ ] 12.8 Run `openspec validate add-python-package-mvp --strict` and confirm every scenario in all six delta specs has a corresponding passing test
-- [ ] 12.9 Verify the end state by hand in a scratch project: `uv add` the built wheel, decorate a function, call it, and inspect `.compylr/ir/unit.json` and the generated Rust
+- [x] 12.4 Update `CLAUDE.md`: current state, the new commands, and the two distinct PyO3 roles
+- [x] 12.5 Run `cargo fmt`, `cargo clippy -p compylr --all-targets -- -D warnings`, and `cargo test`, resolving all findings
+- [x] 12.6 Run the Python test suite with coverage and confirm it exceeds the project threshold
+- [x] 12.7 Confirm Rust coverage over `src/` still exceeds 80%, adding tests for uncovered branches in the backend
+- [x] 12.8 Run `openspec validate add-python-package-mvp --strict` and confirm every scenario in all six delta specs has a corresponding passing test
+- [x] 12.9 Verify the end state by hand in a scratch project: `uv add` the built wheel, decorate a function, call it, and inspect `.compylr/ir/unit.json` and the generated Rust

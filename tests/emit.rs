@@ -33,10 +33,10 @@ fn unit_from(source: &str) -> Unit {
 /// Without this, asserting "the output contains `i64`" would pass on the runtime helpers alone
 /// and prove nothing about the function under test.
 fn functions_only(emitted: &str) -> String {
-    let marker = "use runtime::{PyAdd, PyNum, RuntimeError, py_truediv};";
+    let marker = "pub mod generated {";
     let index = emitted
         .find(marker)
-        .expect("emitted source must import the runtime");
+        .expect("emitted source must declare the generated module");
     emitted[index + marker.len()..].to_string()
 }
 

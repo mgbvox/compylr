@@ -1,0 +1,50 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "compylr"
+description = "Transpiles a strict, fully annotated Python subset to Rust."
+requires-python = ">=3.11"
+dynamic = ["version"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11", "maturin>=1.9,<2.0"]
+
+[tool.maturin]
+# Mixed layout: the Python package lives in `python/compylr`, and the compiled half of it is
+# `compylr._core`. `python/fixtures` sits alongside but is not a package, so it is not packaged.
+python-source = "python"
+module-name = "compylr._core"
+# Tells PyO3 not to link libpython, which is required for a wheel and would break `cargo test`.
+features = ["extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+addopts = "--cov=compylr --cov-report=term-missing --cov-fail-under=80 -q"
+markers = [
+    "slow: compiles a Rust crate; minutes on a cold cache",
+]
+
+[tool.coverage.run]
+omit = ["*/_core.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# The fixtures are compiler inputs, not code: `rejected/` is deliberately invalid, and linting it
+# would report exactly the problems it exists to contain.
+extend-exclude = ["python/fixtures", "python/entrypoint.py", "vendored"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+# The compiled module has no source for mypy to read; its surface is declared in `_core.pyi`.
+ignore_missing_imports = false

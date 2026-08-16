@@ -2,26 +2,30 @@
 source: tests/emit_quality.rs
 expression: functions.trim()
 ---
-pub fn add(a: i64, b: i64) -> Result<i64, RuntimeError> {
-    Ok(PyAdd::py_add(&(a), &(b))?)
-}
+use super::runtime::{PyAdd, PyNum, RuntimeError, py_truediv};
 
-pub fn difference(a: i64, b: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::py_sub(&(a), &(b))?)
-}
+    pub fn add(a: i64, b: i64) -> Result<i64, RuntimeError> {
+        Ok(PyAdd::py_add(&(a), &(b))?)
+    }
 
-pub fn halve(a: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::py_floordiv(&(a), &(2i64))?)
-}
+    pub fn difference(a: i64, b: i64) -> Result<i64, RuntimeError> {
+        Ok(PyNum::py_sub(&(a), &(b))?)
+    }
 
-pub fn negate(a: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::py_neg(&(a))?)
-}
+    pub fn halve(a: i64) -> Result<i64, RuntimeError> {
+        Ok(PyNum::py_floordiv(&(a), &(2i64))?)
+    }
 
-pub fn remainder(a: i64, b: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::py_mod(&(a), &(b))?)
-}
+    pub fn negate(a: i64) -> Result<i64, RuntimeError> {
+        Ok(PyNum::py_neg(&(a))?)
+    }
 
-pub fn scale(a: i64, b: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::py_mul(&(a), &(b))?)
+    pub fn remainder(a: i64, b: i64) -> Result<i64, RuntimeError> {
+        Ok(PyNum::py_mod(&(a), &(b))?)
+    }
+
+    pub fn scale(a: i64, b: i64) -> Result<i64, RuntimeError> {
+        Ok(PyNum::py_mul(&(a), &(b))?)
+    }
+
 }

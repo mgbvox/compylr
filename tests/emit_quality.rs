@@ -95,10 +95,10 @@ fn emitted_source_is_stable() {
         // The embedded runtime is a verbatim copy of `src/backend/runtime.rs` and is already
         // covered by its own tests; snapshotting it here would turn every comment edit in that
         // file into a snapshot review with nothing to review.
-        let marker = "use runtime::{PyAdd, PyNum, RuntimeError, py_truediv};";
+        let marker = "pub mod generated {";
         let index = emitted
             .find(marker)
-            .expect("runtime import must be present");
+            .expect("generated module must be present");
         let functions = &emitted[index + marker.len()..];
         insta::assert_snapshot!(format!("emit_{label}"), functions.trim());
     }

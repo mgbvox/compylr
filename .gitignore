@@ -16,6 +16,11 @@
 
 # Python bytecode
 __pycache__/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+/.venv
 
 # Editor / OS
 .idea/

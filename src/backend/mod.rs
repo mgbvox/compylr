@@ -20,6 +20,7 @@ use std::fmt;
 
 use crate::ir::Unit;
 
+pub mod bindings;
 pub mod rust;
 
 /// A target language backend.
@@ -35,6 +36,29 @@ pub trait Backend: fmt::Debug + Send + Sync {
     /// Emission is a pure function of the unit: no I/O, no filesystem, no environment. That is
     /// what makes output byte-reproducible, which the rebuild cache depends on.
     fn emit(&self, unit: &Unit) -> Result<String, BackendError>;
+
+    /// Render a unit as a Python extension module, bindings included.
+    ///
+    /// Separate from [`Backend::emit`] because exposing a target to Python is a target-specific
+    /// concern: PyO3 is meaningless to a TypeScript backend, which would reach Python — if ever —
+    /// by an entirely different route. The default refuses rather than pretending, so a backend
+    /// that gains code generation without gaining bindings cannot silently appear to support the
+    /// decorator.
+    fn emit_python_extension(&self, _unit: &Unit) -> Result<String, BackendError> {
+        Err(BackendError::Unsupported {
+            detail: format!(
+                "the '{}' backend can generate source but cannot yet expose it to Python",
+                self.name()
+            ),
+        })
+    }
+
+    /// The build manifest for a generated crate, when the target needs one.
+    fn build_manifest(&self, _unit: &Unit) -> Result<String, BackendError> {
+        Err(BackendError::Unsupported {
+            detail: format!("the '{}' backend defines no build manifest", self.name()),
+        })
+    }
 }
 
 /// Format generated source with `rustfmt`, falling back to the input unchanged.

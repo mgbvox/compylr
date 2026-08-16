@@ -2,10 +2,14 @@
 source: tests/emit_quality.rs
 expression: functions.trim()
 ---
-pub fn caller(n: i64) -> Result<i64, RuntimeError> {
-    Ok(remote_helper(n)?)
-}
+use super::runtime::{PyAdd, PyNum, RuntimeError, py_truediv};
 
-pub fn remote_helper(n: i64) -> Result<i64, RuntimeError> {
-    Ok(PyAdd::py_add(&(n), &(1i64))?)
+    pub fn caller(n: i64) -> Result<i64, RuntimeError> {
+        Ok(remote_helper(n)?)
+    }
+
+    pub fn remote_helper(n: i64) -> Result<i64, RuntimeError> {
+        Ok(PyAdd::py_add(&(n), &(1i64))?)
+    }
+
 }

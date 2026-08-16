@@ -2,19 +2,23 @@
 source: tests/emit_quality.rs
 expression: functions.trim()
 ---
-pub fn compare_mixed(a: i64, b: f64) -> Result<bool, RuntimeError> {
-    Ok(((&(((a) as f64))) < (&(b))))
-}
+use super::runtime::{PyAdd, PyNum, RuntimeError, py_truediv};
 
-pub fn mixed(a: i64, b: f64) -> Result<f64, RuntimeError> {
-    let total: f64 = PyAdd::py_add(&(((a) as f64)), &(b))?;
-    Ok(total)
-}
+    pub fn compare_mixed(a: i64, b: f64) -> Result<bool, RuntimeError> {
+        Ok(((&(((a) as f64))) < (&(b))))
+    }
 
-pub fn scale(a: f64, b: f64) -> Result<f64, RuntimeError> {
-    Ok(PyNum::py_mul(&(a), &(b))?)
-}
+    pub fn mixed(a: i64, b: f64) -> Result<f64, RuntimeError> {
+        let total: f64 = PyAdd::py_add(&(((a) as f64)), &(b))?;
+        Ok(total)
+    }
 
-pub fn widen(n: i64) -> Result<f64, RuntimeError> {
-    Ok(((n) as f64))
+    pub fn scale(a: f64, b: f64) -> Result<f64, RuntimeError> {
+        Ok(PyNum::py_mul(&(a), &(b))?)
+    }
+
+    pub fn widen(n: i64) -> Result<f64, RuntimeError> {
+        Ok(((n) as f64))
+    }
+
 }
