@@ -104,6 +104,22 @@ negation and calls to functions in the same unit.
 
 Statements: `return`, `pass`, and local bindings.
 
+A **docstring** is permitted in first position and carries no runtime meaning, so ordinary
+documented code compiles:
+
+```python
+@c.compyle
+def add(a: int, b: int) -> int:
+    """Return the sum."""
+    return a + b
+```
+
+It is kept on the function, emitted as a `///` comment on the generated Rust — which PyO3 then
+lifts back onto the compiled function's `__doc__` — and excluded from the fingerprint, so editing
+documentation never triggers a rebuild. The exception is deliberately narrow: any *other* bare
+expression statement, including a string in second position, is still rejected, because a value
+that is computed and discarded is either dead code or a side effect this subset cannot express.
+
 Local bindings infer their type whenever the initializer determines it — literals, names,
 negation, arithmetic, and comparisons, composed to any depth:
 

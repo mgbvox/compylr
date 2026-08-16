@@ -179,6 +179,7 @@ fn a_string_literal_needing_escapes_denotes_the_same_characters() {
         params: Vec::new(),
         ret: Ty::Str,
         body: vec![Stmt::Return(Expr::string("a\"b\\c\nd\te"))],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();
@@ -292,6 +293,7 @@ fn rust_keywords_are_escaped() {
         }],
         ret: Ty::Int,
         body: vec![Stmt::Return(Expr::name("type"))],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();
@@ -348,6 +350,7 @@ fn a_function_that_cannot_return_is_reported_rather_than_emitted_broken() {
             ty: Ty::Int,
             value: Expr::int(1),
         }],
+        doc: None,
         span: Span::default(),
     })
     .unwrap();

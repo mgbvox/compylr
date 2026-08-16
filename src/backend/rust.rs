@@ -198,9 +198,39 @@ fn header() -> String {
         .to_string()
 }
 
+/// Render a docstring as Rust doc-comment lines.
+///
+/// The generated source is written to disk for people to read, and a translated function stripped
+/// of the explanation its author wrote is harder to check against the original than it needs to
+/// be. PyO3 also lifts a `///` comment onto the compiled function's `__doc__`, so the compiled
+/// function gains its documentation as a side benefit.
+///
+/// The text is arbitrary user input, so it is made comment-safe rather than trusted: every line is
+/// prefixed individually, and carriage returns are dropped so nothing can escape the comment and
+/// be read as code.
+fn doc_comment(doc: &str) -> String {
+    let mut out = String::new();
+    for line in doc.replace('\r', "").lines() {
+        if line.is_empty() {
+            out.push_str("///\n");
+        } else {
+            let _ = writeln!(out, "/// {line}");
+        }
+    }
+    // A docstring that is entirely blank would otherwise emit nothing, leaving a stray attribute
+    // position; emitting one empty line keeps the output well-formed.
+    if out.is_empty() {
+        out.push_str("///\n");
+    }
+    out
+}
+
 /// Emit one function, including its fallible signature.
 fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendError> {
     let mut out = String::new();
+    if let Some(doc) = &function.doc {
+        out.push_str(&doc_comment(doc));
+    }
     let params = function
         .params
         .iter()

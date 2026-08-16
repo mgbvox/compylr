@@ -1,0 +1,378 @@
+//! Docstrings: accepted, inert, and not part of a function's structure.
+//!
+//! The exception this file exercises is deliberately narrow — first position, string literal — so
+//! most of these tests are about what is *still* rejected. A rule that accepted any discarded
+//! expression statement would let dead code and inexpressible side effects through silently, which
+//! is the failure this narrowness exists to prevent.
+
+use compylr::backend::lookup;
+use compylr::error::LowerErrorKind;
+use compylr::frontend::parse_source;
+use compylr::ir::{Function, Stmt, Unit};
+use compylr::lower::lower_source;
+
+fn lower(source: &str) -> Vec<Function> {
+    let parsed = parse_source(source).expect("fixture must parse");
+    lower_source(&parsed).unwrap_or_else(|e| panic!("should lower: {}", e.render(source)))
+}
+
+fn reject(source: &str) -> LowerErrorKind {
+    let parsed = parse_source(source).expect("fixture must parse");
+    match lower_source(&parsed) {
+        Ok(_) => panic!("should have been rejected but lowered:\n{source}"),
+        Err(error) => error.kind(),
+    }
+}
+
+fn unit_from(source: &str) -> Unit {
+    let mut unit = Unit::new();
+    for function in lower(source) {
+        unit.add_function(function).unwrap();
+    }
+    unit
+}
+
+const DOCUMENTED: &str = concat!(
+    "def add(a: int, b: int) -> int:\n",
+    "    \"\"\"Return the sum.\"\"\"\n",
+    "    return a + b\n",
+);
+
+#[test]
+fn a_documented_function_lowers() {
+    let functions = lower(DOCUMENTED);
+    assert_eq!(functions.len(), 1);
+}
+
+#[test]
+fn the_docstring_does_not_become_a_statement() {
+    let functions = lower(DOCUMENTED);
+    assert_eq!(
+        functions[0].body.len(),
+        1,
+        "the body should hold only the return; got {:?}",
+        functions[0].body
+    );
+    assert!(matches!(functions[0].body[0], Stmt::Return(_)));
+}
+
+#[test]
+fn the_docstring_is_retained_on_the_function() {
+    let functions = lower(DOCUMENTED);
+    assert_eq!(functions[0].doc.as_deref(), Some("Return the sum."));
+}
+
+#[test]
+fn an_undocumented_function_carries_no_docstring() {
+    let functions = lower("def add(a: int, b: int) -> int:\n    return a + b\n");
+    assert_eq!(functions[0].doc, None);
+}
+
+#[test]
+fn a_function_of_only_a_docstring_lowers() {
+    // The docstring is removed, leaving an empty body — valid only for a unit return, which is
+    // exactly what Python's own `def f(): "doc"` amounts to.
+    let functions = lower("def noop() -> None:\n    \"\"\"Does nothing.\"\"\"\n");
+    assert_eq!(functions[0].doc.as_deref(), Some("Does nothing."));
+    assert!(functions[0].body.is_empty());
+}
+
+#[test]
+fn a_multi_line_docstring_is_retained_whole() {
+    let functions = lower(concat!(
+        "def add(a: int, b: int) -> int:\n",
+        "    \"\"\"Return the sum.\n",
+        "\n",
+        "    A longer explanation.\n",
+        "    \"\"\"\n",
+        "    return a + b\n",
+    ));
+    let doc = functions[0].doc.as_deref().expect("docstring");
+    assert!(doc.contains("Return the sum."));
+    assert!(doc.contains("A longer explanation."));
+}
+
+#[test]
+fn adjacent_literals_are_one_docstring() {
+    // The parser concatenates them into a single node, so this needs no special handling — but it
+    // would silently break if the check ever moved to matching source text.
+    let functions = lower(concat!(
+        "def add(a: int, b: int) -> int:\n",
+        "    \"first \" \"second\"\n",
+        "    return a + b\n",
+    ));
+    assert_eq!(functions[0].doc.as_deref(), Some("first second"));
+}
+
+mod fingerprints {
+    use super::*;
+
+    fn fingerprint(source: &str) -> u64 {
+        lower(source)[0].fingerprint()
+    }
+
+    #[test]
+    fn adding_a_docstring_does_not_change_the_fingerprint() {
+        // The guarantee at stake: documenting a function must not trigger a crate rebuild.
+        let bare = fingerprint("def add(a: int, b: int) -> int:\n    return a + b\n");
+        assert_eq!(bare, fingerprint(DOCUMENTED));
+    }
+
+    #[test]
+    fn editing_a_docstring_does_not_change_the_fingerprint() {
+        let other = concat!(
+            "def add(a: int, b: int) -> int:\n",
+            "    \"\"\"Completely different prose.\"\"\"\n",
+            "    return a + b\n",
+        );
+        assert_eq!(fingerprint(DOCUMENTED), fingerprint(other));
+    }
+
+    #[test]
+    fn the_unit_fingerprint_is_also_unaffected() {
+        let bare = unit_from("def add(a: int, b: int) -> int:\n    return a + b\n");
+        assert_eq!(bare.fingerprint(), unit_from(DOCUMENTED).fingerprint());
+    }
+
+    #[test]
+    fn a_real_change_still_moves_the_fingerprint() {
+        // The mirror: excluding the docstring must not have made the fingerprint insensitive.
+        let changed = concat!(
+            "def add(a: int, b: int) -> int:\n",
+            "    \"\"\"Return the sum.\"\"\"\n",
+            "    return a - b\n",
+        );
+        assert_ne!(fingerprint(DOCUMENTED), fingerprint(changed));
+    }
+}
+
+mod artifact {
+    use super::*;
+
+    #[test]
+    fn the_docstring_survives_a_round_trip() {
+        let unit = unit_from(DOCUMENTED);
+        let restored = Unit::from_json(&unit.to_json().unwrap()).unwrap();
+        assert_eq!(
+            restored.get("add").unwrap().doc.as_deref(),
+            Some("Return the sum."),
+            "the artifact is for reading, and a function stripped of its documentation is harder \
+             to check against the original"
+        );
+    }
+
+    #[test]
+    fn an_absent_docstring_round_trips_as_absent() {
+        let unit = unit_from("def add(a: int, b: int) -> int:\n    return a + b\n");
+        let restored = Unit::from_json(&unit.to_json().unwrap()).unwrap();
+        assert_eq!(restored.get("add").unwrap().doc, None);
+    }
+
+    #[test]
+    fn the_recorded_fingerprint_still_verifies() {
+        // `from_json` recomputes the fingerprint and rejects a mismatch. A field that is
+        // serialized but not hashed must not break that check.
+        let unit = unit_from(DOCUMENTED);
+        assert!(Unit::from_json(&unit.to_json().unwrap()).is_ok());
+    }
+}
+
+mod still_rejected {
+    use super::*;
+
+    #[test]
+    fn a_string_statement_after_the_first_is_rejected() {
+        assert_eq!(
+            reject(concat!(
+                "def add(a: int, b: int) -> int:\n",
+                "    c = a + b\n",
+                "    \"not a docstring\"\n",
+                "    return c\n",
+            )),
+            LowerErrorKind::UnsupportedConstruct
+        );
+    }
+
+    #[test]
+    fn a_second_string_in_a_documented_function_is_rejected() {
+        assert_eq!(
+            reject(concat!(
+                "def add(a: int, b: int) -> int:\n",
+                "    \"\"\"Real docstring.\"\"\"\n",
+                "    \"stray string\"\n",
+                "    return a + b\n",
+            )),
+            LowerErrorKind::UnsupportedConstruct
+        );
+    }
+
+    #[test]
+    fn a_non_string_expression_statement_is_rejected() {
+        assert_eq!(
+            reject("def add(a: int, b: int) -> int:\n    a + b\n    return a\n"),
+            LowerErrorKind::UnsupportedConstruct
+        );
+    }
+
+    #[test]
+    fn a_bare_call_statement_is_rejected() {
+        // The subset cannot express a call made for a side effect, so accepting it would compile
+        // something whose whole purpose is invisible to the compiler.
+        assert_eq!(
+            reject(concat!(
+                "def helper(a: int) -> int:\n    return a\n\n",
+                "def add(a: int, b: int) -> int:\n",
+                "    helper(a)\n",
+                "    return a + b\n",
+            )),
+            LowerErrorKind::UnsupportedConstruct
+        );
+    }
+
+    #[test]
+    fn a_module_level_docstring_is_rejected() {
+        // The exception is body-only. A module docstring is a top-level statement that is not a
+        // function definition, and that rule is unchanged.
+        assert_eq!(
+            reject("\"\"\"Module docs.\"\"\"\ndef add(a: int) -> int:\n    return a\n"),
+            LowerErrorKind::UnsupportedConstruct
+        );
+    }
+
+    #[test]
+    fn an_f_string_in_first_position_is_rejected() {
+        // Python does not treat an f-string as a docstring either: it is a runtime expression,
+        // and `__doc__` is None for such a function.
+        assert_eq!(
+            reject(concat!(
+                "def add(a: int, b: int) -> int:\n",
+                "    f\"not a docstring {a}\"\n",
+                "    return a + b\n",
+            )),
+            LowerErrorKind::UnsupportedConstruct
+        );
+    }
+
+    #[test]
+    fn a_non_returning_documented_function_is_still_rejected_by_the_backend() {
+        // Stripping the docstring must not make `-> int` with no return look acceptable.
+        let unit = unit_from("def f() -> int:\n    \"\"\"Docs.\"\"\"\n");
+        assert!(lookup("rust").unwrap().emit(&unit).is_err());
+    }
+}
+
+mod emission {
+    use super::*;
+
+    /// Emit, keeping only the generated functions.
+    ///
+    /// The embedded runtime is itself documented, so asserting against the whole file would find
+    /// `///` whether or not the function under test carried a docstring.
+    fn emit(source: &str) -> String {
+        let emitted = lookup("rust")
+            .unwrap()
+            .emit(&unit_from(source))
+            .expect("must emit");
+        let marker = "pub mod generated {";
+        let index = emitted.find(marker).expect("generated module");
+        emitted[index + marker.len()..].to_string()
+    }
+
+    #[test]
+    fn a_docstring_reaches_the_generated_source() {
+        let emitted = emit(DOCUMENTED);
+        assert!(
+            emitted.contains("/// Return the sum."),
+            "expected a doc comment in:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_function_without_a_docstring_emits_none() {
+        let emitted = emit("def add(a: int, b: int) -> int:\n    return a + b\n");
+        assert!(
+            !emitted.contains("///"),
+            "no doc comment should be emitted:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_multi_line_docstring_emits_one_line_each() {
+        let emitted = emit(concat!(
+            "def add(a: int, b: int) -> int:\n",
+            "    \"\"\"First line.\n",
+            "\n",
+            "    Second line.\n",
+            "    \"\"\"\n",
+            "    return a + b\n",
+        ));
+        assert!(emitted.contains("/// First line."), "{emitted}");
+        assert!(emitted.contains("Second line."), "{emitted}");
+    }
+
+    #[test]
+    fn emission_stays_deterministic() {
+        assert_eq!(emit(DOCUMENTED), emit(DOCUMENTED));
+    }
+
+    /// Compile emitted source as a library, returning rustc's complaint on failure.
+    fn compiles(emitted: &str) -> Result<(), String> {
+        use std::path::PathBuf;
+        use std::process::Command;
+
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("docstrings");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("lib.rs");
+        std::fs::write(&path, emitted).unwrap();
+
+        let output = Command::new("rustc")
+            .args([
+                "--edition",
+                "2024",
+                "--crate-type",
+                "lib",
+                "--emit",
+                "metadata",
+                "-o",
+            ])
+            .arg(dir.join("lib.rmeta"))
+            .arg(&path)
+            .output()
+            .expect("rustc must be available");
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).into_owned())
+        }
+    }
+
+    #[test]
+    fn a_docstring_cannot_break_out_of_its_comment() {
+        // Arbitrary user text reaches the generated source. If it could terminate the comment,
+        // whatever followed would be read as code -- so the interesting assertion is that the
+        // result still compiles, not merely that the characters survive.
+        let source = concat!(
+            "def risky(a: int) -> int:\n",
+            "    \"\"\"closes */ a block, has a \\\\ backslash\n",
+            "    and spans lines\"\"\"\n",
+            "    return a\n",
+        );
+        let whole = lookup("rust").unwrap().emit(&unit_from(source)).unwrap();
+
+        assert!(whole.contains("/// closes */ a block"), "{}", emit(source));
+        if let Err(stderr) = compiles(&whole) {
+            panic!("emitted source did not compile:\n{stderr}");
+        }
+    }
+
+    #[test]
+    fn a_documented_unit_still_compiles() {
+        let whole = lookup("rust")
+            .unwrap()
+            .emit(&unit_from(DOCUMENTED))
+            .unwrap();
+        if let Err(stderr) = compiles(&whole) {
+            panic!("emitted source did not compile:\n{stderr}");
+        }
+    }
+}
