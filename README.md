@@ -58,6 +58,7 @@ compiled artifact is a black box:
 | `native-bridge` | `compylr._core`, exposing the compiler to Python and its diagnostics as exceptions |
 | `build-pipeline` | The shared crate, the artifacts on disk, and the fingerprint-keyed rebuild decision |
 | `python-api` | `initialize`, the decorator's two forms, settings resolution, and swapping in |
+| `cli` | The command line: what it compiles, what it emits, and how it reports rejections |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
