@@ -80,7 +80,7 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
         let params = function
             .params
             .iter()
-            .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(p.ty)))
+            .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(&p.ty)))
             .collect::<Vec<_>>()
             .join(", ");
         let args = function
@@ -98,7 +98,7 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
         let _ = writeln!(
             out,
             "fn __compylr_export_{index}({params}) -> PyResult<{}> {{",
-            rust_ty(function.ret)
+            rust_ty(&function.ret)
         );
         let _ = writeln!(
             out,

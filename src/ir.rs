@@ -43,7 +43,11 @@ struct UnitArtifact {
 }
 
 /// A type in the supported subset, described by meaning rather than by any target's spelling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+///
+/// Recursive: a collection's parameters are themselves types, to any depth. That is what ends
+/// `Copy` — a parameterised type owns its parameters — and the cost is borrows and clones at the
+/// three dozen places that previously passed a type by value.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Ty {
     /// A 64-bit signed integer.
     Int,
@@ -55,18 +59,56 @@ pub enum Ty {
     Str,
     /// The absence of a value; only valid as a return type.
     Unit,
+    /// An ordered sequence of one element type.
+    List(Box<Ty>),
+    /// A mapping from a key type to a value type.
+    ///
+    /// The key is restricted by [`Ty::can_key`]: a floating-point key is a hazard in Python, where
+    /// `nan` is never equal to itself, and most targets cannot hash a float at all.
+    Dict(Box<Ty>, Box<Ty>),
+    /// A set of one element type, restricted by [`Ty::can_key`] for the same reason.
+    Set(Box<Ty>),
+    /// A fixed-length tuple carrying a type per position.
+    Tuple(Vec<Ty>),
 }
 
 impl Ty {
     /// The Python annotation this type comes from, useful in diagnostics.
-    pub fn python_name(self) -> &'static str {
+    pub fn python_name(&self) -> String {
         match self {
-            Self::Int => "int",
-            Self::Float => "float",
-            Self::Bool => "bool",
-            Self::Str => "str",
-            Self::Unit => "None",
+            Self::Int => "int".to_string(),
+            Self::Float => "float".to_string(),
+            Self::Bool => "bool".to_string(),
+            Self::Str => "str".to_string(),
+            Self::Unit => "None".to_string(),
+            Self::List(element) => format!("list[{}]", element.python_name()),
+            Self::Dict(key, value) => {
+                format!("dict[{}, {}]", key.python_name(), value.python_name())
+            }
+            Self::Set(element) => format!("set[{}]", element.python_name()),
+            Self::Tuple(elements) => {
+                let inner: Vec<String> = elements.iter().map(Ty::python_name).collect();
+                format!("tuple[{}]", inner.join(", "))
+            }
         }
+    }
+
+    /// Whether this type may be a mapping key or a set element.
+    ///
+    /// Checked when a type is constructed rather than only when an annotation is parsed, so that
+    /// every type the IR can hold is one a backend can render. If `Dict(Float, Int)` were
+    /// representable, the failure would surface as a target-language complaint about hashing
+    /// rather than as a diagnostic pointing at the user's annotation.
+    pub fn can_key(&self) -> bool {
+        matches!(self, Self::Int | Self::Str | Self::Bool)
+    }
+
+    /// Whether values of this type can be copied freely, or must be cloned where consumed.
+    ///
+    /// Generalises the rule the backend already applied to strings: a name may be read any number
+    /// of times, because Python has no notion of a value being consumed by being used.
+    pub fn is_trivially_copyable(&self) -> bool {
+        matches!(self, Self::Int | Self::Float | Self::Bool | Self::Unit)
     }
 
     /// Whether arithmetic is defined on this type.
@@ -75,7 +117,7 @@ impl Ty {
     /// accepting `True + 1` would force every backend to decide how a boolean widens, and
     /// would make `a + b` on two booleans mean integer addition, which reads as a bug in the
     /// languages compylr emits.
-    pub fn is_numeric(self) -> bool {
+    pub fn is_numeric(&self) -> bool {
         matches!(self, Self::Int | Self::Float)
     }
 }
@@ -553,7 +595,7 @@ mod tests {
     #[test]
     fn ty_covers_exactly_the_supported_set() {
         let all = [Ty::Int, Ty::Float, Ty::Bool, Ty::Str, Ty::Unit];
-        let names: Vec<&str> = all.iter().map(|t| t.python_name()).collect();
+        let names: Vec<String> = all.iter().map(|t| t.python_name()).collect();
         assert_eq!(names, ["int", "float", "bool", "str", "None"]);
         assert_eq!(Ty::Int, Ty::Int);
         assert_ne!(Ty::Int, Ty::Bool);

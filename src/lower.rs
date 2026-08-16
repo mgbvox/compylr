@@ -193,10 +193,10 @@ pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Functi
 
     let mut scope: Scope = params
         .iter()
-        .map(|param| (param.name.clone(), param.ty))
+        .map(|param| (param.name.clone(), param.ty.clone()))
         .collect();
     let (doc, rest) = split_docstring(&def.body);
-    let body = lower_body(rest, &mut scope, ret, sigs)?;
+    let body = lower_body(rest, &mut scope, &ret, sigs)?;
 
     // A function that declares a value must produce one. The subset has no branching, so this is
     // structural rather than a reachability analysis: the last statement either returns or it does
@@ -364,7 +364,7 @@ type TyResult = Option<Ty>;
 fn lower_body(
     body: &[PyStmt],
     scope: &mut Scope,
-    ret: Ty,
+    ret: &Ty,
     sigs: &Signatures,
 ) -> Result<Vec<Stmt>, LowerError> {
     let mut lowered = Vec::with_capacity(body.len());
@@ -377,14 +377,14 @@ fn lower_body(
 fn lower_stmt(
     stmt: &PyStmt,
     scope: &mut Scope,
-    ret: Ty,
+    ret: &Ty,
     sigs: &Signatures,
 ) -> Result<Stmt, LowerError> {
     match stmt {
         PyStmt::Return(node) => match node.value.as_deref() {
             Some(value) => {
                 let (lowered, ty) = lower_expr(value, scope, sigs)?;
-                if ret == Ty::Unit {
+                if *ret == Ty::Unit {
                     return Err(err(
                         LowerErrorKind::TypeMismatch,
                         "function is declared to return no value, but a value is returned here",
@@ -393,7 +393,7 @@ fn lower_stmt(
                 }
                 // Only check when the type is determined; a returned call cannot be checked.
                 match ty {
-                    Some(actual) => Ok(Stmt::Return(coerce(lowered, actual, ret).ok_or_else(
+                    Some(actual) => Ok(Stmt::Return(coerce(lowered, &actual, ret).ok_or_else(
                         || {
                             err(
                                 LowerErrorKind::TypeMismatch,
@@ -442,11 +442,11 @@ fn lower_stmt(
 /// The only adaptation is widening an integer to a float, which is Python's own promotion.
 /// Narrowing a float to an integer is deliberately not offered: it would lose information
 /// silently, which is exactly the kind of quiet wrongness this compiler is meant to avoid.
-fn coerce(expr: Expr, actual: Ty, expected: Ty) -> Option<Expr> {
+fn coerce(expr: Expr, actual: &Ty, expected: &Ty) -> Option<Expr> {
     if actual == expected {
         return Some(expr);
     }
-    if actual == Ty::Int && expected == Ty::Float {
+    if *actual == Ty::Int && *expected == Ty::Float {
         return Some(expr.to_float());
     }
     None
@@ -496,7 +496,7 @@ fn lower_annotated_binding(
 
     // An undetermined initializer cannot be checked; the declared type is taken on trust.
     let value = match actual {
-        Some(actual) => coerce(lowered, actual, declared).ok_or_else(|| {
+        Some(actual) => coerce(lowered, &actual, &declared).ok_or_else(|| {
             err(
                 LowerErrorKind::TypeMismatch,
                 format!(
@@ -510,7 +510,7 @@ fn lower_annotated_binding(
         None => lowered,
     };
 
-    scope.insert(name.clone(), declared);
+    scope.insert(name.clone(), declared.clone());
     Ok(Stmt::Bind {
         name,
         ty: declared,
@@ -549,14 +549,14 @@ fn lower_bare_binding(
         ));
     };
 
-    scope.insert(name.clone(), ty);
+    scope.insert(name.clone(), ty.clone());
     Ok(Stmt::Bind { name, ty, value })
 }
 
 /// Result type of an arithmetic operator applied to two determined operand types.
-fn arithmetic_result(op: BinOp, left: Ty, right: Ty) -> Option<Ty> {
+fn arithmetic_result(op: BinOp, left: &Ty, right: &Ty) -> Option<Ty> {
     // Python's `+` is overloaded on strings; every other arithmetic operator is numeric only.
-    if op == BinOp::Add && left == Ty::Str && right == Ty::Str {
+    if op == BinOp::Add && *left == Ty::Str && *right == Ty::Str {
         return Some(Ty::Str);
     }
     if !left.is_numeric() || !right.is_numeric() {
@@ -567,7 +567,7 @@ fn arithmetic_result(op: BinOp, left: Ty, right: Ty) -> Option<Ty> {
     if op == BinOp::TrueDiv {
         return Some(Ty::Float);
     }
-    if left == Ty::Float || right == Ty::Float {
+    if *left == Ty::Float || *right == Ty::Float {
         Some(Ty::Float)
     } else {
         Some(Ty::Int)
@@ -578,9 +578,9 @@ fn arithmetic_result(op: BinOp, left: Ty, right: Ty) -> Option<Ty> {
 fn build_binary(
     op: BinOp,
     left: Expr,
-    left_ty: Ty,
+    left_ty: &Ty,
     right: Expr,
-    right_ty: Ty,
+    right_ty: &Ty,
     node: &impl Ranged,
 ) -> Result<(Expr, Ty), LowerError> {
     let mismatch = |extra: &str| {
@@ -599,19 +599,19 @@ fn build_binary(
     if op.is_comparison() {
         // Comparison operands must agree, except that numbers compare across int and float.
         let operand = if left_ty == right_ty {
-            left_ty
+            left_ty.clone()
         } else if left_ty.is_numeric() && right_ty.is_numeric() {
             Ty::Float
         } else {
             return Err(mismatch(""));
         };
-        let left = coerce(left, left_ty, operand).ok_or_else(|| mismatch(""))?;
-        let right = coerce(right, right_ty, operand).ok_or_else(|| mismatch(""))?;
+        let left = coerce(left, left_ty, &operand).ok_or_else(|| mismatch(""))?;
+        let right = coerce(right, right_ty, &operand).ok_or_else(|| mismatch(""))?;
         return Ok((Expr::binary(op, left, right), Ty::Bool));
     }
 
     let result = arithmetic_result(op, left_ty, right_ty).ok_or_else(|| {
-        if left_ty == Ty::Bool || right_ty == Ty::Bool {
+        if *left_ty == Ty::Bool || *right_ty == Ty::Bool {
             mismatch("; booleans are not numbers in compylr")
         } else {
             mismatch("")
@@ -619,9 +619,13 @@ fn build_binary(
     })?;
 
     // Operands are widened to the result type so a backend can emit them positionally.
-    let operand = if result == Ty::Str { Ty::Str } else { result };
-    let left = coerce(left, left_ty, operand).ok_or_else(|| mismatch(""))?;
-    let right = coerce(right, right_ty, operand).ok_or_else(|| mismatch(""))?;
+    let operand = if result == Ty::Str {
+        Ty::Str
+    } else {
+        result.clone()
+    };
+    let left = coerce(left, left_ty, &operand).ok_or_else(|| mismatch(""))?;
+    let right = coerce(right, right_ty, &operand).ok_or_else(|| mismatch(""))?;
     Ok((Expr::binary(op, left, right), result))
 }
 
@@ -663,7 +667,7 @@ fn lower_expr(
         PyExpr::Name(name) => {
             let id = name.id.as_str();
             match scope.get(id) {
-                Some(ty) => Ok((Expr::name(id), Some(*ty))),
+                Some(ty) => Ok((Expr::name(id), Some(ty.clone()))),
                 None => Err(err(
                     LowerErrorKind::Unresolved,
                     format!("'{id}' is not defined"),
@@ -720,7 +724,7 @@ fn lower_expr(
             let (right, right_ty) = lower_expr(&binary.right, scope, sigs)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
-                    let (node, ty) = build_binary(op, left, l, right, r, expr)?;
+                    let (node, ty) = build_binary(op, left, &l, right, &r, expr)?;
                     Ok((node, Some(ty)))
                 }
                 // Undetermined propagates outward rather than becoming a type error.
@@ -754,7 +758,7 @@ fn lower_expr(
             let (right, right_ty) = lower_expr(&compare.comparators[0], scope, sigs)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
-                    let (node, ty) = build_binary(op, left, l, right, r, expr)?;
+                    let (node, ty) = build_binary(op, left, &l, right, &r, expr)?;
                     Ok((node, Some(ty)))
                 }
                 _ => Ok((Expr::binary(op, left, right), None)),
@@ -819,7 +823,7 @@ fn lower_expr(
             for (index, (declared, actual)) in signature.params.iter().zip(&arg_types).enumerate() {
                 let Some(actual) = actual else { continue };
                 let taken = std::mem::replace(&mut args[index], Expr::Name(String::new()));
-                args[index] = coerce(taken, *actual, *declared).ok_or_else(|| {
+                args[index] = coerce(taken, actual, declared).ok_or_else(|| {
                     err(
                         LowerErrorKind::TypeMismatch,
                         format!(
@@ -838,7 +842,7 @@ fn lower_expr(
                     callee: name.to_string(),
                     args,
                 },
-                Some(signature.ret),
+                Some(signature.ret.clone()),
             ))
         }
         other => Err(err(
@@ -1194,7 +1198,7 @@ mod tests {
             if let Stmt::Bind { name, ty, .. } = stmt
                 && name == want
             {
-                return *ty;
+                return ty.clone();
             }
         }
         panic!("no binding named {want}");
