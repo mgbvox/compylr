@@ -51,8 +51,13 @@ compiled artifact is a black box:
 | Capability | What it covers |
 | --- | --- |
 | `python-frontend` | Parsing Python source text into a syntax tree, with structured I/O and syntax errors |
-| `ir` | The program model and type system every backend consumes, and its on-disk artifact |
 | `ir-lowering` | Translating the syntax tree into IR, enforcing the subset and type rules |
+| `ir` | The program model and type system every backend consumes, and its on-disk artifact |
+| `rust-backend` | IR to Rust source: concrete type spellings, and Python's operator semantics |
+| `python-bindings` | The PyO3 layer generated onto compiled functions, and how failures become exceptions |
+| `native-bridge` | `compylr._core`, exposing the compiler to Python and its diagnostics as exceptions |
+| `build-pipeline` | The shared crate, the artifacts on disk, and the fingerprint-keyed rebuild decision |
+| `python-api` | `initialize`, the decorator's two forms, settings resolution, and swapping in |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
