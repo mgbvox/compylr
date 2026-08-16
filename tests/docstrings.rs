@@ -254,10 +254,14 @@ mod still_rejected {
     }
 
     #[test]
-    fn a_non_returning_documented_function_is_still_rejected_by_the_backend() {
-        // Stripping the docstring must not make `-> int` with no return look acceptable.
-        let unit = unit_from("def f() -> int:\n    \"\"\"Docs.\"\"\"\n");
-        assert!(lookup("rust").unwrap().emit(&unit).is_err());
+    fn a_non_returning_documented_function_is_rejected() {
+        // Stripping the docstring must not make `-> int` with no return look acceptable. This was
+        // caught by the backend until lowering gained the check; lowering is the better place,
+        // since it reports the function and its location rather than an internal codegen error.
+        assert_eq!(
+            reject("def f() -> int:\n    \"\"\"Docs.\"\"\"\n"),
+            LowerErrorKind::MissingReturn
+        );
     }
 }
 
@@ -316,11 +320,17 @@ mod emission {
     }
 
     /// Compile emitted source as a library, returning rustc's complaint on failure.
-    fn compiles(emitted: &str) -> Result<(), String> {
+    ///
+    /// `label` must be unique per test. `cargo test` runs these in parallel, and sharing one
+    /// scratch path makes them race — which surfaces as a suite that passes on one run and fails
+    /// on the next, the worst kind of failure to chase.
+    fn compiles(label: &str, emitted: &str) -> Result<(), String> {
         use std::path::PathBuf;
         use std::process::Command;
 
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("docstrings");
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join("docstrings")
+            .join(label);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("lib.rs");
         std::fs::write(&path, emitted).unwrap();
@@ -360,7 +370,7 @@ mod emission {
         let whole = lookup("rust").unwrap().emit(&unit_from(source)).unwrap();
 
         assert!(whole.contains("/// closes */ a block"), "{}", emit(source));
-        if let Err(stderr) = compiles(&whole) {
+        if let Err(stderr) = compiles("risky", &whole) {
             panic!("emitted source did not compile:\n{stderr}");
         }
     }
@@ -371,7 +381,7 @@ mod emission {
             .unwrap()
             .emit(&unit_from(DOCUMENTED))
             .unwrap();
-        if let Err(stderr) = compiles(&whole) {
+        if let Err(stderr) = compiles("documented", &whole) {
             panic!("emitted source did not compile:\n{stderr}");
         }
     }

@@ -211,6 +211,63 @@ class TestRejection:
                     pass
                 return a
 
+    def test_a_call_to_another_marked_function_needs_no_annotation(self) -> None:
+        # The arrangement the decorator always produces: each function is its own source, so this
+        # is a call across sources. Refusing it here would mean the inference compylr advertises
+        # worked everywhere except through its main interface.
+        c = compylr.initialize()
+
+        @c.compyle
+        def double(n: int) -> int:
+            return n * 2
+
+        @c.compyle
+        def uses(n: int) -> int:
+            doubled = double(n)
+            return doubled + 1
+
+        assert "uses" in c._sources
+
+    def test_decoration_order_does_not_matter(self) -> None:
+        # The caller is marked first, so its callee is not merely in another source -- it is not
+        # yet registered at all.
+        c = compylr.initialize()
+
+        @c.compyle
+        def uses(n: int) -> int:
+            doubled = double(n)
+            return doubled + 1
+
+        @c.compyle
+        def double(n: int) -> int:
+            return n * 2
+
+        assert set(c._sources) == {"uses", "double"}
+
+    def test_only_the_undetermined_category_is_deferred(self) -> None:
+        # Deferring must not become tolerating. Every other violation still fails at the
+        # decorator, which is where the user can see what caused it.
+        c = compylr.initialize()
+        with pytest.raises(_core.CompilationError) as caught:
+
+            @c.compyle
+            def loops(n: int) -> int:
+                for _ in range(n):
+                    pass
+                return n
+
+        assert caught.value.code != "undetermined_binding"
+
+    def test_the_diagnostic_code_is_readable(self) -> None:
+        c = compylr.initialize()
+        with pytest.raises(_core.CompilationError) as caught:
+
+            @c.compyle
+            def f(a, b: int) -> int:  # type: ignore[no-untyped-def]
+                return b
+
+        assert caught.value.code == "missing_annotation"
+
     def test_there_is_no_silent_fallback(self) -> None:
         # A rejected function must not quietly remain interpreted: the user asked for compilation
         # and would otherwise be measuring the wrong thing.

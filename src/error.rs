@@ -130,9 +130,43 @@ pub enum LowerErrorKind {
     LiteralOutOfRange,
     /// Two functions in one unit share a name.
     DuplicateFunction,
+    /// A binding's initializer type could not be determined from this source alone.
+    ///
+    /// Distinct from [`Self::MissingAnnotation`], which means the user genuinely omitted
+    /// something required. This one may be resolvable with more context: the initializer calls a
+    /// function defined in another source, whose signature is known once every source is
+    /// assembled. Callers that will later see the whole program can defer it; callers that will
+    /// not must report it.
+    UndeterminedBinding,
+    /// A function declared a return type but its body never returns a value.
+    ///
+    /// Distinct from [`Self::TypeMismatch`]: nothing disagrees about types here, the value is
+    /// simply absent, and telling the user their types conflict would send them looking in the
+    /// wrong place.
+    MissingReturn,
 }
 
 impl LowerErrorKind {
+    /// A stable identifier for this category, for callers that branch on it.
+    ///
+    /// Deliberately separate from [`Self::label`]: the label is prose and free to be reworded,
+    /// while anything acting on a category needs a value that does not move under it.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::MissingAnnotation => "missing_annotation",
+            Self::UnsupportedType => "unsupported_type",
+            Self::UnsupportedConstruct => "unsupported_construct",
+            Self::Unresolved => "unresolved",
+            Self::ArityMismatch => "arity_mismatch",
+            Self::TypeMismatch => "type_mismatch",
+            Self::Reassignment => "reassignment",
+            Self::LiteralOutOfRange => "literal_out_of_range",
+            Self::DuplicateFunction => "duplicate_function",
+            Self::UndeterminedBinding => "undetermined_binding",
+            Self::MissingReturn => "missing_return",
+        }
+    }
+
     /// Short human-readable label for this category.
     pub fn label(self) -> &'static str {
         match self {
@@ -144,6 +178,8 @@ impl LowerErrorKind {
             Self::TypeMismatch => "type mismatch",
             Self::Reassignment => "unsupported reassignment",
             Self::LiteralOutOfRange => "integer literal out of range",
+            Self::MissingReturn => "missing return",
+            Self::UndeterminedBinding => "undetermined binding type",
             Self::DuplicateFunction => "duplicate function",
         }
     }

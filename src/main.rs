@@ -1,68 +1,238 @@
-//! Thin binary entry point.
+//! The `compylr` command line.
 //!
-//! The pipeline lives in the library so it can be tested without a user-facing surface. A real
-//! CLI is a later change; for now this reports what a file lowers to, which makes the crate
-//! runnable without pretending to be finished.
+//! Answers "what does this file actually become?" without a build, an interpreter, or a decorator.
+//! It is the fastest way to see generated source — the alternative is running a full toolchain
+//! build and finding the file it wrote.
+//!
+//! Deliberately a thin wrapper over the library. Somebody diagnosing a rejection must get the same
+//! diagnostic here as from the decorator; a CLI with its own logic would become a second source of
+//! answers and therefore a source of confusion.
+//!
+//! Emitted output goes to stdout and diagnostics to stderr, so `compylr --emit rust f.py > out.rs`
+//! produces a file rather than a file with an error message in it.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use compylr::backend::{self, BackendError};
 use compylr::frontend::parse_file;
 use compylr::ir::Unit;
 use compylr::lower::lower_source;
 
+const USAGE: &str = "\
+usage: compylr [--emit summary|ir|rust] [--backend NAME] <file.py>
+
+  --emit summary   unit fingerprint and each function's signature (default)
+  --emit ir        the IR artifact, as JSON
+  --emit rust      generated target source, without performing a build
+  --backend NAME   target backend (default: rust)
+";
+
+/// What the CLI should print.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Emit {
+    Summary,
+    Ir,
+    Target,
+}
+
+impl Emit {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "summary" => Ok(Self::Summary),
+            "ir" => Ok(Self::Ir),
+            "rust" | "target" => Ok(Self::Target),
+            other => Err(format!(
+                "unknown --emit value '{other}'; expected one of: summary, ir, rust"
+            )),
+        }
+    }
+}
+
+/// Everything the command line asked for.
+#[derive(Debug)]
+struct Options {
+    path: PathBuf,
+    emit: Emit,
+    backend: String,
+}
+
+/// Parse arguments by hand.
+///
+/// Four flags do not justify an argument-parsing dependency, and the crate's dependency surface is
+/// currently the vendored ruff tree plus PyO3 and serde.
+fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
+    let mut path: Option<PathBuf> = None;
+    let mut emit = Emit::Summary;
+    let mut backend = "rust".to_string();
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--emit" => {
+                let value = args.next().ok_or("--emit needs a value")?;
+                emit = Emit::parse(&value)?;
+            }
+            "--backend" => {
+                backend = args.next().ok_or("--backend needs a value")?;
+            }
+            "-h" | "--help" => return Err(String::new()),
+            other if other.starts_with('-') => {
+                return Err(format!("unknown option '{other}'"));
+            }
+            other => {
+                if path.is_some() {
+                    return Err("only one file may be given".to_string());
+                }
+                path = Some(PathBuf::from(other));
+            }
+        }
+    }
+
+    Ok(Options {
+        path: path.ok_or("no input file given")?,
+        emit,
+        backend,
+    })
+}
+
 fn main() -> ExitCode {
-    let Some(arg) = std::env::args().nth(1) else {
-        eprintln!("usage: compylr <file.py>");
-        return ExitCode::FAILURE;
-    };
-
-    let path = PathBuf::from(arg);
-    let parsed = match parse_file(&path) {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            eprintln!("error: {error}");
+    let options = match parse_args(std::env::args().skip(1)) {
+        Ok(options) => options,
+        Err(message) => {
+            if !message.is_empty() {
+                eprintln!("error: {message}");
+            }
+            eprint!("{USAGE}");
             return ExitCode::FAILURE;
         }
     };
 
-    let source = match std::fs::read_to_string(&path) {
-        Ok(source) => source,
-        Err(error) => {
-            eprintln!("error: {error}");
-            return ExitCode::FAILURE;
+    match run(&options) {
+        Ok(output) => {
+            print!("{output}");
+            ExitCode::SUCCESS
         }
-    };
-
-    let functions = match lower_source(&parsed) {
-        Ok(functions) => functions,
-        Err(error) => {
-            eprintln!("error: {}", error.render(&source));
-            return ExitCode::FAILURE;
+        Err(message) => {
+            eprintln!("error: {message}");
+            ExitCode::FAILURE
         }
-    };
+    }
+}
 
+/// Compile the file and render the requested form.
+fn run(options: &Options) -> Result<String, String> {
+    // Resolved first, so asking for an unusable backend reports the backend rather than whichever
+    // part of the file happened to be wrong.
+    let backend = backend::lookup(&options.backend).map_err(|error: BackendError| {
+        // A reserved target reads as planned; an unrecognized one as a typo. Collapsing them would
+        // tell someone asking for TypeScript that no such target exists.
+        error.to_string()
+    })?;
+
+    let parsed = parse_file(&options.path).map_err(|error| error.to_string())?;
+    let source = std::fs::read_to_string(&options.path)
+        .map_err(|error| format!("could not read {}: {error}", options.path.display()))?;
+
+    let functions = lower_source(&parsed).map_err(|error| error.render(&source))?;
     let mut unit = Unit::new();
     for function in functions {
-        if let Err(error) = unit.add_function(function) {
-            eprintln!("error: {}", error.render(&source));
-            return ExitCode::FAILURE;
+        unit.add_function(function)
+            .map_err(|error| error.render(&source))?;
+    }
+    unit.validate().map_err(|error| error.render(&source))?;
+
+    match options.emit {
+        Emit::Summary => {
+            let mut out = format!("unit fingerprint: {:016x}\n", unit.fingerprint());
+            for function in unit.functions() {
+                out.push_str(&format!(
+                    "  {} ({} params) -> {}\n",
+                    function.name,
+                    function.params.len(),
+                    function.ret.python_name()
+                ));
+            }
+            Ok(out)
         }
+        Emit::Ir => unit
+            .to_json()
+            .map(|json| format!("{json}\n"))
+            .map_err(|error| error.to_string()),
+        Emit::Target => backend
+            .emit_python_extension(&unit)
+            .map_err(|error| error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Options, String> {
+        parse_args(args.iter().map(|s| s.to_string()))
     }
 
-    if let Err(error) = unit.validate() {
-        eprintln!("error: {}", error.render(&source));
-        return ExitCode::FAILURE;
+    #[test]
+    fn a_bare_path_defaults_to_the_summary() {
+        let options = parse(&["f.py"]).unwrap();
+        assert_eq!(options.emit, Emit::Summary);
+        assert_eq!(options.backend, "rust");
+        assert_eq!(options.path, PathBuf::from("f.py"));
     }
 
-    println!("unit fingerprint: {:016x}", unit.fingerprint());
-    for function in unit.functions() {
-        println!(
-            "  {} ({} params) -> {}",
-            function.name,
-            function.params.len(),
-            function.ret.python_name()
+    #[test]
+    fn emit_values_are_recognised() {
+        assert_eq!(parse(&["--emit", "ir", "f.py"]).unwrap().emit, Emit::Ir);
+        assert_eq!(
+            parse(&["--emit", "rust", "f.py"]).unwrap().emit,
+            Emit::Target
+        );
+        assert_eq!(
+            parse(&["--emit", "summary", "f.py"]).unwrap().emit,
+            Emit::Summary
         );
     }
-    ExitCode::SUCCESS
+
+    #[test]
+    fn an_unknown_emit_value_lists_the_accepted_forms() {
+        let error = parse(&["--emit", "yaml", "f.py"]).unwrap_err();
+        assert!(error.contains("summary"), "{error}");
+        assert!(error.contains("ir"), "{error}");
+        assert!(error.contains("rust"), "{error}");
+    }
+
+    #[test]
+    fn the_backend_can_be_selected() {
+        assert_eq!(parse(&["--backend", "go", "f.py"]).unwrap().backend, "go");
+    }
+
+    #[test]
+    fn no_file_is_an_error() {
+        assert!(parse(&[]).is_err());
+        assert!(parse(&["--emit", "ir"]).is_err());
+    }
+
+    #[test]
+    fn a_flag_without_its_value_is_an_error() {
+        assert!(parse(&["f.py", "--emit"]).is_err());
+        assert!(parse(&["f.py", "--backend"]).is_err());
+    }
+
+    #[test]
+    fn two_files_are_an_error() {
+        assert!(parse(&["a.py", "b.py"]).is_err());
+    }
+
+    #[test]
+    fn an_unknown_option_is_an_error() {
+        assert!(parse(&["--nonesuch", "f.py"]).is_err());
+    }
+
+    #[test]
+    fn help_exits_without_an_error_message() {
+        // An empty message means "print usage, say nothing else" — asking for help is not a
+        // mistake to be scolded for.
+        assert_eq!(parse(&["--help"]).unwrap_err(), "");
+    }
 }
