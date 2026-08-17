@@ -199,17 +199,17 @@ class TestRejection:
 
     def test_rejection_happens_before_any_call(self) -> None:
         # The failure must point at the decorator, not at a call site reached much later.
-        # A `for` loop rather than an unused import: an autofixer would delete the import and
+        # Exponentiation rather than an unused import: an autofixer would delete the import and
         # quietly turn this into a test of nothing, which is how the compiler fixtures were once
-        # broken.
+        # broken. It is also load-bearing that this construct stay unsupported -- a `for` loop
+        # stood here until loops were implemented, at which point the test silently passed
+        # nothing.
         c = compylr.initialize()
         with pytest.raises(_core.CompilationError):
 
             @c.compyle
             def f(a: int) -> int:
-                for _ in range(a):
-                    pass
-                return a
+                return a**2
 
     def test_a_call_to_another_marked_function_needs_no_annotation(self) -> None:
         # The arrangement the decorator always produces: each function is its own source, so this
@@ -251,10 +251,8 @@ class TestRejection:
         with pytest.raises(_core.CompilationError) as caught:
 
             @c.compyle
-            def loops(n: int) -> int:
-                for _ in range(n):
-                    pass
-                return n
+            def raises_to(n: int) -> int:
+                return n**3
 
         assert caught.value.code != "undetermined_binding"
 

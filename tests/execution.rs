@@ -1,4 +1,4 @@
-//! Python operator semantics, verified by running the emitted code.
+//! Python semantics, verified by running the emitted code.
 //!
 //! Reading emitted text cannot catch the failure that matters here. A floor-division helper that
 //! adjusts the quotient in the wrong direction still *looks* correct in a string comparison, and
@@ -515,4 +515,212 @@ mod collections {
         );
         assert_eq!(out.trim(), "42");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Control flow
+//
+// Branches and loops are where a wrong answer is quietest: a loop that runs one
+// iteration too few still produces a number, and a range with a negative step
+// that never runs produces the zero the caller might have expected anyway. So
+// these run the code and check the values.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_conditional_runs_the_matching_branch() {
+    let out = run(
+        "cf_branches",
+        concat!(
+            "def sign(n: int) -> int:\n",
+            "    if n > 0:\n        return 1\n    elif n < 0:\n        return -1\n    else:\n        return 0\n\n",
+            "def bump(n: int) -> int:\n",
+            "    label = n\n    if n > 10:\n        label = 100\n    return label\n\n",
+            "def nested(a: int, b: int) -> int:\n",
+            "    if a > 0:\n        if b > 0:\n            return 3\n        return 2\n    return 1\n",
+        ),
+        r#"
+    println!("{}", sign(5).unwrap());
+    println!("{}", sign(-5).unwrap());
+    println!("{}", sign(0).unwrap());
+    println!("{}", bump(3).unwrap());
+    println!("{}", bump(20).unwrap());
+    println!("{}", nested(1, 1).unwrap());
+    println!("{}", nested(1, -1).unwrap());
+    println!("{}", nested(-1, 1).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(
+        lines[0..3],
+        ["1", "-1", "0"],
+        "each branch of an if/elif/else"
+    );
+    assert_eq!(lines[3], "3", "an if with no else continues past it");
+    assert_eq!(lines[4], "100", "and takes the branch when the test holds");
+    assert_eq!(lines[5..8], ["3", "2", "1"], "nesting reaches each depth");
+}
+
+#[test]
+fn a_while_loop_counts_and_loop_control_behaves() {
+    let out = run(
+        "cf_while",
+        concat!(
+            "def count_to(n: int) -> int:\n",
+            "    i = 0\n    while i < n:\n        i = i + 1\n    return i\n\n",
+            "def stop_at_five(n: int) -> int:\n",
+            "    i = 0\n    while i < n:\n        if i == 5:\n            break\n        i = i + 1\n    return i\n\n",
+            "def count_odds(n: int) -> int:\n",
+            "    i = 0\n    odds = 0\n    while i < n:\n        i = i + 1\n        if i % 2 == 0:\n            continue\n        odds = odds + 1\n    return odds\n",
+        ),
+        r#"
+    println!("{}", count_to(4).unwrap());
+    println!("{}", count_to(0).unwrap());
+    println!("{}", count_to(-3).unwrap());
+    println!("{}", stop_at_five(100).unwrap());
+    println!("{}", count_odds(10).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "4");
+    assert_eq!(
+        lines[1], "0",
+        "a test false at entry runs the body zero times"
+    );
+    assert_eq!(lines[2], "0", "and stays zero when it is false by a margin");
+    assert_eq!(lines[3], "5", "break leaves at the iteration it fires on");
+    assert_eq!(
+        lines[4], "5",
+        "continue skips the rest of one iteration only"
+    );
+}
+
+#[test]
+fn ranges_count_the_way_python_counts() {
+    // `range(3, 0, -1)` is the case Rust's `..` cannot express: it counts up by one, `step_by`
+    // takes an unsigned step, and `rev()` does not compose with a computed step.
+    let out = run(
+        "cf_ranges",
+        concat!(
+            "def one(n: int) -> int:\n",
+            "    acc = 0\n    for i in range(n):\n        acc = acc * 10 + i\n    return acc\n\n",
+            "def two(a: int, b: int) -> int:\n",
+            "    acc = 0\n    for i in range(a, b):\n        acc = acc * 10 + i\n    return acc\n\n",
+            "def three(a: int, b: int, c: int) -> int:\n",
+            "    acc = 0\n    for i in range(a, b, c):\n        acc = acc * 10 + i\n    return acc\n\n",
+            "def counted(a: int, b: int, c: int) -> int:\n",
+            "    seen = 0\n    for i in range(a, b, c):\n        seen = seen + 1\n    return seen\n",
+        ),
+        r#"
+    println!("{}", one(3).unwrap());
+    println!("{}", two(2, 5).unwrap());
+    println!("{}", three(0, 6, 2).unwrap());
+    println!("{}", three(3, 0, -1).unwrap());
+    println!("{}", counted(0, 0, 1).unwrap());
+    println!("{}", counted(5, 0, 1).unwrap());
+    println!("{}", counted(0, 5, -1).unwrap());
+    println!("{}", one(-4).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    // Each digit is one value, in order: the accumulator is order-sensitive on purpose.
+    assert_eq!(lines[0], "12", "range(3) yields 0, 1, 2");
+    assert_eq!(lines[1], "234", "range(2, 5) yields 2, 3, 4");
+    assert_eq!(lines[2], "24", "range(0, 6, 2) yields 0, 2, 4");
+    assert_eq!(lines[3], "321", "range(3, 0, -1) counts down: 3, 2, 1");
+    assert_eq!(lines[4], "0", "an empty range does not run its body");
+    assert_eq!(
+        lines[5], "0",
+        "nor does one whose start is already past its stop"
+    );
+    assert_eq!(lines[6], "0", "nor one stepping away from its stop");
+    assert_eq!(lines[7], "0", "range of a negative count is empty");
+}
+
+#[test]
+fn a_zero_step_fails_rather_than_hanging() {
+    // The one failure worse than a wrong answer: with a zero step the condition never changes, so
+    // without this check the program produces nothing at all to diagnose from.
+    let out = run(
+        "cf_zero_step",
+        concat!(
+            "def walk(a: int, b: int, c: int) -> int:\n",
+            "    seen = 0\n    for i in range(a, b, c):\n        seen = seen + 1\n    return seen\n",
+        ),
+        r#"
+    println!("{:?}", walk(0, 10, 0).is_err());
+    println!("{}", walk(0, 10, 1).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "true", "a zero step is a recoverable error");
+    assert_eq!(lines[1], "10", "and a valid step still works afterwards");
+}
+
+#[test]
+fn iterating_a_collection_preserves_order_and_leaves_it_readable() {
+    let out = run(
+        "cf_iteration",
+        concat!(
+            "def digits(xs: list[int]) -> int:\n",
+            "    acc = 0\n    for x in xs:\n        acc = acc * 10 + x\n    return acc\n\n",
+            "def twice(xs: list[int]) -> int:\n",
+            "    total = 0\n    for x in xs:\n        total = total + x\n",
+            "    for x in xs:\n        total = total + x\n    return total + len(xs)\n\n",
+            // Summing key lengths rather than concatenating: a mapping's order is not defined, so
+            // asserting on it would make this suite itself flaky.
+            "def key_chars(d: dict[str, int]) -> int:\n",
+            "    n = 0\n    for k in d:\n        n = n + len(k)\n    return n\n\n",
+            "def set_total(s: set[int]) -> int:\n",
+            "    n = 0\n    for v in s:\n        n = n + v\n    return n\n",
+        ),
+        r#"
+    println!("{}", digits(vec![1, 2, 3]).unwrap());
+    println!("{}", twice(vec![1, 2, 3]).unwrap());
+    let mut d = std::collections::HashMap::new();
+    d.insert(String::from("ab"), 1i64);
+    d.insert(String::from("cde"), 2i64);
+    println!("{}", key_chars(d).unwrap());
+    println!("{}", set_total(std::collections::HashSet::from([1i64, 2, 3])).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "123", "a sequence is iterated in order");
+    assert_eq!(
+        lines[1], "15",
+        "iterating twice sees every element both times"
+    );
+    assert_eq!(lines[2], "5", "a mapping yields its keys, as Python does");
+    assert_eq!(lines[3], "6", "a set yields its elements");
+}
+
+#[test]
+fn only_reassigned_bindings_are_marked_mutable() {
+    // A spurious `mut` is a warning in code that must compile clean, and the mutability scan is a
+    // second traversal that could disagree with emission.
+    let unit = unit_from(
+        "def f(fixed: int, moved: int) -> int:\n\
+         \x20   stable = 1\n\
+         \x20   counter = 0\n\
+         \x20   counter = counter + fixed\n\
+         \x20   moved = moved + 1\n\
+         \x20   return stable + counter + moved\n",
+    );
+    let emitted = lookup("rust").unwrap().emit(&unit).expect("must emit");
+    let source = &emitted["src/generated.rs"];
+    assert!(
+        source.contains("let stable: i64"),
+        "a once-bound local is not mutable:\n{source}"
+    );
+    assert!(
+        source.contains("let mut counter: i64"),
+        "a reassigned local is mutable:\n{source}"
+    );
+    assert!(
+        source.contains("mut moved: i64"),
+        "a reassigned parameter is mutable:\n{source}"
+    );
+    assert!(
+        !source.contains("mut fixed"),
+        "an untouched parameter is not mutable:\n{source}"
+    );
 }

@@ -56,22 +56,22 @@
 
 ## 8. Backend: branches and loops
 
-- [ ] 8.1 Write executable tests asserting a conditional runs the matching branch, that one with no alternative continues past it, and that nesting behaves
-- [ ] 8.2 Write executable tests asserting a `while` counts, a loop whose test is false at entry does not run, and `break`/`continue` behave as Python's
+- [x] 8.1 Write executable tests asserting a conditional runs the matching branch, that one with no alternative continues past it, and that nesting behaves
+- [x] 8.2 Write executable tests asserting a `while` counts, a loop whose test is false at entry does not run, and `break`/`continue` behave as Python's
 - [x] 8.3 Implement branch and loop emission
 
 ## 9. Backend: ranges
 
-- [ ] 9.1 Write executable tests for `range(3)`, `range(2,5)`, `range(0,6,2)`, and **`range(3,0,-1)`** — the last is the case Rust's `..` cannot express, per design.md D4
-- [ ] 9.2 Write an executable test asserting an empty range does not run its body
-- [ ] 9.3 Write a test asserting a zero step returns a recoverable error rather than hanging
+- [x] 9.1 Write executable tests for `range(3)`, `range(2,5)`, `range(0,6,2)`, and **`range(3,0,-1)`** — the last is the case Rust's `..` cannot express, per design.md D4
+- [x] 9.2 Write an executable test asserting an empty range does not run its body
+- [x] 9.3 Write a test asserting a zero step returns a recoverable error rather than hanging
 - [x] 9.4 Add `ZeroStep` to the emitted runtime with the range helper, and emit range iteration as a loop
 
 ## 10. Backend: iteration and mutability
 
-- [ ] 10.1 Write executable tests asserting sequence order is preserved, a mapping yields keys, and a collection can be iterated then read again
-- [ ] 10.2 Write a test asserting mapping and set iteration order is not asserted anywhere, so the suite does not itself become flaky
-- [ ] 10.3 Write tests asserting a rebound local compiles, a once-bound local is not marked mutable, and a reassigned parameter compiles
+- [x] 10.1 Write executable tests asserting sequence order is preserved, a mapping yields keys, and a collection can be iterated then read again
+- [x] 10.2 Write a test asserting mapping and set iteration order is not asserted anywhere, so the suite does not itself become flaky
+- [x] 10.3 Write tests asserting a rebound local compiles, a once-bound local is not marked mutable, and a reassigned parameter compiles
 - [x] 10.4 Implement the assignment-target scan from design.md D3 and emit `mut` accordingly
 - [x] 10.5 Write a test compiling every accepted fixture with warnings denied
 
@@ -80,8 +80,8 @@
 - [x] 11.1 Add accepted fixtures covering branching, both loop forms, loop control, ranges including a negative step, and reassignment
 - [x] 11.2 Add rejected fixtures for a non-boolean test, `break` outside a loop, a branch-bound name read after the conditional, a function that returns on only one path, and a function named `range`
 - [x] 11.3 Update the rejection table and fixture-count guard
-- [ ] 11.4 Write a pytest comparing compiled and interpreted results for a recursive function with a base case — the shape the demo needs
-- [ ] 11.5 Write a pytest comparing an iterative loop with a counter against its interpreted original
+- [x] 11.4 Write a pytest comparing compiled and interpreted results for a recursive function with a base case — the shape the demo needs
+- [x] 11.5 Write a pytest comparing an iterative loop with a counter against its interpreted original
 
 ## 12. Verification
 
