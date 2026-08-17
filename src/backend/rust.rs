@@ -23,7 +23,7 @@
 use std::fmt::Write as _;
 
 use super::{Backend, BackendError, GeneratedFiles};
-use crate::ir::{BinOp, Expr, Function, Literal, Stmt, Ty, Unit};
+use crate::ir::{BinOp, Expr, Function, Literal, Stmt, Ty, Unit, returns_on_all_paths};
 
 /// The runtime helpers, embedded verbatim into generated crates.
 ///
@@ -209,7 +209,7 @@ fn emit_generated(functions: &str) -> String {
          \n\
          use std::collections::{{HashMap, HashSet}};\n\
          \n\
-         use crate::compat::{{PyAdd, PyLen, PyNum, RuntimeError, py_subscript, py_truediv}};\n\
+         use crate::compat::{{PyAdd, PyIterate, PyLen, PyNum, RuntimeError, py_subscript, py_truediv}};\n\
          \n\
          {functions}"
     )
@@ -274,61 +274,242 @@ fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendErro
 /// The final statement becomes the tail so the generated function has no unreachable trailing
 /// expression, which would be a warning in code that must compile clean.
 fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
-    let mut out = String::new();
-    let last = function.body.len().saturating_sub(1);
-
-    for (index, stmt) in function.body.iter().enumerate() {
-        let is_last = index == last;
-        match stmt {
-            Stmt::Bind { name, ty, value } => {
-                let value = emit_expr(value, unit, ty)?;
-                let _ = writeln!(
-                    out,
-                    "    let {}: {} = {};",
-                    rust_ident(name),
-                    rust_ty(ty),
-                    value
-                );
-            }
-            Stmt::Return(expr) => {
-                let value = emit_expr(expr, unit, &function.ret)?;
-                if is_last {
-                    let _ = writeln!(out, "    Ok({value})");
-                } else {
-                    let _ = writeln!(out, "    return Ok({value});");
-                }
-            }
-            Stmt::ReturnUnit => {
-                if is_last {
-                    out.push_str("    Ok(())\n");
-                } else {
-                    out.push_str("    return Ok(());\n");
-                }
-            }
-        }
-    }
-
-    // A body that falls off the end without returning is only well-formed for a unit function.
-    // Lowering should not produce anything else; if it does, that is a compylr defect and saying
-    // so beats emitting Rust that fails to compile with an unrelated message.
-    let falls_through = match function.body.last() {
-        None => true,
-        Some(Stmt::Bind { .. }) => true,
-        Some(Stmt::Return(_) | Stmt::ReturnUnit) => false,
+    // A `return` in final position is emitted as a tail expression instead. Rust reads it as the
+    // same thing, and a straight-line function — still the common case — is left looking like
+    // idiomatic Rust rather than like Python transliterated into it.
+    let (leading, tail) = match function.body.split_last() {
+        Some((last @ (Stmt::Return(_) | Stmt::ReturnUnit), leading)) => (leading, Some(last)),
+        _ => (&function.body[..], None),
     };
-    if falls_through {
-        if function.ret != Ty::Unit {
+    let mut emitter = Emitter {
+        function,
+        unit,
+        out: String::new(),
+    };
+    emitter.stmts(leading, 1)?;
+    let mut out = emitter.out;
+
+    match tail {
+        Some(Stmt::Return(expr)) => {
+            let value = emit_expr(expr, unit, &function.ret)?;
+            let _ = writeln!(out, "    Ok({value})");
+        }
+        Some(Stmt::ReturnUnit) => out.push_str("    Ok(())\n"),
+        // No tail return. Lowering guarantees a non-unit function returns on every path, so the
+        // end of its body is genuinely unreachable and Rust agrees; a unit function needs the
+        // value supplied, unless it already returned — appending regardless would emit
+        // unreachable code.
+        _ if returns_on_all_paths(&function.body) => {}
+        _ if function.ret == Ty::Unit => out.push_str("    Ok(())\n"),
+        _ => {
             return Err(BackendError::Unsupported {
                 detail: format!(
-                    "function '{}' declares a return type of '{}' but its body does not return",
+                    "function '{}' declares a return type of '{}' but does not return on every path",
                     function.name,
                     function.ret.python_name()
                 ),
             });
         }
-        out.push_str("    Ok(())\n");
     }
     Ok(out)
+}
+
+/// The context a function body is emitted against.
+///
+/// Bundled rather than threaded through every call: emission recurses into nested blocks, and a
+/// signature long enough to carry each piece separately obscures the two things that actually vary
+/// between levels — the statements and the indentation.
+struct Emitter<'a> {
+    /// The function being emitted, for its return type.
+    function: &'a Function,
+    /// The unit, for resolving callees.
+    unit: &'a Unit,
+    /// The source being built up.
+    out: String,
+}
+
+impl Emitter<'_> {
+    /// Emit a sequence of statements at a given indentation depth.
+    fn stmts(&mut self, stmts: &[Stmt], depth: usize) -> Result<(), BackendError> {
+        let pad = "    ".repeat(depth);
+        for stmt in stmts {
+            match stmt {
+                Stmt::Bind { name, ty, value } => {
+                    let value = emit_expr(value, self.unit, ty)?;
+                    // `mut` only when something assigns to it later, so generated code carries no
+                    // avoidable warning. Scanning the enclosing block rather than the whole
+                    // function: lowering scopes a binding to the block that introduced it, so
+                    // nothing outside it can assign to the name.
+                    let mutable = if is_assigned(stmts, name) { "mut " } else { "" };
+                    let _ = writeln!(
+                        self.out,
+                        "{pad}let {mutable}{}: {} = {value};",
+                        rust_ident(name),
+                        rust_ty(ty)
+                    );
+                }
+                Stmt::Assign { name, ty, value } => {
+                    let value = emit_expr(value, self.unit, ty)?;
+                    let _ = writeln!(self.out, "{pad}{} = {value};", rust_ident(name));
+                }
+                Stmt::Return(expr) => {
+                    let value = emit_expr(expr, self.unit, &self.function.ret)?;
+                    let _ = writeln!(self.out, "{pad}return Ok({value});");
+                }
+                Stmt::ReturnUnit => {
+                    let _ = writeln!(self.out, "{pad}return Ok(());");
+                }
+                Stmt::Break => {
+                    let _ = writeln!(self.out, "{pad}break;");
+                }
+                Stmt::Continue => {
+                    let _ = writeln!(self.out, "{pad}continue;");
+                }
+                Stmt::If {
+                    test,
+                    then,
+                    otherwise,
+                } => {
+                    let test = emit_expr(test, self.unit, &Ty::Bool)?;
+                    let _ = writeln!(self.out, "{pad}if {test} {{");
+                    self.stmts(then, depth + 1)?;
+                    if !otherwise.is_empty() {
+                        let _ = writeln!(self.out, "{pad}}} else {{");
+                        self.stmts(otherwise, depth + 1)?;
+                    }
+                    let _ = writeln!(self.out, "{pad}}}");
+                }
+                Stmt::While { test, body } => {
+                    let test = emit_expr(test, self.unit, &Ty::Bool)?;
+                    let _ = writeln!(self.out, "{pad}while {test} {{");
+                    self.stmts(body, depth + 1)?;
+                    let _ = writeln!(self.out, "{pad}}}");
+                }
+                Stmt::For {
+                    name,
+                    ty,
+                    iter,
+                    body,
+                } => match iter {
+                    Expr::Range { start, stop, step } => {
+                        self.range_loop(name, start, stop, step, body, depth)?
+                    }
+                    iterable => self.collection_loop(name, ty, iterable, body, depth)?,
+                },
+            }
+        }
+        Ok(())
+    }
+
+    /// Emit `for <name> in range(...)`.
+    ///
+    /// Python's `range` has no Rust equivalent: `..` counts up by one, `step_by` takes an unsigned
+    /// step, and neither composes with a step that is computed or negative. So the loop is written
+    /// out, driven by a cursor the body cannot disturb — assigning to the loop variable does not
+    /// affect iteration in Python either.
+    fn range_loop(
+        &mut self,
+        name: &str,
+        start: &Expr,
+        stop: &Expr,
+        step: &Expr,
+        body: &[Stmt],
+        depth: usize,
+    ) -> Result<(), BackendError> {
+        let pad = "    ".repeat(depth);
+        let bound = rust_ident(name);
+        let mutable = if is_assigned(body, name) { "mut " } else { "" };
+        let start = emit_expr(start, self.unit, &Ty::Int)?;
+        let stop = emit_expr(stop, self.unit, &Ty::Int)?;
+        let step = emit_expr(step, self.unit, &Ty::Int)?;
+
+        let _ = writeln!(self.out, "{pad}{{");
+        let _ = writeln!(self.out, "{pad}    let __compylr_stop: i64 = {stop};");
+        let _ = writeln!(self.out, "{pad}    let __compylr_step: i64 = {step};");
+        // Checked before the loop rather than inside it: with a zero step the condition never
+        // changes, and a program that hangs gives nothing at all to diagnose from.
+        let _ = writeln!(self.out, "{pad}    if __compylr_step == 0 {{");
+        let _ = writeln!(self.out, "{pad}        return Err(RuntimeError::ZeroStep);");
+        let _ = writeln!(self.out, "{pad}    }}");
+        let _ = writeln!(
+            self.out,
+            "{pad}    let mut __compylr_cursor: i64 = {start};"
+        );
+        let _ = writeln!(
+            self.out,
+            "{pad}    while (__compylr_step > 0 && __compylr_cursor < __compylr_stop)\n\
+             {pad}        || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)\n\
+             {pad}    {{"
+        );
+        let _ = writeln!(
+            self.out,
+            "{pad}        let {mutable}{bound}: i64 = __compylr_cursor;"
+        );
+        self.stmts(body, depth + 2)?;
+        // Checked, because a range whose stop is near i64::MAX would otherwise wrap and run again.
+        let _ = writeln!(
+            self.out,
+            "{pad}        __compylr_cursor = PyNum::py_add(&(__compylr_cursor), &(__compylr_step))?;"
+        );
+        let _ = writeln!(self.out, "{pad}    }}");
+        let _ = writeln!(self.out, "{pad}}}");
+        Ok(())
+    }
+
+    /// Emit `for <name> in <collection>`.
+    fn collection_loop(
+        &mut self,
+        name: &str,
+        ty: &Ty,
+        iterable: &Expr,
+        body: &[Stmt],
+        depth: usize,
+    ) -> Result<(), BackendError> {
+        let pad = "    ".repeat(depth);
+        let bound = rust_ident(name);
+        let mutable = if is_assigned(body, name) { "mut " } else { "" };
+        // A snapshot, not a borrow. Python's `for` holds the object itself, so rebinding the name
+        // inside the body must not change what is iterated; an owned copy says that directly, and
+        // also keeps a loop-long borrow from colliding with what the body does to the original.
+        let iterable = match iterable {
+            Expr::Name(name) => format!("{}.clone()", rust_ident(name)),
+            other => emit_expr(other, self.unit, &Ty::Unit)?,
+        };
+
+        let _ = writeln!(self.out, "{pad}{{");
+        let _ = writeln!(self.out, "{pad}    let __compylr_iter = {iterable};");
+        let _ = writeln!(
+            self.out,
+            "{pad}    for __compylr_item in PyIterate::py_iter(&__compylr_iter) {{"
+        );
+        // The loop variable is bound inside rather than in the pattern, so it carries the element
+        // type lowering derived — a disagreement between the two then fails to compile here,
+        // rather than somewhere in the body.
+        let _ = writeln!(
+            self.out,
+            "{pad}        let {mutable}{bound}: {} = __compylr_item;",
+            rust_ty(ty)
+        );
+        self.stmts(body, depth + 2)?;
+        let _ = writeln!(self.out, "{pad}    }}");
+        let _ = writeln!(self.out, "{pad}}}");
+        Ok(())
+    }
+}
+
+/// Whether any statement assigns to `name`, including inside nested bodies.
+///
+/// Emission needs this before the binding is written, because the `let` comes before the
+/// assignment that makes it mutable.
+fn is_assigned(stmts: &[Stmt], name: &str) -> bool {
+    stmts.iter().any(|stmt| match stmt {
+        Stmt::Assign { name: target, .. } => target == name,
+        Stmt::If {
+            then, otherwise, ..
+        } => is_assigned(then, name) || is_assigned(otherwise, name),
+        Stmt::While { body, .. } | Stmt::For { body, .. } => is_assigned(body, name),
+        _ => false,
+    })
 }
 
 /// Emit an expression, fully parenthesized.
@@ -419,6 +600,13 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
         Expr::Len(inner) => {
             let inner = emit_expr(inner, unit, &Ty::Unit)?;
             format!("PyLen::py_len(&({inner}))")
+        }
+        Expr::Range { .. } => {
+            // A range is only meaningful as something to iterate, and lowering rejects it
+            // anywhere else — so reaching here is a compylr defect rather than a user error.
+            return Err(BackendError::Unsupported {
+                detail: "a range cannot be evaluated outside a loop".to_string(),
+            });
         }
         Expr::Binary { op, left, right } => emit_binary(*op, left, right, unit, expected)?,
         Expr::Call { callee, args } => {

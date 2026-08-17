@@ -1,12 +1,12 @@
 ## 1. IR forms
 
-- [ ] 1.1 Write tests asserting each new statement form is representable, that `elif` nests, and that bodies nest to any depth
-- [ ] 1.2 Write tests asserting a range carries start, stop, and step even when the source omitted them
-- [ ] 1.3 Write tests asserting `walk_calls` descends into branch bodies, loop bodies, loop tests, and range components, so a call nested in one is still validated
-- [ ] 1.4 Add `Stmt::If`, `Stmt::While`, `Stmt::For`, `Stmt::Break`, `Stmt::Continue`, and `Expr::Range`
-- [ ] 1.5 Extend `walk_calls`
-- [ ] 1.6 Write round-trip tests for every new form including nesting, and assert the artifact names no target syntax
-- [ ] 1.7 Extend serialization
+- [x] 1.1 Write tests asserting each new statement form is representable, that `elif` nests, and that bodies nest to any depth
+- [x] 1.2 Write tests asserting a range carries start, stop, and step even when the source omitted them
+- [x] 1.3 Write tests asserting `walk_calls` descends into branch bodies, loop bodies, loop tests, and range components, so a call nested in one is still validated
+- [x] 1.4 Add `Stmt::If`, `Stmt::While`, `Stmt::For`, `Stmt::Break`, `Stmt::Continue`, and `Expr::Range`
+- [x] 1.5 Extend `walk_calls`
+- [x] 1.6 Write round-trip tests for every new form including nesting, and assert the artifact names no target syntax
+- [x] 1.7 Extend serialization
 
 ## 2. Scope becomes a stack
 

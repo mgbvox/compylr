@@ -35,6 +35,8 @@ pub enum RuntimeError {
     Overflow,
     /// A sequence index outside its bounds, in either direction.
     IndexOutOfRange,
+    /// A range whose step was zero, which would never terminate.
+    ZeroStep,
     /// A key that is not present in a mapping.
     ///
     /// Carries the key rendered as text because Python's `KeyError` shows it. Making the error
@@ -48,6 +50,7 @@ impl fmt::Display for RuntimeError {
             Self::DivisionByZero => write!(f, "division by zero"),
             Self::Overflow => write!(f, "integer overflow"),
             Self::IndexOutOfRange => write!(f, "index out of range"),
+            Self::ZeroStep => write!(f, "range() arg 3 must not be zero"),
             Self::MissingKey(key) => write!(f, "{key}"),
         }
     }
@@ -304,5 +307,38 @@ impl PyLen for String {
     /// Characters, not bytes — see [`py_str_len`].
     fn py_len(&self) -> i64 {
         py_str_len(self)
+    }
+}
+
+/// Iterating a collection the way Python does.
+///
+/// A trait for the same reason subscripting is one: the backend emits one call and Rust selects the
+/// implementation by type. A mapping yields its **keys**, matching Python — which a naive
+/// implementation over a map would not do.
+pub trait PyIterate {
+    /// What each step yields.
+    type Item;
+    /// The values, in whatever order the container defines.
+    fn py_iter(&self) -> impl Iterator<Item = Self::Item> + '_;
+}
+
+impl<T: Clone> PyIterate for Vec<T> {
+    type Item = T;
+    fn py_iter(&self) -> impl Iterator<Item = T> + '_ {
+        self.iter().cloned()
+    }
+}
+
+impl<K: Clone, V> PyIterate for std::collections::HashMap<K, V> {
+    type Item = K;
+    fn py_iter(&self) -> impl Iterator<Item = K> + '_ {
+        self.keys().cloned()
+    }
+}
+
+impl<T: Clone> PyIterate for std::collections::HashSet<T> {
+    type Item = T;
+    fn py_iter(&self) -> impl Iterator<Item = T> + '_ {
+        self.iter().cloned()
     }
 }

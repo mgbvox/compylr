@@ -141,7 +141,9 @@ const PREAMBLE: &str = r#"//! The Python boundary for the translated functions.
 
 use std::collections::{HashMap, HashSet};
 
-use pyo3::exceptions::{PyIndexError, PyKeyError, PyOverflowError, PyZeroDivisionError};
+use pyo3::exceptions::{
+    PyIndexError, PyKeyError, PyOverflowError, PyValueError, PyZeroDivisionError,
+};
 use pyo3::prelude::*;
 
 use crate::compat::RuntimeError;
@@ -155,6 +157,7 @@ fn __compylr_to_py_err(error: RuntimeError) -> PyErr {
             PyOverflowError::new_err("integer arithmetic overflowed a 64-bit signed integer")
         }
         RuntimeError::IndexOutOfRange => PyIndexError::new_err("index out of range"),
+        RuntimeError::ZeroStep => PyValueError::new_err("range() arg 3 must not be zero"),
         RuntimeError::MissingKey(key) => PyKeyError::new_err(key),
     }
 }

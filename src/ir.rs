@@ -274,6 +274,20 @@ pub enum Expr {
     /// so leaving `len` as one would make its meaning depend on whether someone had decorated a
     /// function of that name.
     Len(Box<Expr>),
+    /// A range of integers, as Python's `range` produces.
+    ///
+    /// All three components are present even when the source omitted them, so a backend never has
+    /// to know Python's defaulting rules. A distinct form rather than a call, for the reason
+    /// [`Expr::Len`] is: a call is resolved against the unit, so leaving it as one would make its
+    /// meaning depend on what else was compiled.
+    Range {
+        /// First value.
+        start: Box<Expr>,
+        /// Exclusive bound.
+        stop: Box<Expr>,
+        /// Amount added each step. May be negative; may not be zero at runtime.
+        step: Box<Expr>,
+    },
     /// A call to a function by name.
     Call {
         /// Name of the target function.
@@ -345,6 +359,11 @@ impl Expr {
                 base.walk_calls(visit);
                 index.walk_calls(visit);
             }
+            Self::Range { start, stop, step } => {
+                start.walk_calls(visit);
+                stop.walk_calls(visit);
+                step.walk_calls(visit);
+            }
             Self::Binary { left, right, .. } => {
                 left.walk_calls(visit);
                 right.walk_calls(visit);
@@ -367,9 +386,6 @@ pub enum Stmt {
     /// Return no value, or do nothing (`pass`).
     ReturnUnit,
     /// Introduce a new local bound to a value.
-    ///
-    /// A binding always introduces a *new* name; reassignment is rejected during lowering, so a
-    /// backend can render this as a plain immutable binding.
     Bind {
         /// Name being introduced.
         name: String,
@@ -378,6 +394,54 @@ pub enum Stmt {
         /// Value bound to the name.
         value: Expr,
     },
+    /// Assign to a name already bound.
+    ///
+    /// Distinct from [`Stmt::Bind`] because a backend renders them differently: a binding declares,
+    /// an assignment updates. Keeping them apart also means a backend never has to work out which
+    /// of two identically-shaped statements introduced the name.
+    Assign {
+        /// Name being assigned.
+        name: String,
+        /// The type the name was bound at. Carried so a backend can render the value without
+        /// re-deriving what lowering already established.
+        ty: Ty,
+        /// Value assigned. Its type matches `ty`.
+        value: Expr,
+    },
+    /// Conditional execution.
+    ///
+    /// `elif` has no form of its own: it is a conditional in the `otherwise` of another, which is
+    /// what it means, and gives a backend one shape to render rather than two.
+    If {
+        /// The test, which must be a boolean.
+        test: Expr,
+        /// Statements run when the test holds.
+        then: Vec<Stmt>,
+        /// Statements run otherwise. Empty when the source had no `else`.
+        otherwise: Vec<Stmt>,
+    },
+    /// Repetition while a test holds.
+    While {
+        /// The test, which must be a boolean.
+        test: Expr,
+        /// The body.
+        body: Vec<Stmt>,
+    },
+    /// Repetition over the values of an iterable.
+    For {
+        /// Name bound to each value. Visible only inside the body.
+        name: String,
+        /// Type each value takes.
+        ty: Ty,
+        /// What is iterated: a range, or a collection.
+        iter: Expr,
+        /// The body.
+        body: Vec<Stmt>,
+    },
+    /// Abandon the nearest enclosing loop.
+    Break,
+    /// Restart the nearest enclosing loop.
+    Continue,
 }
 
 /// A function parameter.
@@ -442,12 +506,60 @@ impl Function {
 
     /// Visit every call made anywhere in this function's body.
     pub fn walk_calls(&self, visit: &mut impl FnMut(&str, usize)) {
-        for stmt in &self.body {
-            match stmt {
-                Stmt::Return(expr) => expr.walk_calls(visit),
-                Stmt::Bind { value, .. } => value.walk_calls(visit),
-                Stmt::ReturnUnit => {}
+        walk_stmts(&self.body, visit);
+    }
+}
+
+/// Whether a sequence of statements produces a value on **every** path.
+///
+/// Shared by lowering, which rejects a function that does not, and by the backend, which uses it to
+/// decide whether a trailing value is needed. One implementation rather than two, because the two
+/// disagreeing means either a valid program is rejected or generated code fails to compile — and
+/// the second surfaces as a complaint about Rust rather than about the user's function.
+///
+/// A conditional counts only when it has an alternative and **both** branches return. A loop never
+/// counts: its body may run zero times, and proving otherwise would mean evaluating the test.
+pub fn returns_on_all_paths(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|stmt| match stmt {
+        Stmt::Return(_) | Stmt::ReturnUnit => true,
+        Stmt::If {
+            then, otherwise, ..
+        } => !otherwise.is_empty() && returns_on_all_paths(then) && returns_on_all_paths(otherwise),
+        // Deliberately false. `while True:` would be provable and is not worth a special case that
+        // only one spelling benefits from.
+        Stmt::While { .. } | Stmt::For { .. } => false,
+        Stmt::Bind { .. } | Stmt::Assign { .. } | Stmt::Break | Stmt::Continue => false,
+    })
+}
+
+/// Visit every call in a sequence of statements, descending into nested bodies.
+///
+/// Nested bodies are why this is a free function rather than a loop inside `walk_calls`: a call
+/// inside a loop inside a branch must still be found, or unit validation would miss it and the
+/// backend would emit a call to something that does not exist.
+fn walk_stmts(stmts: &[Stmt], visit: &mut impl FnMut(&str, usize)) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Return(expr) => expr.walk_calls(visit),
+            Stmt::Bind { value, .. } | Stmt::Assign { value, .. } => value.walk_calls(visit),
+            Stmt::If {
+                test,
+                then,
+                otherwise,
+            } => {
+                test.walk_calls(visit);
+                walk_stmts(then, visit);
+                walk_stmts(otherwise, visit);
             }
+            Stmt::While { test, body } => {
+                test.walk_calls(visit);
+                walk_stmts(body, visit);
+            }
+            Stmt::For { iter, body, .. } => {
+                iter.walk_calls(visit);
+                walk_stmts(body, visit);
+            }
+            Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => {}
         }
     }
 }

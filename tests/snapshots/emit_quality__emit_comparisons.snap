@@ -6,7 +6,7 @@ expression: functions.trim()
 
 use std::collections::{HashMap, HashSet};
 
-use crate::compat::{PyAdd, PyLen, PyNum, RuntimeError, py_subscript, py_truediv};
+use crate::compat::{PyAdd, PyIterate, PyLen, PyNum, RuntimeError, py_subscript, py_truediv};
 
 pub fn at_most(a: i64, b: i64) -> Result<bool, RuntimeError> {
     Ok(((&(a)) <= (&(b))))
