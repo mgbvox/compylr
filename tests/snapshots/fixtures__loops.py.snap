@@ -1,0 +1,475 @@
+---
+source: tests/fixtures.rs
+assertion_line: 52
+expression: functions
+---
+[
+    Function {
+        name: "total",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "running",
+                ty: Int,
+                value: Literal(
+                    Int(
+                        0,
+                    ),
+                ),
+            },
+            For {
+                name: "i",
+                ty: Int,
+                iter: Range {
+                    start: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    stop: Name(
+                        "n",
+                    ),
+                    step: Literal(
+                        Int(
+                            1,
+                        ),
+                    ),
+                },
+                body: [
+                    Assign {
+                        name: "running",
+                        ty: Int,
+                        value: Binary {
+                            op: Add,
+                            left: Name(
+                                "running",
+                            ),
+                            right: Name(
+                                "i",
+                            ),
+                        },
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "running",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 0,
+            end: 113,
+        },
+    },
+    Function {
+        name: "countdown",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "steps",
+                ty: Int,
+                value: Literal(
+                    Int(
+                        0,
+                    ),
+                ),
+            },
+            For {
+                name: "i",
+                ty: Int,
+                iter: Range {
+                    start: Name(
+                        "n",
+                    ),
+                    stop: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    step: Neg(
+                        Literal(
+                            Int(
+                                1,
+                            ),
+                        ),
+                    ),
+                },
+                body: [
+                    Assign {
+                        name: "steps",
+                        ty: Int,
+                        value: Binary {
+                            op: Add,
+                            left: Name(
+                                "steps",
+                            ),
+                            right: Literal(
+                                Int(
+                                    1,
+                                ),
+                            ),
+                        },
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "steps",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 116,
+            end: 232,
+        },
+    },
+    Function {
+        name: "stepped",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "seen",
+                ty: Int,
+                value: Literal(
+                    Int(
+                        0,
+                    ),
+                ),
+            },
+            For {
+                name: "i",
+                ty: Int,
+                iter: Range {
+                    start: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    stop: Name(
+                        "n",
+                    ),
+                    step: Literal(
+                        Int(
+                            2,
+                        ),
+                    ),
+                },
+                body: [
+                    Assign {
+                        name: "seen",
+                        ty: Int,
+                        value: Binary {
+                            op: Add,
+                            left: Name(
+                                "seen",
+                            ),
+                            right: Name(
+                                "i",
+                            ),
+                        },
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "seen",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 235,
+            end: 344,
+        },
+    },
+    Function {
+        name: "first_over",
+        params: [
+            Param {
+                name: "xs",
+                ty: List(
+                    Int,
+                ),
+            },
+            Param {
+                name: "limit",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            For {
+                name: "x",
+                ty: Int,
+                iter: Name(
+                    "xs",
+                ),
+                body: [
+                    If {
+                        test: Binary {
+                            op: Gt,
+                            left: Name(
+                                "x",
+                            ),
+                            right: Name(
+                                "limit",
+                            ),
+                        },
+                        then: [
+                            Return(
+                                Name(
+                                    "x",
+                                ),
+                            ),
+                        ],
+                        otherwise: [],
+                    },
+                ],
+            },
+            Return(
+                Neg(
+                    Literal(
+                        Int(
+                            1,
+                        ),
+                    ),
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 347,
+            end: 470,
+        },
+    },
+    Function {
+        name: "skip_negatives",
+        params: [
+            Param {
+                name: "xs",
+                ty: List(
+                    Int,
+                ),
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "kept",
+                ty: Int,
+                value: Literal(
+                    Int(
+                        0,
+                    ),
+                ),
+            },
+            For {
+                name: "x",
+                ty: Int,
+                iter: Name(
+                    "xs",
+                ),
+                body: [
+                    If {
+                        test: Binary {
+                            op: Lt,
+                            left: Name(
+                                "x",
+                            ),
+                            right: Literal(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                        },
+                        then: [
+                            Continue,
+                        ],
+                        otherwise: [],
+                    },
+                    Assign {
+                        name: "kept",
+                        ty: Int,
+                        value: Binary {
+                            op: Add,
+                            left: Name(
+                                "kept",
+                            ),
+                            right: Literal(
+                                Int(
+                                    1,
+                                ),
+                            ),
+                        },
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "kept",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 473,
+            end: 623,
+        },
+    },
+    Function {
+        name: "key_lengths",
+        params: [
+            Param {
+                name: "d",
+                ty: Dict(
+                    Str,
+                    Int,
+                ),
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "total_length",
+                ty: Int,
+                value: Literal(
+                    Int(
+                        0,
+                    ),
+                ),
+            },
+            For {
+                name: "k",
+                ty: Str,
+                iter: Name(
+                    "d",
+                ),
+                body: [
+                    Assign {
+                        name: "total_length",
+                        ty: Int,
+                        value: Binary {
+                            op: Add,
+                            left: Name(
+                                "total_length",
+                            ),
+                            right: Len(
+                                Name(
+                                    "k",
+                                ),
+                            ),
+                        },
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "total_length",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 626,
+            end: 774,
+        },
+    },
+    Function {
+        name: "halve_until_odd",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            While {
+                test: Binary {
+                    op: Eq,
+                    left: Binary {
+                        op: Mod,
+                        left: Name(
+                            "n",
+                        ),
+                        right: Literal(
+                            Int(
+                                2,
+                            ),
+                        ),
+                    },
+                    right: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                },
+                body: [
+                    If {
+                        test: Binary {
+                            op: Eq,
+                            left: Name(
+                                "n",
+                            ),
+                            right: Literal(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                        },
+                        then: [
+                            Break,
+                        ],
+                        otherwise: [],
+                    },
+                    Assign {
+                        name: "n",
+                        ty: Int,
+                        value: Binary {
+                            op: FloorDiv,
+                            left: Name(
+                                "n",
+                            ),
+                            right: Literal(
+                                Int(
+                                    2,
+                                ),
+                            ),
+                        },
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "n",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 777,
+            end: 903,
+        },
+    },
+]

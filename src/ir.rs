@@ -262,6 +262,19 @@ pub enum Expr {
     /// A tuple literal, which unlike the others carries a type per position.
     TupleLit(Vec<Expr>),
     /// Reading one element of a collection.
+    /// Read a tuple element at a position fixed at compile time.
+    ///
+    /// Distinct from [`Self::Subscript`] because a tuple is heterogeneous: the type of the result
+    /// depends on *which* position, so it cannot be a lookup taking a runtime index the way a
+    /// sequence or mapping read can. Lowering has already resolved the position and rejected a
+    /// computed one, and recording that here is what lets a backend emit a static field access
+    /// rather than search for a lookup operation that cannot exist.
+    TupleIndex {
+        /// The tuple being read.
+        base: Box<Expr>,
+        /// Which element, already checked against the tuple's length.
+        position: usize,
+    },
     Subscript {
         /// The collection being read.
         base: Box<Expr>,
@@ -355,6 +368,7 @@ impl Expr {
                     value.walk_calls(visit);
                 }
             }
+            Self::TupleIndex { base, .. } => base.walk_calls(visit),
             Self::Subscript { base, index } => {
                 base.walk_calls(visit);
                 index.walk_calls(visit);

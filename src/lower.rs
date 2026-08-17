@@ -24,21 +24,125 @@
 //! its type together, so shape and type can never be derived from separate traversals and
 //! disagree.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ruff_python_ast::{
-    CmpOp, Expr as PyExpr, ModModule, Number, Operator, Parameters, Stmt as PyStmt,
+    CmpOp, ElifElseClause, Expr as PyExpr, ModModule, Number, Operator, Parameters, Stmt as PyStmt,
     StmtFunctionDef, UnaryOp,
 };
 use ruff_python_parser::Parsed;
 use ruff_text_size::Ranged;
 
 use crate::error::{LowerError, LowerErrorKind};
-use crate::ir::{BinOp, Expr, Function, Literal, Param, Stmt, Ty};
+use crate::ir::{BinOp, Expr, Function, Literal, Param, Stmt, Ty, returns_on_all_paths};
 use crate::span::Span;
 
 /// Names visible inside a function body, with the type each was bound at.
-type Scope = HashMap<String, Ty>;
+///
+/// A stack of frames rather than one map, because a block is a scope: a name bound inside a branch
+/// or a loop is gone when it ends. That is stricter than Python, which leaks such a name into the
+/// enclosing function and fails at runtime if the branch did not run. Rejecting at compile time is
+/// the point of the subset — the alternative is admitting names whose existence depends on a
+/// runtime test, and then either rejecting reads of them anyway or emitting code that does not
+/// compile.
+///
+/// Lookup walks outward and binding writes to the innermost frame, which together are what make
+/// `i = i + 1` inside a loop update the counter declared outside it rather than shadow it.
+#[derive(Debug)]
+struct Scope {
+    /// Innermost frame last.
+    frames: Vec<HashMap<String, Ty>>,
+    /// Names that were bound in a block that has since ended.
+    ///
+    /// Kept only so that reading one afterwards can say the binding may not have happened, rather
+    /// than that the name is unknown. The name *is* in the source a few lines up, so "not defined"
+    /// reads as a compiler bug; what is actually wrong is that whether it was bound depends on a
+    /// test compylr will not evaluate.
+    departed: HashSet<String>,
+}
+
+impl Scope {
+    /// A function's outermost scope, holding its parameters.
+    fn function(params: &[Param]) -> Self {
+        Self {
+            frames: vec![
+                params
+                    .iter()
+                    .map(|param| (param.name.clone(), param.ty.clone()))
+                    .collect(),
+            ],
+            departed: HashSet::new(),
+        }
+    }
+
+    /// Enter a nested block.
+    fn push(&mut self) {
+        self.frames.push(HashMap::new());
+    }
+
+    /// Leave a nested block, discarding everything it bound.
+    fn pop(&mut self) {
+        if let Some(frame) = self.frames.pop() {
+            self.departed.extend(frame.into_keys());
+        }
+        debug_assert!(
+            !self.frames.is_empty(),
+            "the function frame is never popped"
+        );
+    }
+
+    /// Whether a name was bound in a block that has ended.
+    fn was_bound_in_a_departed_block(&self, name: &str) -> bool {
+        self.departed.contains(name)
+    }
+
+    /// The type a visible name was bound at, searching innermost frame outward.
+    fn get(&self, name: &str) -> Option<&Ty> {
+        self.frames.iter().rev().find_map(|frame| frame.get(name))
+    }
+
+    /// Whether a name is visible here.
+    fn contains_key(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+
+    /// Introduce a name in the innermost frame.
+    fn declare(&mut self, name: String, ty: Ty) {
+        self.frames
+            .last_mut()
+            .expect("the function frame is never popped")
+            .insert(name, ty);
+    }
+}
+
+/// What lowering a statement needs to know beyond the statement itself.
+///
+/// `in_loop` is the whole reason this is a struct rather than two arguments: `break` outside a loop
+/// has to be a located diagnostic, and the alternative is letting the backend discover it as an
+/// unexplained failure to generate code.
+#[derive(Clone, Copy)]
+struct Ctx<'a> {
+    /// The enclosing function's declared return type.
+    ret: &'a Ty,
+    /// Signatures of every function in the source, for typing calls.
+    sigs: &'a Signatures,
+    /// Whether a loop encloses this statement. Conditionals do not reset it, so `break` inside an
+    /// `if` inside a loop is fine — which is the common case.
+    in_loop: bool,
+}
+
+impl<'a> Ctx<'a> {
+    /// The same context, inside a loop body.
+    fn inside_loop(self) -> Self {
+        Self {
+            in_loop: true,
+            ..self
+        }
+    }
+}
+
+/// The builtin sequence-of-integers form, recognised in iterable position.
+const RANGE: &str = "range";
 
 fn err(kind: LowerErrorKind, message: impl Into<String>, node: &impl Ranged) -> LowerError {
     LowerError::new(kind, message, Span::from(node.range()))
@@ -178,6 +282,15 @@ pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Functi
         ));
     }
 
+    if def.name.as_str() == RANGE {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            "'range' is reserved: it is a builtin, and a function of that name would make \
+             `range(n)` mean different things depending on what else was marked for compilation",
+            def,
+        ));
+    }
+
     if def.name.as_str() == "len" {
         return Err(err(
             LowerErrorKind::UnsupportedConstruct,
@@ -200,23 +313,29 @@ pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Functi
         }
     };
 
-    let mut scope: Scope = params
-        .iter()
-        .map(|param| (param.name.clone(), param.ty.clone()))
-        .collect();
+    let mut scope = Scope::function(&params);
+    let ctx = Ctx {
+        ret: &ret,
+        sigs,
+        in_loop: false,
+    };
     let (doc, rest) = split_docstring(&def.body);
-    let body = lower_body(rest, &mut scope, &ret, sigs)?;
+    let body = lower_body(rest, &mut scope, ctx)?;
 
-    // A function that declares a value must produce one. The subset has no branching, so this is
-    // structural rather than a reachability analysis: the last statement either returns or it does
-    // not. Catching it here makes it an ordinary located diagnostic; left to the backend it
-    // surfaces as an internal code-generation error describing the compiler's difficulty rather
-    // than the user's mistake.
-    if ret != Ty::Unit && !matches!(body.last(), Some(Stmt::Return(_))) {
+    // A function that declares a value must produce one on every path. With branching this is no
+    // longer the structural question of whether the last statement is a `return`, so it defers to
+    // the same analysis the backend uses — two implementations disagreeing would mean either
+    // rejecting a valid program or emitting code that does not compile.
+    //
+    // Catching it here makes it an ordinary located diagnostic; left to the backend it surfaces as
+    // an internal code-generation error describing the compiler\'s difficulty rather than the
+    // user\'s mistake.
+    if ret != Ty::Unit && !returns_on_all_paths(&body) {
         return Err(err(
             LowerErrorKind::MissingReturn,
             format!(
-                "function '{}' declares a return type of '{}' but its body never returns a value",
+                "function '{}' declares a return type of '{}', but there is a path through its \
+                 body that produces no value",
                 def.name,
                 ret.python_name()
             ),
@@ -479,7 +598,15 @@ fn lower_subscript(
                     node,
                 ));
             }
-            Some(elements[position as usize].clone())
+            // Returned directly rather than falling through to the generic subscript below: a
+            // tuple read is a static field access, not a lookup.
+            return Ok((
+                Expr::TupleIndex {
+                    base: Box::new(base),
+                    position: position as usize,
+                },
+                Some(elements[position as usize].clone()),
+            ));
         }
         other => {
             return Err(err(
@@ -633,29 +760,254 @@ fn lower_generic_annotation(
 /// lowering; no backend ever has to match on a state that must not reach codegen.
 type TyResult = Option<Ty>;
 
-fn lower_body(
-    body: &[PyStmt],
-    scope: &mut Scope,
-    ret: &Ty,
-    sigs: &Signatures,
-) -> Result<Vec<Stmt>, LowerError> {
+fn lower_body(body: &[PyStmt], scope: &mut Scope, ctx: Ctx<'_>) -> Result<Vec<Stmt>, LowerError> {
     let mut lowered = Vec::with_capacity(body.len());
     for stmt in body {
-        lowered.push(lower_stmt(stmt, scope, ret, sigs)?);
+        // `pass` carries no meaning, so it produces no statement. Lowering it to anything at all
+        // would give `for i in range(n): pass` a body that does something.
+        if matches!(stmt, PyStmt::Pass(_)) {
+            continue;
+        }
+        lowered.push(lower_stmt(stmt, scope, ctx)?);
     }
     Ok(lowered)
 }
 
-fn lower_stmt(
-    stmt: &PyStmt,
+/// Lower a nested block in its own scope.
+fn lower_block(body: &[PyStmt], scope: &mut Scope, ctx: Ctx<'_>) -> Result<Vec<Stmt>, LowerError> {
+    scope.push();
+    let lowered = lower_body(body, scope, ctx);
+    scope.pop();
+    lowered
+}
+
+/// Lower a conditional or loop test, which must be a boolean.
+///
+/// Python treats many values as truthy; compylr does not. A subset whose annotations are mandatory
+/// everywhere should not then infer that an integer means a condition — requiring a boolean keeps
+/// the meaning of a test written down rather than guessed.
+fn lower_test(test: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<Expr, LowerError> {
+    let (lowered, ty) = lower_expr(test, scope, ctx.sigs)?;
+    match ty {
+        // Undetermined means the test calls a function this source does not define; taken on
+        // trust here exactly as a returned call is.
+        None | Some(Ty::Bool) => Ok(lowered),
+        Some(other) => Err(err(
+            LowerErrorKind::TypeMismatch,
+            format!(
+                "a test must be a 'bool', but this expression is '{}'; compylr does not treat \
+                 other types as true or false",
+                other.python_name()
+            ),
+            test,
+        )),
+    }
+}
+
+/// Lower the `elif`/`else` tail of a conditional into the alternative of the one before it.
+///
+/// Python's `elif` is a flattened list in the syntax tree, but it means a conditional nested in the
+/// previous alternative. Nesting it here means every consumer of the IR sees one shape rather than
+/// having to know that a list of clauses is really a chain.
+fn lower_clauses(
+    clauses: &[ElifElseClause],
     scope: &mut Scope,
-    ret: &Ty,
-    sigs: &Signatures,
+    ctx: Ctx<'_>,
+) -> Result<Vec<Stmt>, LowerError> {
+    let Some((first, rest)) = clauses.split_first() else {
+        return Ok(Vec::new());
+    };
+    match first.test.as_ref() {
+        None => lower_block(&first.body, scope, ctx),
+        Some(test) => {
+            let test = lower_test(test, scope, ctx)?;
+            let then = lower_block(&first.body, scope, ctx)?;
+            let otherwise = lower_clauses(rest, scope, ctx)?;
+            Ok(vec![Stmt::If {
+                test,
+                then,
+                otherwise,
+            }])
+        }
+    }
+}
+
+/// Reject `for`/`else` and `while`/`else`.
+///
+/// The alternative runs when the loop finished without a `break`, which most readers misremember
+/// as the opposite. A construct that reliably misleads is worse than no construct.
+fn reject_loop_else(orelse: &[PyStmt], node: &impl Ranged) -> Result<(), LowerError> {
+    if orelse.is_empty() {
+        return Ok(());
+    }
+    Err(err(
+        LowerErrorKind::UnsupportedConstruct,
+        "an 'else' on a loop is not supported: it runs when the loop ended without a 'break', \
+         which reads as the opposite of what it does",
+        node,
+    ))
+}
+
+/// Reject `break` or `continue` with no enclosing loop.
+fn reject_outside_loop(keyword: &str, ctx: Ctx<'_>, node: &impl Ranged) -> Result<(), LowerError> {
+    if ctx.in_loop {
+        return Ok(());
+    }
+    Err(err(
+        LowerErrorKind::LoopControlOutsideLoop,
+        format!("'{keyword}' is not inside a loop"),
+        node,
+    ))
+}
+
+/// Lower `for <name> in <iterable>`.
+fn lower_for(
+    stmt: &PyStmt,
+    node: &ruff_python_ast::StmtFor,
+    scope: &mut Scope,
+    ctx: Ctx<'_>,
 ) -> Result<Stmt, LowerError> {
+    if node.is_async {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            "'async for' is not supported",
+            stmt,
+        ));
+    }
+    reject_loop_else(&node.orelse, stmt)?;
+    let name = binding_target(&node.target, stmt)?.to_string();
+
+    let (iter, element) = lower_iterable(&node.iter, scope, ctx)?;
+
+    // The loop variable belongs to the loop's own frame, so it is gone afterwards — a read of it
+    // after the loop would otherwise depend on the collection having been non-empty.
+    scope.push();
+    scope.declare(name.clone(), element.clone());
+    let body = lower_body(&node.body, scope, ctx.inside_loop());
+    scope.pop();
+
+    Ok(Stmt::For {
+        name,
+        ty: element,
+        iter,
+        body: body?,
+    })
+}
+
+/// Lower what a `for` iterates, returning it alongside the type each step yields.
+fn lower_iterable(iter: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<(Expr, Ty), LowerError> {
+    if let Some(range) = lower_range(iter, scope, ctx)? {
+        return Ok((range, Ty::Int));
+    }
+    let (lowered, ty) = lower_expr(iter, scope, ctx.sigs)?;
+    let Some(ty) = ty else {
+        return Err(err(
+            LowerErrorKind::UndeterminedBinding,
+            "the type of what this loop iterates cannot be determined here: it calls a function \
+             this source does not define",
+            iter,
+        ));
+    };
+    // A mapping yields its keys, matching Python. Anything else would be a silent divergence in
+    // the one construct where a user is most likely to assume the languages agree.
+    let element = match &ty {
+        Ty::List(element) | Ty::Set(element) => (**element).clone(),
+        Ty::Dict(key, _) => (**key).clone(),
+        other => {
+            return Err(err(
+                LowerErrorKind::TypeMismatch,
+                format!(
+                    "'{}' cannot be iterated; a loop needs a list, dict, set, or range",
+                    other.python_name()
+                ),
+                iter,
+            ));
+        }
+    };
+    Ok((lowered, element))
+}
+
+/// Recognise `range(...)` in iterable position, filling in the arguments Python defaults.
+///
+/// Returns `Ok(None)` for anything that is not a call to `range`, so the caller can go on to treat
+/// it as an ordinary expression.
+fn lower_range(iter: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<Option<Expr>, LowerError> {
+    let PyExpr::Call(call) = iter else {
+        return Ok(None);
+    };
+    let PyExpr::Name(callee) = call.func.as_ref() else {
+        return Ok(None);
+    };
+    if callee.id.as_str() != RANGE {
+        return Ok(None);
+    }
+    if !call.arguments.keywords.is_empty() {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            "'range' does not take keyword arguments",
+            iter,
+        ));
+    }
+
+    let args = &call.arguments.args;
+    if args.is_empty() || args.len() > 3 {
+        return Err(err(
+            LowerErrorKind::ArityMismatch,
+            format!(
+                "'range' takes one, two, or three arguments, but {} were given",
+                args.len()
+            ),
+            iter,
+        ));
+    }
+
+    let mut lowered = Vec::with_capacity(args.len());
+    for arg in args {
+        let (expr, ty) = lower_expr(arg, scope, ctx.sigs)?;
+        match ty {
+            // Undetermined is taken on trust, as everywhere else a cross-source call appears.
+            None | Some(Ty::Int) => lowered.push(expr),
+            Some(other) => {
+                return Err(err(
+                    LowerErrorKind::TypeMismatch,
+                    format!(
+                        "'range' takes integers, but this argument is '{}'",
+                        other.python_name()
+                    ),
+                    arg,
+                ));
+            }
+        }
+    }
+
+    // `range(stop)` and `range(start, stop)` are spelled with the defaults Python supplies, so the
+    // IR carries three components however the source was written and no consumer has to know the
+    // defaults.
+    let (start, stop, step) = match lowered.len() {
+        1 => (Expr::int(0), lowered.remove(0), Expr::int(1)),
+        2 => {
+            let stop = lowered.remove(1);
+            (lowered.remove(0), stop, Expr::int(1))
+        }
+        _ => {
+            let step = lowered.remove(2);
+            let stop = lowered.remove(1);
+            (lowered.remove(0), stop, step)
+        }
+    };
+    Ok(Some(Expr::Range {
+        start: Box::new(start),
+        stop: Box::new(stop),
+        step: Box::new(step),
+    }))
+}
+
+fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ctx: Ctx<'_>) -> Result<Stmt, LowerError> {
     match stmt {
         PyStmt::Return(node) => match node.value.as_deref() {
             Some(value) => {
-                let (lowered, ty) = lower_expr(value, scope, sigs)?;
+                let ret = ctx.ret;
+                let (lowered, ty) = lower_expr(value, scope, ctx.sigs)?;
                 if *ret == Ty::Unit {
                     return Err(err(
                         LowerErrorKind::TypeMismatch,
@@ -683,19 +1035,35 @@ fn lower_stmt(
             }
             None => Ok(Stmt::ReturnUnit),
         },
-        PyStmt::Pass(_) => Ok(Stmt::ReturnUnit),
-        PyStmt::AnnAssign(assign) => lower_annotated_binding(stmt, assign, scope, sigs),
-        PyStmt::Assign(assign) => lower_bare_binding(stmt, assign, scope, sigs),
-        PyStmt::If(_) => Err(err(
-            LowerErrorKind::UnsupportedConstruct,
-            "conditional statements are not supported",
-            stmt,
-        )),
-        PyStmt::While(_) | PyStmt::For(_) => Err(err(
-            LowerErrorKind::UnsupportedConstruct,
-            "loops are not supported",
-            stmt,
-        )),
+        // Filtered out before reaching here; a `pass` produces no statement at all.
+        PyStmt::Pass(_) => unreachable!("`pass` is dropped by lower_body"),
+        PyStmt::AnnAssign(assign) => lower_annotated_binding(stmt, assign, scope, ctx),
+        PyStmt::Assign(assign) => lower_bare_binding(stmt, assign, scope, ctx),
+        PyStmt::If(node) => {
+            let test = lower_test(&node.test, scope, ctx)?;
+            let then = lower_block(&node.body, scope, ctx)?;
+            let otherwise = lower_clauses(&node.elif_else_clauses, scope, ctx)?;
+            Ok(Stmt::If {
+                test,
+                then,
+                otherwise,
+            })
+        }
+        PyStmt::While(node) => {
+            reject_loop_else(&node.orelse, stmt)?;
+            let test = lower_test(&node.test, scope, ctx)?;
+            let body = lower_block(&node.body, scope, ctx.inside_loop())?;
+            Ok(Stmt::While { test, body })
+        }
+        PyStmt::For(node) => lower_for(stmt, node, scope, ctx),
+        PyStmt::Break(_) => {
+            reject_outside_loop("break", ctx, stmt)?;
+            Ok(Stmt::Break)
+        }
+        PyStmt::Continue(_) => {
+            reject_outside_loop("continue", ctx, stmt)?;
+            Ok(Stmt::Continue)
+        }
         PyStmt::AugAssign(_) => Err(err(
             LowerErrorKind::UnsupportedConstruct,
             "augmented assignment is not supported",
@@ -724,12 +1092,20 @@ fn coerce(expr: Expr, actual: &Ty, expected: &Ty) -> Option<Expr> {
     None
 }
 
-/// Reject binding a name that already exists, keeping every binding a fresh introduction.
-fn ensure_unbound(name: &str, scope: &Scope, node: &impl Ranged) -> Result<(), LowerError> {
+/// Reject re-declaring a name that already exists.
+///
+/// Assigning to a name again is fine and lowers to [`Stmt::Assign`]; *annotating* it again is not.
+/// `i: int = 1` after `i = 0` is a second declaration, and accepting it would raise the question of
+/// whether the two annotations may differ — a question with no good answer, since a name whose type
+/// changes partway through is one a reader has to simulate the program to follow.
+fn ensure_undeclared(name: &str, scope: &Scope, node: &impl Ranged) -> Result<(), LowerError> {
     if scope.contains_key(name) {
         return Err(err(
             LowerErrorKind::Reassignment,
-            format!("'{name}' is already bound; reassignment is not yet supported"),
+            format!(
+                "'{name}' is already bound, so this annotation re-declares it; drop the \
+                 annotation to assign to it instead"
+            ),
             node,
         ));
     }
@@ -751,10 +1127,11 @@ fn lower_annotated_binding(
     stmt: &PyStmt,
     assign: &ruff_python_ast::StmtAnnAssign,
     scope: &mut Scope,
-    sigs: &Signatures,
+    ctx: Ctx<'_>,
 ) -> Result<Stmt, LowerError> {
+    let sigs = ctx.sigs;
     let name = binding_target(&assign.target, stmt)?.to_string();
-    ensure_unbound(&name, scope, stmt)?;
+    ensure_undeclared(&name, scope, stmt)?;
 
     let declared = lower_annotation(&assign.annotation, false)?;
     let Some(value) = assign.value.as_deref() else {
@@ -782,7 +1159,7 @@ fn lower_annotated_binding(
         None => lowered,
     };
 
-    scope.insert(name.clone(), declared.clone());
+    scope.declare(name.clone(), declared.clone());
     Ok(Stmt::Bind {
         name,
         ty: declared,
@@ -794,7 +1171,7 @@ fn lower_bare_binding(
     stmt: &PyStmt,
     assign: &ruff_python_ast::StmtAssign,
     scope: &mut Scope,
-    sigs: &Signatures,
+    ctx: Ctx<'_>,
 ) -> Result<Stmt, LowerError> {
     if assign.targets.len() != 1 {
         return Err(err(
@@ -804,9 +1181,34 @@ fn lower_bare_binding(
         ));
     }
     let name = binding_target(&assign.targets[0], stmt)?.to_string();
-    ensure_unbound(&name, scope, stmt)?;
 
-    let (value, inferred) = lower_expr(&assign.value, scope, sigs)?;
+    // A name already visible is being *re*assigned. Its type was fixed where it was first bound,
+    // so the value is checked against that rather than inferring a fresh one — the alternative is
+    // a name that denotes different things at different points in the same function.
+    if let Some(existing) = scope.get(&name).cloned() {
+        let (value, actual) = lower_expr(&assign.value, scope, ctx.sigs)?;
+        let value = match actual {
+            Some(actual) => coerce(value, &actual, &existing).ok_or_else(|| {
+                err(
+                    LowerErrorKind::TypeMismatch,
+                    format!(
+                        "'{name}' is '{}', but this assigns a value of type '{}'",
+                        existing.python_name(),
+                        actual.python_name()
+                    ),
+                    stmt,
+                )
+            })?,
+            None => value,
+        };
+        return Ok(Stmt::Assign {
+            name,
+            ty: existing,
+            value,
+        });
+    }
+
+    let (value, inferred) = lower_expr(&assign.value, scope, ctx.sigs)?;
 
     // Infer when the initializer's type is determined; otherwise the answer is genuinely
     // unknown here and an annotation is the only way to supply it.
@@ -821,7 +1223,7 @@ fn lower_bare_binding(
         ));
     };
 
-    scope.insert(name.clone(), ty.clone());
+    scope.declare(name.clone(), ty.clone());
     Ok(Stmt::Bind { name, ty, value })
 }
 
@@ -940,6 +1342,14 @@ fn lower_expr(
             let id = name.id.as_str();
             match scope.get(id) {
                 Some(ty) => Ok((Expr::name(id), Some(ty.clone()))),
+                None if scope.was_bound_in_a_departed_block(id) => Err(err(
+                    LowerErrorKind::Unresolved,
+                    format!(
+                        "'{id}' is bound inside a branch or loop, so it may not have been bound \
+                         by the time it is read here; bind it before the block instead"
+                    ),
+                    expr,
+                )),
                 None => Err(err(
                     LowerErrorKind::Unresolved,
                     format!("'{id}' is not defined"),
@@ -1148,6 +1558,17 @@ fn lower_expr(
 
             let name = callee.id.as_str();
 
+            // A range is only meaningful as something to iterate: there is no range value in the
+            // subset, so `r = range(n)` has nothing to bind. Caught here rather than left to
+            // resolve as an unknown function, so the diagnostic says what is actually wrong.
+            if name == RANGE {
+                return Err(err(
+                    LowerErrorKind::UnsupportedConstruct,
+                    "'range' can only be used as what a 'for' loop iterates",
+                    expr,
+                ));
+            }
+
             // `len` is a builtin, lowered to its own node rather than resolved against the unit.
             // Left as a call it would mean different things depending on whether someone had
             // decorated a function of that name, which is the order-dependence the unit's design
@@ -1321,11 +1742,23 @@ mod tests {
     }
 
     #[test]
-    fn bare_return_and_pass_lower_to_unit_statements() {
-        let f = lower_one("def f() -> None:\n    pass\n");
-        assert_eq!(f.body, vec![Stmt::ReturnUnit]);
+    fn bare_return_lowers_to_a_unit_statement() {
         let g = lower_one("def g() -> None:\n    return\n");
         assert_eq!(g.body, vec![Stmt::ReturnUnit]);
+    }
+
+    #[test]
+    fn pass_produces_no_statement() {
+        // It carries no meaning, and lowering it to a return would give `for i in ...: pass` a
+        // body that exits the function.
+        let f = lower_one("def f() -> None:\n    pass\n");
+        assert!(f.body.is_empty());
+
+        let loop_body = lower_one("def f(n: int) -> None:\n    for i in range(n):\n        pass\n");
+        let Stmt::For { body, .. } = &loop_body.body[0] else {
+            panic!("expected a loop");
+        };
+        assert!(body.is_empty());
     }
 
     #[test]
@@ -1454,14 +1887,16 @@ mod tests {
     // ---- constructs outside the subset ------------------------------------
 
     #[test]
-    fn control_flow_is_rejected() {
+    fn control_flow_needs_a_boolean_test() {
+        // Control flow itself lowers now; what is still rejected is inferring truthiness from a
+        // value that is not a boolean.
         let conditional =
             error_for("def f(a: int) -> int:\n    if a:\n        return 1\n    return 0\n");
-        assert_eq!(conditional.kind(), LowerErrorKind::UnsupportedConstruct);
+        assert_eq!(conditional.kind(), LowerErrorKind::TypeMismatch);
 
         let loop_stmt =
             error_for("def f(a: int) -> int:\n    while a:\n        pass\n    return 0\n");
-        assert_eq!(loop_stmt.kind(), LowerErrorKind::UnsupportedConstruct);
+        assert_eq!(loop_stmt.kind(), LowerErrorKind::TypeMismatch);
     }
 
     #[test]

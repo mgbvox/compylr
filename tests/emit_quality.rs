@@ -20,10 +20,10 @@ fn fixtures_dir() -> PathBuf {
 ///
 /// The cross-source pair only resolves when compiled together, which is exactly the arrangement a
 /// project of decorated functions produces.
-fn unit_from_fixtures(names: &[&str]) -> Unit {
+fn unit_from_fixtures(names: &[impl AsRef<str> + std::fmt::Display]) -> Unit {
     let mut unit = Unit::new();
     for name in names {
-        let path = fixtures_dir().join(name);
+        let path = fixtures_dir().join(name.as_ref());
         let parsed = parse_file(&path).expect("fixture must parse");
         for function in lower_source(&parsed).unwrap_or_else(|e| panic!("{name} should lower: {e}"))
         {
@@ -35,20 +35,34 @@ fn unit_from_fixtures(names: &[&str]) -> Unit {
 }
 
 /// Every accepted fixture, grouped so that cross-source calls resolve.
-fn fixture_groups() -> Vec<(&'static str, Vec<&'static str>)> {
-    vec![
-        ("aliases", vec!["aliases.py"]),
-        ("arithmetic", vec!["arithmetic.py"]),
-        ("calls", vec!["calls.py"]),
-        ("comparisons", vec!["comparisons.py"]),
-        ("division", vec!["division.py"]),
-        ("floats", vec!["floats.py"]),
-        ("inference", vec!["inference.py"]),
-        (
-            "cross_source",
-            vec!["cross_source_caller.py", "cross_source_callee.py"],
-        ),
-    ]
+///
+/// Read from the directory rather than listed here. A hardcoded list silently stops covering
+/// fixtures added later, which is the failure mode this test exists to prevent: a fixture that
+/// lowers but emits code that does not compile would go unnoticed.
+fn fixture_groups() -> Vec<(String, Vec<String>)> {
+    let mut singles = Vec::new();
+    let mut cross_source = Vec::new();
+    let mut names: Vec<String> = std::fs::read_dir(fixtures_dir())
+        .expect("accepted fixtures directory must exist")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".py"))
+        .collect();
+    names.sort();
+
+    for name in names {
+        // The cross-source pair only resolves as one unit; everything else stands alone.
+        if name.starts_with("cross_source_") {
+            cross_source.push(name);
+        } else {
+            let label = name.trim_end_matches(".py").to_string();
+            singles.push((label, vec![name]));
+        }
+    }
+    if !cross_source.is_empty() {
+        singles.push(("cross_source".to_string(), cross_source));
+    }
+    singles
 }
 
 #[test]
@@ -62,7 +76,7 @@ fn every_accepted_fixture_compiles_without_warnings() {
         let emitted = backend.emit(&unit).expect("must emit");
         // Written out and compiled from the crate root, as the build pipeline does. The files
         // cannot be concatenated: `lib.rs` opens with inner attributes.
-        let dir = tmp.join(label);
+        let dir = tmp.join(&label);
         let _ = std::fs::remove_dir_all(&dir);
         for (relative, contents) in &emitted {
             let path = dir.join(relative);

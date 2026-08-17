@@ -1,0 +1,51 @@
+---
+source: tests/emit_quality.rs
+assertion_line: 121
+expression: functions.trim()
+---
+//! Translated from Python by compylr.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{PyAdd, PyIterate, PyLen, PyNum, RuntimeError, py_subscript, py_truediv};
+
+pub fn build() -> Result<Vec<i64>, RuntimeError> {
+    let xs: Vec<i64> = vec![1i64, 2i64, 3i64];
+    Ok(xs.clone())
+}
+
+pub fn characters(s: String) -> Result<i64, RuntimeError> {
+    Ok(PyLen::py_len(&(s)))
+}
+
+pub fn from_end(xs: Vec<i64>) -> Result<i64, RuntimeError> {
+    Ok(py_subscript(&(xs), &(PyNum::py_neg(&(1i64))?))?)
+}
+
+pub fn lookup(d: HashMap<String, i64>, key: String) -> Result<i64, RuntimeError> {
+    Ok(py_subscript(&(d), &(key))?)
+}
+
+pub fn mapping() -> Result<HashMap<String, i64>, RuntimeError> {
+    Ok(HashMap::from([(String::from("a"), 1i64), (String::from("b"), 2i64)]))
+}
+
+pub fn nested(d: HashMap<String, Vec<i64>>, key: String) -> Result<i64, RuntimeError> {
+    let inner: Vec<i64> = py_subscript(&(d), &(key))?;
+    Ok(py_subscript(&(inner), &(0i64))?)
+}
+
+pub fn pair() -> Result<String, RuntimeError> {
+    let t: (i64, String) = (1i64, String::from("a"));
+    Ok((t).1.clone())
+}
+
+pub fn total(xs: Vec<i64>) -> Result<i64, RuntimeError> {
+    let first: i64 = py_subscript(&(xs), &(0i64))?;
+    let count: i64 = PyLen::py_len(&(xs));
+    Ok(PyAdd::py_add(&(first), &(count))?)
+}
+
+pub fn unique() -> Result<HashSet<i64>, RuntimeError> {
+    Ok(HashSet::from([1i64, 2i64, 2i64]))
+}

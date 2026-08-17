@@ -1,0 +1,40 @@
+---
+source: tests/emit_quality.rs
+assertion_line: 121
+expression: functions.trim()
+---
+//! Translated from Python by compylr.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{PyAdd, PyIterate, PyLen, PyNum, RuntimeError, py_subscript, py_truediv};
+
+pub fn clamp(n: i64, low: i64, high: i64) -> Result<i64, RuntimeError> {
+    if ((&(n)) < (&(low))) {
+        return Ok(low);
+    }
+    if ((&(n)) > (&(high))) {
+        return Ok(high);
+    }
+    Ok(n)
+}
+
+pub fn describe(n: i64) -> Result<String, RuntimeError> {
+    let mut label: String = String::from("small");
+    if ((&(n)) > (&(100i64))) {
+        label = String::from("large");
+    }
+    Ok(label.clone())
+}
+
+pub fn sign(n: i64) -> Result<i64, RuntimeError> {
+    if ((&(n)) > (&(0i64))) {
+        return Ok(1i64);
+    } else {
+        if ((&(n)) < (&(0i64))) {
+            return Ok(PyNum::py_neg(&(1i64))?);
+        } else {
+            return Ok(0i64);
+        }
+    }
+}

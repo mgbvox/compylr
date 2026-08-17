@@ -138,6 +138,12 @@ pub enum LowerErrorKind {
     /// assembled. Callers that will later see the whole program can defer it; callers that will
     /// not must report it.
     UndeterminedBinding,
+    /// `break` or `continue` appeared with no enclosing loop.
+    ///
+    /// Distinct from [`Self::UnsupportedConstruct`]: the construct is supported, it is only in the
+    /// wrong place, and saying "unsupported" would send the user looking for an alternative that
+    /// does not need to exist.
+    LoopControlOutsideLoop,
     /// A function declared a return type but its body never returns a value.
     ///
     /// Distinct from [`Self::TypeMismatch`]: nothing disagrees about types here, the value is
@@ -163,6 +169,7 @@ impl LowerErrorKind {
             Self::LiteralOutOfRange => "literal_out_of_range",
             Self::DuplicateFunction => "duplicate_function",
             Self::UndeterminedBinding => "undetermined_binding",
+            Self::LoopControlOutsideLoop => "loop_control_outside_loop",
             Self::MissingReturn => "missing_return",
         }
     }
@@ -178,6 +185,7 @@ impl LowerErrorKind {
             Self::TypeMismatch => "type mismatch",
             Self::Reassignment => "unsupported reassignment",
             Self::LiteralOutOfRange => "integer literal out of range",
+            Self::LoopControlOutsideLoop => "loop control outside a loop",
             Self::MissingReturn => "missing return",
             Self::UndeterminedBinding => "undetermined binding type",
             Self::DuplicateFunction => "duplicate function",
