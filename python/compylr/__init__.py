@@ -30,17 +30,21 @@ from ._core import (
     implemented_backends,
 )
 from ._errors import BuildError, ConfigurationError, ToolchainMissingError
-from ._manager import CompiledFunction, Manager, initialize
+from ._manager import CompiledClass, CompiledFunction, Manager, initialize
+from ._precompile import ImportFailure, Report, precompile
 
 __all__ = [
     "DEFAULT_BACKEND",
     "BackendNotAvailableError",
     "BuildError",
     "CompilationError",
+    "CompiledClass",
     "CompiledFunction",
     "CompylrError",
     "ConfigurationError",
+    "ImportFailure",
     "Manager",
+    "Report",
     "Settings",
     "SourceSyntaxError",
     "ToolchainMissingError",
@@ -48,4 +52,5 @@ __all__ = [
     "backend_names",
     "implemented_backends",
     "initialize",
+    "precompile",
 ]

@@ -133,6 +133,9 @@ class Manager:
         self._functions: dict[str, CompiledFunction[Any, Any]] = {}
         self._module: Any = None
         self._built_fingerprint: str | None = None
+        #: Whether the last `ensure_built` actually ran the toolchain, as opposed to reusing what
+        #: was already loaded or already on disk.
+        self.last_build_invoked_toolchain = False
 
     @property
     def settings(self) -> Settings:
@@ -217,7 +220,12 @@ class Manager:
             raise ConfigurationError(f"{name!r} is missing from the compiled module") from error
 
     def ensure_built(self) -> Any:
-        """Build the project if what is loaded does not cover every marked function."""
+        """Build the project if what is loaded does not cover every marked function.
+
+        Records whether the toolchain actually ran, in `last_build_invoked_toolchain`. A caller
+        cannot infer that from the fingerprint: a fresh process reusing a cached artifact moves the
+        fingerprint from unset to set without having built anything.
+        """
         backends = {f.settings.backend for f in self._functions.values()}
         if len(backends) > 1:
             raise ConfigurationError(
@@ -231,6 +239,7 @@ class Manager:
         # Already loaded and current: nothing to do. This is the path every run after the first
         # takes, and the reason reformatting does not cost a rebuild.
         if self._module is not None and self._built_fingerprint == compiled.fingerprint:
+            self.last_build_invoked_toolchain = False
             return self._module
 
         if (
@@ -241,10 +250,12 @@ class Manager:
             if module is not None:
                 self._module = module
                 self._built_fingerprint = compiled.fingerprint
+                self.last_build_invoked_toolchain = False
                 return module
 
         self._module = self._pipeline.build(compiled)
         self._built_fingerprint = compiled.fingerprint
+        self.last_build_invoked_toolchain = True
         return self._module
 
     def _import_cached(self, module_name: str) -> Any:
@@ -264,6 +275,15 @@ class Manager:
 
 #: The process-wide manager, so a project compiles to one shared artifact.
 _MANAGER: Manager | None = None
+
+
+def _active_manager() -> Manager | None:
+    """The process-wide manager, if one has been created.
+
+    Precompiling needs it after importing a project, which is the only way to learn what that
+    project marked -- a decorator registers when it runs and not before.
+    """
+    return _MANAGER
 
 
 def initialize(

@@ -125,6 +125,10 @@ Known gaps worth knowing before you trip on them:
   keeps a loop-long borrow out of the borrow checker's way.
 * **Compiling needs `cargo` and `maturin` at runtime.** Installing compylr gets the compiler,
   not the ability to build what it generates.
+* **`compylr` is now the Python console script**, not the Rust binary. The binary keeps `--emit`
+  and is reached through `cargo run`. Precompiling **imports** the project, because a decorator only
+  registers when it runs; discovery is bounded to the root and skips environments, caches, and build
+  output.
 * **`llm_assist` is accepted but refused when enabled**, and `typescript`/`go`/`cpp` are reserved
   backend names that fail with a message saying they are planned.
 * **Both fixture lists are read from the directory, not hardcoded.** `tests/emit_quality.rs` and
@@ -168,6 +172,9 @@ extension module under a name already in `sys.modules`.
 # Commands
 
 ```bash
+# Precompile a project ahead of its first run (the Python console script)
+compylr compyle path/to/project
+
 # Rust
 cargo test
 cargo clippy -p compylr --all-targets -- -D warnings

@@ -108,6 +108,43 @@ Artifacts live in `.compylr/`, found by searching upward from the working direct
 reuses what it already built. *If you built with an earlier version, the first run after upgrading
 may rebuild once as the directory moves to the project root — that is the move, not a cache bug.*
 
+## Precompiling
+
+The first call to a marked function builds the project, which makes that call slow. For anything
+starting under a request — a container image, a serverless handler — that cost lands in the wrong
+place. Move it to build time:
+
+```bash
+compylr compyle ./my-project
+```
+
+```
+compylr: /path/to/my-project
+  imported 3 module(s); found 4 function(s) and 1 class(es)
+  built
+```
+
+Measured on a one-function project: **7.36s** to precompile cold, **0.009s** for a later run that
+reuses it. The first call after precompiling does no work at all.
+
+> **`compylr` is the Python command**, installed with the wheel. The Rust binary keeps its `--emit`
+> surface and is reached through `cargo run` during compiler development — if you were invoking the
+> binary as `compylr`, that is what changed.
+
+Discovery **imports** every module beneath the root, so module-level code runs. That is inherent: a
+decorator only registers when it runs, and anything reading source text instead would need its own
+notion of what `@c.compyle` looks like — one that drifts from the runtime's the moment someone
+aliases the import or decorates conditionally. A precompiler that silently misses a function is
+worse than none, because the symptom is a slow first call rather than an error.
+
+The cost is bounded rather than hidden: never installed packages, and never `.venv`, `__pycache__`,
+`.git`, `.compylr`, or build output. A module that raises on import is reported and skipped, so one
+broken file does not stop the rest.
+
+Three outcomes are distinguishable from the exit status alone: built or reused (`0`), nothing marked
+(`3`), and failure (`1`, or `2` for a bad root). Nothing-marked is deliberately not success — an
+image that precompiles nothing has failed at what it was there for.
+
 ## Supported subset
 
 Functions at top level only, with mandatory parameter and return annotations.
