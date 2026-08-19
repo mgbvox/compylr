@@ -108,6 +108,22 @@ Artifacts live in `.compylr/`, found by searching upward from the working direct
 reuses what it already built. *If you built with an earlier version, the first run after upgrading
 may rebuild once as the directory moves to the project root — that is the move, not a cache bug.*
 
+## The worked example
+
+[`demo/`](demo/) is a complete uv project, not a snippet: three nth-prime implementations —
+recursive, iterative, and memoized — that each compile, and that are asserted to agree with a plain
+interpreted reference and with each other.
+
+```bash
+cd demo && uv sync
+uv run compylr compyle src
+uv run python -m nth_prime 25
+```
+
+It is verified by this repository's own suite, so it cannot rot unnoticed, and its README records
+the gaps it found — including that marked names are shared across a project and that there is no
+`not`.
+
 ## Precompiling
 
 The first call to a marked function builds the project, which makes that call slow. For anything

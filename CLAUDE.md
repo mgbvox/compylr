@@ -190,6 +190,10 @@ uv pip install maturin pytest pytest-cov ruff mypy && maturin develop --release
 pytest                    # includes slow tests that compile Rust; -m "not slow" to skip
 ruff check python/ && mypy python/compylr
 
+# The demo project (its own uv project; verified by python/tests/test_demo.py)
+cd demo && uv sync && uv run compylr compyle src && uv run python -m nth_prime 25
+cd demo && uv run pytest && uv run ruff check . && uv run mypy src
+
 ./scripts/render_change_epub.py             # spec -> EPUB in reports/
 ./scripts/send_to_kindle.py <file> --dry-run
 ```

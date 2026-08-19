@@ -20,7 +20,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Generic, ParamSpec, TypeVar
+from typing import Any, Generic, ParamSpec, TypeVar, overload
 
 from . import _core
 from ._build import BuildPipeline
@@ -146,6 +146,24 @@ class Manager:
     def paths(self) -> Any:
         """Where this project's build artifacts live."""
         return self._pipeline.paths
+
+    # `type` is itself callable, so mypy reads the two as overlapping. The callable form comes
+    # first and the class form is spelled with a distinct return, which is enough to keep a
+    # decorated function's signature intact -- the case that actually matters for callers.
+    @overload
+    def compyle(self, function: Callable[P, R], /) -> CompiledFunction[P, R]: ...
+
+    @overload
+    def compyle(self, function: type, /) -> CompiledClass: ...
+
+    @overload
+    def compyle(
+        self,
+        function: None = None,
+        *,
+        backend: str | object = ...,
+        llm_assist: bool | object = ...,
+    ) -> Callable[[Any], Any]: ...
 
     def compyle(
         self,
