@@ -516,3 +516,324 @@ name may be read any number of times, on the same terms already applied to strin
 
 - **WHEN** a function reads an element of a sequence parameter and then returns the sequence
 - **THEN** the emitted Rust compiles
+
+### Requirement: Control flow is emitted
+
+The backend SHALL emit conditionals, both loop forms, and both loop controls, preserving the
+nesting the IR carries.
+
+#### Scenario: A conditional is emitted
+
+- **WHEN** a conditional with an alternative is emitted and executed
+- **THEN** the branch matching the test runs and the other does not
+
+#### Scenario: A conditional without an alternative is emitted
+
+- **WHEN** a conditional with no alternative is emitted and executed with a false test
+- **THEN** neither branch's effects occur and execution continues after it
+
+#### Scenario: A while loop is emitted
+
+- **WHEN** a loop counting to ten is emitted and executed
+- **THEN** the counter ends at ten
+
+#### Scenario: A loop that never runs
+
+- **WHEN** a loop whose test is false at entry is emitted and executed
+- **THEN** its body does not run
+
+#### Scenario: Loop control is emitted
+
+- **WHEN** a loop containing `break` and `continue` is emitted and executed
+- **THEN** it terminates and skips iterations as Python would
+
+#### Scenario: Nesting is preserved
+
+- **WHEN** a loop containing a conditional containing a loop is emitted and executed
+- **THEN** the result matches the interpreted original
+
+### Requirement: Ranges match Python, including a negative step
+
+The backend SHALL emit iteration over a range that produces exactly the values Python produces,
+for any combination of start, stop, and step. Rust's `..` counts upward by one and cannot express
+a negative step, so a range SHALL NOT be emitted as one.
+
+A step of zero SHALL be a recoverable error rather than a loop that never terminates, matching
+Python, which raises for it.
+
+#### Scenario: A simple range
+
+- **WHEN** `for i in range(3)` is emitted and executed
+- **THEN** the values are 0, 1, 2
+
+#### Scenario: A bounded range
+
+- **WHEN** `for i in range(2, 5)` is emitted and executed
+- **THEN** the values are 2, 3, 4
+
+#### Scenario: A stepped range
+
+- **WHEN** `for i in range(0, 6, 2)` is emitted and executed
+- **THEN** the values are 0, 2, 4
+
+#### Scenario: A negative step counts down
+
+- **WHEN** `for i in range(3, 0, -1)` is emitted and executed
+- **THEN** the values are 3, 2, 1 — which Rust's `..` cannot produce
+
+#### Scenario: An empty range
+
+- **WHEN** `for i in range(5, 0)` is emitted and executed
+- **THEN** the body does not run
+
+#### Scenario: A zero step is recoverable
+
+- **WHEN** a range with a step of zero is evaluated
+- **THEN** a recoverable error is returned, rather than the loop running forever
+
+### Requirement: Iterating a collection yields what Python yields
+
+The backend SHALL emit iteration over a sequence yielding its elements in order, over a set
+yielding its elements, and over a mapping yielding its **keys**.
+
+Iteration SHALL NOT consume the collection: a name may be iterated and then read again, on the
+same terms as every other read.
+
+#### Scenario: Sequence order is preserved
+
+- **WHEN** a sequence is iterated and its elements collected
+- **THEN** they appear in the order the sequence holds
+
+#### Scenario: A mapping yields keys
+
+- **WHEN** a mapping is iterated
+- **THEN** the loop variable takes each key, matching Python
+
+#### Scenario: A collection is not consumed by iteration
+
+- **WHEN** a function iterates a sequence parameter and then takes its length
+- **THEN** the emitted Rust compiles
+
+#### Scenario: Mapping and set order is not guaranteed
+
+- **WHEN** a mapping or set is iterated
+- **THEN** the order is unspecified and may differ between runs, consistent with the map type the
+  backend uses
+
+### Requirement: A reassigned local is emitted as mutable
+
+The backend SHALL emit a local that is assigned more than once as a mutable binding, and one that
+is not as an immutable binding, so that generated code carries no avoidable warnings under the
+lint settings the project applies to its own code.
+
+#### Scenario: A rebound local compiles
+
+- **WHEN** a function incrementing a counter is emitted
+- **THEN** the emitted Rust compiles
+
+#### Scenario: A local bound once is not mutable
+
+- **WHEN** a function binding a local once is emitted
+- **THEN** the emitted binding is not marked mutable
+
+#### Scenario: A reassigned parameter compiles
+
+- **WHEN** a function assigning to its own parameter is emitted
+- **THEN** the emitted Rust compiles
+
+#### Scenario: Emitted control flow carries no warnings
+
+- **WHEN** every accepted fixture using control flow is emitted and compiled with warnings denied
+- **THEN** it compiles cleanly
+
+### Requirement: Mutation is emitted in place
+
+The backend SHALL emit a mutated collection as a single binding that is modified, not as a value
+that is copied and then modified. A collection that is mutated SHALL be bound mutably, and one that
+is not SHALL NOT be.
+
+The backend clones collections wherever they are consumed, so that a name read twice is not moved.
+That rule must not apply to the target of a mutation: mutating a clone changes a value nothing
+reads afterwards, which compiles cleanly and does nothing.
+
+#### Scenario: Appending in a loop accumulates
+
+- **WHEN** a function that binds an empty sequence, appends in a loop, and returns it is emitted
+  and executed
+- **THEN** the returned sequence holds every appended element
+
+#### Scenario: Element assignment takes effect
+
+- **WHEN** a function that assigns to an element and then reads it is emitted and executed
+- **THEN** the read observes the assigned value
+
+#### Scenario: A mutated collection is bound mutably
+
+- **WHEN** a function that mutates a local collection is emitted
+- **THEN** the emitted binding is mutable, and the source compiles
+
+#### Scenario: An unmutated collection is not bound mutably
+
+- **WHEN** a function that only reads a local collection is emitted
+- **THEN** the emitted binding is not marked mutable, so no warning is produced
+
+#### Scenario: Mutation and reading compose
+
+- **WHEN** a function mutates a collection and then takes its length
+- **THEN** the emitted Rust compiles and the length reflects the mutation
+
+### Requirement: Assigning a mapping key inserts it
+
+The backend SHALL emit assignment to a mapping key as an insertion. Reading a missing key is an
+error; assigning to one is not, and Python creates it.
+
+#### Scenario: Assigning a new key creates it
+
+- **WHEN** a function assigns to a key not present and then reads it
+- **THEN** the read succeeds and observes the assigned value
+
+#### Scenario: Assigning an existing key replaces it
+
+- **WHEN** a function assigns twice to the same key
+- **THEN** the second value is observed
+
+#### Scenario: Reading a missing key still fails
+
+- **WHEN** a function reads a key that was never assigned
+- **THEN** a recoverable error is returned, unchanged by this requirement
+
+### Requirement: Membership is emitted for every container
+
+The backend SHALL emit membership over sequences, mappings, sets, and strings, testing a mapping's
+keys and a string's substrings, matching Python.
+
+#### Scenario: Sequence membership
+
+- **WHEN** membership over a sequence is emitted and executed
+- **THEN** the result is true exactly when the value is present
+
+#### Scenario: Mapping membership tests keys
+
+- **WHEN** membership over a mapping is emitted and executed
+- **THEN** the result reflects the keys, not the values
+
+#### Scenario: Set membership
+
+- **WHEN** membership over a set is emitted and executed
+- **THEN** the result is true exactly when the element is present
+
+#### Scenario: String membership is a substring test
+
+- **WHEN** membership over a string is emitted and executed
+- **THEN** it reports whether the first is a substring of the second, matching Python
+
+#### Scenario: Negated membership
+
+- **WHEN** `not in` is emitted and executed
+- **THEN** the result is the negation of the corresponding membership test
+
+#### Scenario: Membership does not consume the container
+
+- **WHEN** a function tests membership and then reads the container
+- **THEN** the emitted Rust compiles
+
+### Requirement: A class emits a struct and an implementation
+
+The backend SHALL emit each class as a data type carrying its attributes as fields in declaration
+order, and an implementation block carrying its methods. Attribute types SHALL use the same
+spellings every other type does.
+
+#### Scenario: Attributes become fields
+
+- **WHEN** a class declaring three attributes is emitted
+- **THEN** the emitted type carries three fields with the corresponding spellings
+
+#### Scenario: Methods become an implementation
+
+- **WHEN** a class with two methods is emitted
+- **THEN** both appear in one implementation block for that type
+
+#### Scenario: __init__ becomes a constructor
+
+- **WHEN** a class is emitted
+- **THEN** it carries a constructor initialising every field
+
+#### Scenario: Methods are fallible
+
+- **WHEN** a method is emitted
+- **THEN** it yields either its declared return type or a runtime error, on the same terms as every
+  free function
+
+#### Scenario: Emission is deterministic
+
+- **WHEN** the same unit containing classes is emitted twice
+- **THEN** the two outputs are byte-identical
+
+#### Scenario: Classes and functions are emitted into the same file
+
+- **WHEN** a unit holding both is emitted
+- **THEN** the translated file holds both, with nothing else added to the crate root
+
+### Requirement: A method takes a mutable receiver only when it needs one
+
+The backend SHALL emit a method that assigns to an attribute, or mutates a collection attribute,
+with a mutable receiver, and every other method with a shared one.
+
+Emitting a mutable receiver everywhere would make two methods unusable on the same object at once,
+and the failure would be a borrow-checker complaint about generated code rather than a diagnostic
+about the user's program.
+
+#### Scenario: A mutating method compiles
+
+- **WHEN** a method that assigns to an attribute is emitted
+- **THEN** the emitted Rust compiles
+
+#### Scenario: A reading method takes a shared receiver
+
+- **WHEN** a method that only reads attributes is emitted
+- **THEN** its receiver is shared, so it can be called while another borrow is held
+
+#### Scenario: A method mutating a collection attribute is mutating
+
+- **WHEN** a method that inserts into a mapping attribute is emitted
+- **THEN** it takes a mutable receiver and the emitted Rust compiles
+
+#### Scenario: A method calling a mutating method is mutating
+
+- **WHEN** a method whose body calls another method that mutates is emitted
+- **THEN** it also takes a mutable receiver, since it mutates transitively
+
+#### Scenario: Reading and mutating compose
+
+- **WHEN** a method reads an attribute, calls a mutating method, and reads again
+- **THEN** the emitted Rust compiles
+
+### Requirement: Attribute access and construction are emitted
+
+The backend SHALL emit attribute reads, attribute assignments, and constructions. A collection or
+instance attribute SHALL be read without being moved out of the object.
+
+#### Scenario: An attribute read yields its value
+
+- **WHEN** a method reading an integer attribute is emitted and executed
+- **THEN** the value is the attribute's
+
+#### Scenario: An attribute assignment persists
+
+- **WHEN** a method assigns an attribute and a later call reads it
+- **THEN** the later call observes the assigned value
+
+#### Scenario: A collection attribute is not moved by a read
+
+- **WHEN** a method reads a mapping attribute twice
+- **THEN** the emitted Rust compiles
+
+#### Scenario: Construction initialises every field
+
+- **WHEN** a construction is emitted and executed
+- **THEN** the resulting object's attributes hold what `__init__` assigned
+
+#### Scenario: State outlives a call
+
+- **WHEN** a method mutates an attribute and is called twice
+- **THEN** the second call observes the first call's effect — which is what makes a cache possible

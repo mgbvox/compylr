@@ -656,8 +656,15 @@ is still caught, by unit validation, once every source has been assembled.
 ### Requirement: Reject a function that cannot return its declared type
 
 Lowering SHALL reject a function whose declared return type is not the unit type and whose body
-cannot produce a value — because it is empty, because it is only `pass`, or because it ends without
-returning. The diagnostic SHALL name the function and report its location.
+cannot produce a value on **every path**. The diagnostic SHALL name the function and report its
+location.
+
+With branching, this is no longer the structural question of whether the last statement is a
+`return`. A body returns when its final statement returns; a conditional returns only when it has
+an alternative **and both branches return**; and a loop SHALL NOT be assumed to return, because its
+body may never run. Treating a loop as returning would let a program through whose generated code
+does not compile, and the resulting complaint would be about Rust rather than about the user's
+function.
 
 This is a program the user wrote incorrectly, so it belongs with every other subset violation. Left
 to a backend, it surfaces as an internal code-generation error with no source location, which
@@ -672,6 +679,36 @@ describes the compiler's difficulty rather than the user's mistake.
 
 - **WHEN** lowering a function declaring an integer return whose body binds a local and stops
 - **THEN** lowering fails with a diagnostic naming the function
+
+#### Scenario: A conditional returning on both branches is accepted
+
+- **WHEN** lowering a function whose body is an `if`/`else` where both branches return
+- **THEN** lowering succeeds
+
+#### Scenario: A conditional with no alternative does not return
+
+- **WHEN** lowering a function whose only `return` is inside an `if` with no `else`
+- **THEN** lowering fails, because the path where the test is false produces no value
+
+#### Scenario: One branch returning is not enough
+
+- **WHEN** lowering a function whose `if` returns but whose `else` does not
+- **THEN** lowering fails
+
+#### Scenario: A return after a conditional covers it
+
+- **WHEN** lowering a function with an `if` that returns, followed by a `return`
+- **THEN** lowering succeeds
+
+#### Scenario: A loop is not assumed to run
+
+- **WHEN** lowering a function whose only `return` is inside a `while`
+- **THEN** lowering fails, because the loop body may never execute
+
+#### Scenario: Nested conditionals are analysed through
+
+- **WHEN** lowering a function whose branches each contain further conditionals that all return
+- **THEN** lowering succeeds
 
 #### Scenario: A unit-returning function needs no return
 
@@ -856,3 +893,539 @@ compilation, which is exactly the order-dependence the unit's design exists to a
 
 - **WHEN** a unit containing `len(xs)` and no function named `len` is validated
 - **THEN** validation succeeds, because `len` is a builtin rather than an unresolved callee
+
+### Requirement: Conditionals
+
+Lowering SHALL accept `if`, `elif`, and `else`. The test SHALL be a boolean; any other type SHALL
+be rejected reporting the type found.
+
+Python treats many values as truthy, but compylr does not: a subset whose annotations are mandatory
+should not then infer that an integer means a condition. Requiring a boolean keeps the meaning of a
+test written down rather than inferred.
+
+#### Scenario: A conditional lowers
+
+- **WHEN** lowering a body containing `if a < b:` with a returning branch
+- **THEN** lowering succeeds
+
+#### Scenario: An alternative lowers
+
+- **WHEN** lowering a body containing `if`/`else`
+- **THEN** both branches appear in the IR
+
+#### Scenario: elif lowers as a nested conditional
+
+- **WHEN** lowering a body containing `if`/`elif`/`else`
+- **THEN** the IR nests the second conditional inside the first one's alternative
+
+#### Scenario: A non-boolean test is rejected
+
+- **WHEN** lowering `if n:` where `n` is an integer
+- **THEN** lowering fails with a diagnostic reporting that a test must be a boolean
+
+#### Scenario: A branch is a scope for reachability but not for names
+
+- **WHEN** a name is bound inside a branch and read after the conditional
+- **THEN** lowering rejects the read, because the binding may not have happened
+
+### Requirement: Loops
+
+Lowering SHALL accept `while` with a boolean test, and `for` binding one name over a range or a
+supported collection. It SHALL accept `break` and `continue` inside a loop body and reject them
+outside one.
+
+Iterating a sequence SHALL bind its element type; a mapping SHALL bind its **key** type, matching
+Python; a set SHALL bind its element type; and a range SHALL bind an integer.
+
+#### Scenario: A while loop lowers
+
+- **WHEN** lowering a body containing `while a < b:`
+- **THEN** lowering succeeds
+
+#### Scenario: A non-boolean while test is rejected
+
+- **WHEN** lowering `while n:` where `n` is an integer
+- **THEN** lowering fails reporting that a test must be a boolean
+
+#### Scenario: Iterating a range binds an integer
+
+- **WHEN** lowering `for i in range(n):`
+- **THEN** `i` is bound with the integer type
+
+#### Scenario: Iterating a sequence binds its element type
+
+- **WHEN** lowering `for x in xs:` where `xs` is a sequence of strings
+- **THEN** `x` is bound with the string type
+
+#### Scenario: Iterating a mapping binds its key type
+
+- **WHEN** lowering `for k in d:` where `d` maps strings to integers
+- **THEN** `k` is bound with the string type, matching Python
+
+#### Scenario: Iterating a scalar is rejected
+
+- **WHEN** lowering `for x in n:` where `n` is an integer
+- **THEN** lowering fails reporting the type
+
+#### Scenario: The loop variable does not escape
+
+- **WHEN** a name bound by a `for` is read after the loop
+- **THEN** lowering rejects the read
+
+#### Scenario: Loop control inside a loop
+
+- **WHEN** lowering a loop body containing `break` and `continue`
+- **THEN** lowering succeeds
+
+#### Scenario: Loop control outside a loop is rejected
+
+- **WHEN** lowering `break` in a function body with no enclosing loop
+- **THEN** lowering fails reporting that it is not inside a loop
+
+#### Scenario: Loop control reaches the nearest enclosing loop
+
+- **WHEN** lowering a `break` inside a conditional inside a loop
+- **THEN** lowering succeeds
+
+### Requirement: Reassignment keeps a name's type
+
+Lowering SHALL accept assigning to a name already bound in the same function. The name's type is
+fixed where it was first bound: a value of a different type SHALL be rejected, with promotion
+applying as it does elsewhere.
+
+Rebinding is not re-declaration. Allowing a name to change type would mean the same identifier
+denotes different things at different points, which a reader has to simulate the program to follow,
+and which every backend would then have to model.
+
+#### Scenario: Reassignment lowers
+
+- **WHEN** lowering a body binding `i = 0` and then `i = i + 1`
+- **THEN** lowering succeeds and `i` keeps the integer type
+
+#### Scenario: A different type is rejected
+
+- **WHEN** lowering a body binding `i = 0` and then `i = "x"`
+- **THEN** lowering fails reporting both types
+
+#### Scenario: Promotion applies
+
+- **WHEN** lowering a body binding `x: float = 1.0` and then `x = 2`
+- **THEN** lowering succeeds and the integer carries an explicit conversion
+
+#### Scenario: An annotation on a rebinding is rejected
+
+- **WHEN** lowering a body binding `i = 0` and then `i: int = 1`
+- **THEN** lowering fails, because the second annotation re-declares a name that already exists
+
+#### Scenario: A parameter may be reassigned
+
+- **WHEN** lowering a body assigning to one of its own parameters
+- **THEN** lowering succeeds and the parameter keeps its declared type
+
+#### Scenario: Reassignment inside a loop is the point
+
+- **WHEN** lowering a `while` whose body increments a counter bound before it
+- **THEN** lowering succeeds
+
+### Requirement: range is reserved
+
+Lowering SHALL recognise `range` with one, two, or three integer arguments and reject any other
+arity or argument type. A function in the unit named `range` SHALL be rejected, on the same terms
+as `len`: a builtin whose meaning depended on what else had been compiled would be worse than no
+builtin at all.
+
+#### Scenario: One argument
+
+- **WHEN** lowering `range(n)`
+- **THEN** the IR carries a start of zero, a stop of `n`, and a step of one
+
+#### Scenario: Two and three arguments
+
+- **WHEN** lowering `range(a, b)` and `range(a, b, c)`
+- **THEN** each component is carried as written
+
+#### Scenario: A non-integer argument is rejected
+
+- **WHEN** lowering `range(x)` where `x` is a string
+- **THEN** lowering fails reporting the type
+
+#### Scenario: Wrong arity is rejected
+
+- **WHEN** lowering `range()` or a call with four arguments
+- **THEN** lowering fails reporting the argument count
+
+#### Scenario: A user function named range is rejected
+
+- **WHEN** lowering a source defining `def range(n: int) -> int:`
+- **THEN** lowering fails reporting that `range` is reserved
+
+#### Scenario: A range outside a loop is rejected
+
+- **WHEN** lowering a binding whose initializer is a bare `range(n)`
+- **THEN** lowering fails, because a range is only meaningful as something to iterate
+
+### Requirement: Element assignment
+
+Lowering SHALL accept assigning to an element of a sequence or a mapping. The index SHALL be an
+integer for a sequence and the key type for a mapping, and the value SHALL match the element or
+value type, with promotion applying as elsewhere. Assigning to an element of a set, a tuple, or a
+scalar SHALL be rejected.
+
+#### Scenario: Sequence element assignment
+
+- **WHEN** lowering `xs[0] = 1` where `xs` is a local sequence of integers
+- **THEN** lowering succeeds
+
+#### Scenario: Mapping element assignment
+
+- **WHEN** lowering `d["a"] = 1` where `d` is a local mapping from strings to integers
+- **THEN** lowering succeeds
+
+#### Scenario: A wrong value type is rejected
+
+- **WHEN** lowering `xs[0] = "a"` where `xs` holds integers
+- **THEN** lowering fails reporting both types
+
+#### Scenario: A wrong index type is rejected
+
+- **WHEN** lowering `xs["a"] = 1` where `xs` is a sequence
+- **THEN** lowering fails reporting the index type
+
+#### Scenario: Promotion applies
+
+- **WHEN** lowering `xs[0] = 1` where `xs` holds floats
+- **THEN** lowering succeeds and the value carries an explicit conversion
+
+#### Scenario: A tuple is immutable
+
+- **WHEN** lowering an assignment to a tuple element
+- **THEN** lowering fails, matching Python, where tuples cannot be assigned into
+
+#### Scenario: A set has no elements to assign
+
+- **WHEN** lowering an assignment to a set element
+- **THEN** lowering fails
+
+### Requirement: Mutation is confined to locals
+
+Lowering SHALL reject mutating a collection that arrived as a **parameter**, whether by element
+assignment or by appending, and SHALL reject mutating any local that **aliases** one. A local
+aliases a parameter when it is bound directly to that parameter, or to another local that aliases
+it; the relation is transitive. The diagnostic SHALL explain that a collection parameter is a copy,
+so the mutation could not be observed by the caller, and where an alias is involved SHALL name both
+the local and the parameter it came from.
+
+Collections cross the boundary by value. A compiled function mutating a parameter would leave its
+caller's collection unchanged, where an interpreted function would have modified it — a wrong
+answer with no error.
+
+Aliasing is the same hazard at one remove. In Python, binding a name to a collection does not copy
+it, so `copied = xs` leaves both names denoting one object and mutating either is observable to the
+caller. Under compylr's value semantics the bind is a copy, so the caller sees nothing. Permitting
+it because "the local is the function's own value" is true of the emitted code and false of the
+Python it claims to translate.
+
+A collection built locally and returned is unaffected, which is the shape mutation exists to
+enable. Copying a parameter's contents explicitly — building a fresh collection and filling it — is
+also unaffected, and is the workaround the diagnostic points at.
+
+#### Scenario: A local collection may be mutated
+
+- **WHEN** lowering a body that binds an empty sequence, appends to it, and returns it
+- **THEN** lowering succeeds
+
+#### Scenario: A parameter may not be mutated
+
+- **WHEN** lowering a body that appends to one of its sequence parameters
+- **THEN** lowering fails, explaining that the parameter is a copy and the caller would not see it
+
+#### Scenario: Assigning into a parameter is rejected
+
+- **WHEN** lowering a body that assigns to an element of a mapping parameter
+- **THEN** lowering fails
+
+#### Scenario: Reading a parameter is unaffected
+
+- **WHEN** lowering a body that reads elements of a parameter without mutating it
+- **THEN** lowering succeeds
+
+#### Scenario: A local aliasing a parameter may not be mutated
+
+- **WHEN** lowering a body that binds a local to a collection parameter and then mutates the local
+- **THEN** lowering fails, because in Python the local and the parameter denote one object and the
+  caller would have observed the mutation
+
+#### Scenario: The diagnostic names the alias and its origin
+
+- **WHEN** mutating a local that aliases a parameter is rejected
+- **THEN** the diagnostic names both the local and the parameter it came from, because a refusal
+  pointing only at a local the user just created gives them no reason to look at the signature
+
+#### Scenario: Aliasing is transitive
+
+- **WHEN** lowering a body that binds one local to a parameter, a second local to the first, and
+  mutates the second
+- **THEN** lowering fails, because otherwise one more binding defeats the rule
+
+#### Scenario: Copying a parameter's contents explicitly may be mutated
+
+- **WHEN** a body builds a fresh collection, fills it from a parameter, and mutates it
+- **THEN** lowering succeeds, because the fresh collection is not the parameter under any semantics
+
+#### Scenario: Aliasing a non-collection is unaffected
+
+- **WHEN** a body binds a local to a scalar parameter
+- **THEN** lowering succeeds and nothing about it is restricted, because a scalar has no mutation
+  to observe
+
+#### Scenario: A local that stops aliasing may be mutated
+
+- **WHEN** a body binds a local to a parameter, rebinds it to a fresh collection, and then mutates
+  it
+- **THEN** lowering succeeds, because after the rebinding the local no longer denotes the caller's
+  collection
+
+### Requirement: Append
+
+Lowering SHALL accept `append` on a local sequence, with one argument whose type matches the
+element type. Any other method SHALL remain rejected, and the diagnostic SHALL name the method.
+
+#### Scenario: Appending lowers
+
+- **WHEN** lowering `xs.append(1)` where `xs` is a local sequence of integers
+- **THEN** lowering succeeds
+
+#### Scenario: A wrong element type is rejected
+
+- **WHEN** lowering `xs.append("a")` where `xs` holds integers
+- **THEN** lowering fails reporting both types
+
+#### Scenario: Wrong arity is rejected
+
+- **WHEN** lowering `xs.append()` or `xs.append(1, 2)`
+- **THEN** lowering fails reporting the argument count
+
+#### Scenario: Appending to a non-sequence is rejected
+
+- **WHEN** lowering `d.append(1)` where `d` is a mapping
+- **THEN** lowering fails reporting the type
+
+#### Scenario: Another method is rejected by name
+
+- **WHEN** lowering `xs.pop()`
+- **THEN** lowering fails with a diagnostic naming `pop` as unsupported
+
+### Requirement: Membership
+
+Lowering SHALL accept `in` and `not in` over a sequence, mapping, set, or string, yielding a
+boolean. Membership in a mapping SHALL test its **keys**, matching Python. The value's type SHALL
+match what the container holds — its element type, its key type, or a string for a string.
+
+#### Scenario: Membership yields a boolean
+
+- **WHEN** lowering `x in xs` where `xs` is a sequence of integers and `x` an integer
+- **THEN** the expression's type is boolean
+
+#### Scenario: Mapping membership tests keys
+
+- **WHEN** lowering `k in d` where `d` maps strings to integers
+- **THEN** `k` must be a string, matching Python
+
+#### Scenario: Negated membership
+
+- **WHEN** lowering `x not in xs`
+- **THEN** the expression's type is boolean
+
+#### Scenario: A mismatched value type is rejected
+
+- **WHEN** lowering `"a" in xs` where `xs` holds integers
+- **THEN** lowering fails reporting both types
+
+#### Scenario: Membership in a scalar is rejected
+
+- **WHEN** lowering `x in n` where `n` is an integer
+- **THEN** lowering fails reporting the type
+
+#### Scenario: Membership in a string tests substrings
+
+- **WHEN** lowering `a in s` where both are strings
+- **THEN** the expression's type is boolean, matching Python's substring test
+
+### Requirement: Class definitions
+
+Lowering SHALL accept a class definition containing an `__init__` and any number of methods, and
+SHALL reject a class body containing anything else. Every method SHALL be fully annotated, on the
+same terms as a free function, and SHALL take `self` as its first parameter — which SHALL NOT carry
+an annotation, since its type is the class being defined.
+
+Inheritance, decorators on methods, class-level attributes, and dunder methods other than `__init__`
+SHALL be rejected, each naming what was found.
+
+#### Scenario: A class lowers
+
+- **WHEN** lowering a class with an `__init__` and one method
+- **THEN** lowering succeeds and the unit contains the class
+
+#### Scenario: A class without __init__ is rejected
+
+- **WHEN** lowering a class with no `__init__`
+- **THEN** lowering fails, because a class's attributes are declared there and nowhere else
+
+#### Scenario: A method must take self
+
+- **WHEN** lowering a method whose first parameter is not `self`
+- **THEN** lowering fails naming the method
+
+#### Scenario: self must not be annotated
+
+- **WHEN** lowering a method annotating `self`
+- **THEN** lowering fails, because its type is the class being defined
+
+#### Scenario: Method parameters and returns are mandatory
+
+- **WHEN** lowering a method missing a return annotation
+- **THEN** lowering fails naming the method
+
+#### Scenario: Inheritance is rejected
+
+- **WHEN** lowering a class declaring a base
+- **THEN** lowering fails naming inheritance as unsupported
+
+#### Scenario: A class-level statement is rejected
+
+- **WHEN** lowering a class whose body contains a statement other than a method definition
+- **THEN** lowering fails naming the construct
+
+#### Scenario: A dunder other than __init__ is rejected
+
+- **WHEN** lowering a class defining `__eq__`
+- **THEN** lowering fails naming the method
+
+#### Scenario: Two methods of the same name are rejected
+
+- **WHEN** lowering a class defining the same method twice
+- **THEN** lowering fails reporting the conflict
+
+### Requirement: Attributes are declared in __init__
+
+Every attribute SHALL be declared by an annotated assignment to `self` in `__init__`. An assignment
+to an attribute that was not declared there SHALL be rejected, and so SHALL a declaration outside
+`__init__`.
+
+Python allows an attribute to appear anywhere, which means an object's shape depends on which
+methods have run. A compiled struct's fields cannot depend on that, and requiring the declaration up
+front is the same rule the subset already applies to parameters and returns.
+
+#### Scenario: An attribute is declared and typed
+
+- **WHEN** lowering `__init__` containing `self.count: int = 0`
+- **THEN** the class carries an attribute `count` of the integer type
+
+#### Scenario: An undeclared attribute is rejected
+
+- **WHEN** lowering a method assigning to an attribute not declared in `__init__`
+- **THEN** lowering fails naming the attribute
+
+#### Scenario: An unannotated declaration is rejected
+
+- **WHEN** lowering `__init__` containing `self.count = 0`
+- **THEN** lowering fails, because an attribute's type must be written down
+
+#### Scenario: A declaration outside __init__ is rejected
+
+- **WHEN** lowering a method containing an annotated assignment to a new attribute
+- **THEN** lowering fails
+
+#### Scenario: An attribute may hold a collection
+
+- **WHEN** lowering `__init__` containing `self._cache: dict[int, int] = {}`
+- **THEN** the class carries an attribute of that mapping type
+
+#### Scenario: Every declared attribute must be initialised
+
+- **WHEN** lowering an `__init__` that declares an attribute without a value
+- **THEN** lowering fails, because a struct cannot be constructed with a field missing
+
+### Requirement: Attribute access and assignment
+
+Lowering SHALL type an attribute read from the class of the object being read, and SHALL check an
+attribute assignment against the declared type, with promotion applying as elsewhere. Reading or
+assigning an attribute the class does not declare SHALL be rejected naming it.
+
+Attributes SHALL be mutable: assigning to `self.x` inside a method is permitted, which is what makes
+state that outlives a call possible.
+
+#### Scenario: An attribute read is typed
+
+- **WHEN** lowering `self.count` where `count` is an integer attribute
+- **THEN** the expression's type is the integer type
+
+#### Scenario: An attribute is assigned
+
+- **WHEN** lowering `self.count = 1`
+- **THEN** lowering succeeds
+
+#### Scenario: A wrong type is rejected
+
+- **WHEN** lowering `self.count = "x"` where `count` is an integer
+- **THEN** lowering fails reporting both types
+
+#### Scenario: An unknown attribute is rejected
+
+- **WHEN** lowering `self.missing`
+- **THEN** lowering fails naming the attribute and the class
+
+#### Scenario: An attribute is read from another object
+
+- **WHEN** lowering `obj.count` where `obj` is an instance parameter
+- **THEN** the expression's type is the attribute's type
+
+#### Scenario: A collection attribute may be mutated
+
+- **WHEN** lowering a method that assigns into a mapping attribute
+- **THEN** lowering succeeds, unlike the same operation on a collection parameter
+
+### Requirement: Methods and construction
+
+Lowering SHALL type a method call from the method's signature, checking arity and argument types
+with promotion, and SHALL type a construction as the class's instance type, checking its arguments
+against `__init__`.
+
+Methods and classes SHALL be resolvable across sources on the same terms as functions: a class the
+current source does not define leaves a construction's type undetermined rather than failing, and
+unit validation catches one that exists nowhere.
+
+#### Scenario: A method call is typed
+
+- **WHEN** lowering `obj.value()` where `value` returns an integer
+- **THEN** the expression's type is the integer type
+
+#### Scenario: Construction is typed
+
+- **WHEN** lowering `Counter()` where `Counter` is a class in the source
+- **THEN** the expression's type is that class's instance type
+
+#### Scenario: Constructor arguments are checked
+
+- **WHEN** lowering a construction whose arguments do not match `__init__`
+- **THEN** lowering fails reporting the mismatch
+
+#### Scenario: Method arity is checked
+
+- **WHEN** lowering a method call with the wrong number of arguments
+- **THEN** lowering fails reporting both counts
+
+#### Scenario: An unknown method is rejected
+
+- **WHEN** lowering a call to a method the class does not define
+- **THEN** lowering fails naming the method and the class
+
+#### Scenario: A method may call another on the same object
+
+- **WHEN** lowering a method whose body calls `self.other()`
+- **THEN** lowering succeeds
+
+#### Scenario: A class in another source leaves construction undetermined
+
+- **WHEN** lowering a construction of a class this source does not define
+- **THEN** lowering succeeds with an undetermined type, and unit validation resolves it

@@ -64,7 +64,8 @@ a single one-line function produced 238 lines and the translation was lines 200â
 | `native-bridge` | `compylr._core`, exposing the compiler to Python and its diagnostics as exceptions |
 | `build-pipeline` | The shared crate, the artifacts on disk, and the fingerprint-keyed rebuild decision |
 | `python-api` | `initialize`, the decorator's two forms, settings resolution, and swapping in |
-| `cli` | The command line: what it compiles, what it emits, and how it reports rejections |
+| `cli` | The command line: precompiling a project, what it emits, and how it reports rejections |
+| `demo` | The worked example: what it must contain, that it compiles, and that this repo verifies it |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
