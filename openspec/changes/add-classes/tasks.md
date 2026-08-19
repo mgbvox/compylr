@@ -1,23 +1,23 @@
 ## 1. Units hold classes
 
-- [ ] 1.1 Write tests asserting a class can be added to a unit, that a name colliding with a function is refused in both directions, and that member order is content-determined
-- [ ] 1.2 Write a test asserting a unit containing **no** classes fingerprints exactly as it did before — every cached build depends on it, per design.md D5
-- [ ] 1.3 Write a test asserting changing a method body moves the unit fingerprint
-- [ ] 1.4 Add a `Class` type and a second map on `Unit`, extending ordering, fingerprint, and validation over both
+- [x] 1.1 Write tests asserting a class can be added to a unit, that a name colliding with a function is refused in both directions, and that member order is content-determined
+- [x] 1.2 Write a test asserting a unit containing **no** classes fingerprints exactly as it did before — every cached build depends on it, per design.md D5
+- [x] 1.3 Write a test asserting changing a method body moves the unit fingerprint
+- [x] 1.4 Add a `Class` type and a second map on `Unit`, extending ordering, fingerprint, and validation over both
 - [ ] 1.5 Update every consumer that iterates a unit's functions
 
 ## 2. Instance types
 
-- [ ] 2.1 Write tests asserting a class name is a type, that two classes are distinct types, and that instances nest in collections
-- [ ] 2.2 Write tests asserting an instance cannot be a mapping key or set element, and is not trivially copyable
-- [ ] 2.3 Add `Ty::Instance`, documenting at the definition that it is the model's one **nominal** type, per design.md D1
-- [ ] 2.4 Write round-trip tests covering classes, instance types, attribute access, assignment, and construction
+- [x] 2.1 Write tests asserting a class name is a type, that two classes are distinct types, and that instances nest in collections
+- [x] 2.2 Write tests asserting an instance cannot be a mapping key or set element, and is not trivially copyable
+- [x] 2.3 Add `Ty::Instance`, documenting at the definition that it is the model's one **nominal** type, per design.md D1
+- [x] 2.4 Write round-trip tests covering classes, instance types, attribute access, assignment, and construction
 
 ## 3. IR forms
 
-- [ ] 3.1 Write tests asserting attribute read, attribute assignment, and construction are representable and that construction is distinct from a call
-- [ ] 3.2 Write a test asserting `walk_calls` descends into attribute objects, construction arguments, and method-call receivers and arguments
-- [ ] 3.3 Add the new expression and statement forms, extend `walk_calls`, and extend serialization
+- [x] 3.1 Write tests asserting attribute read, attribute assignment, and construction are representable and that construction is distinct from a call
+- [x] 3.2 Write a test asserting `walk_calls` descends into attribute objects, construction arguments, and method-call receivers and arguments
+- [x] 3.3 Add the new expression and statement forms, extend `walk_calls`, and extend serialization
 
 ## 4. Class definitions
 

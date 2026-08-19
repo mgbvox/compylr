@@ -40,6 +40,10 @@ struct UnitArtifact {
     version: u32,
     fingerprint: String,
     functions: Vec<Function>,
+    // Absent from artifacts written before classes existed, so a unit with none still deserializes
+    // and still fingerprints the same.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    classes: Vec<Class>,
 }
 
 /// A type in the supported subset, described by meaning rather than by any target's spelling.
@@ -70,6 +74,16 @@ pub enum Ty {
     Set(Box<Ty>),
     /// A fixed-length tuple carrying a type per position.
     Tuple(Vec<Ty>),
+    /// An instance of a class defined in the same unit.
+    ///
+    /// **The model's one nominal type.** Every other variant is structural — `list[int]` equals
+    /// `list[int]` because of what it contains — and a reader will reasonably assume that holds
+    /// throughout. It does not here: two classes with identical attributes are different types,
+    /// which is what a user means by writing two classes.
+    ///
+    /// The consequence worth knowing is that this type is only meaningful relative to the unit
+    /// that defines the class, which is why an artifact carries class definitions alongside.
+    Instance(String),
 }
 
 impl Ty {
@@ -90,6 +104,7 @@ impl Ty {
                 let inner: Vec<String> = elements.iter().map(Ty::python_name).collect();
                 format!("tuple[{}]", inner.join(", "))
             }
+            Self::Instance(class) => class.clone(),
         }
     }
 
@@ -275,6 +290,38 @@ pub enum Expr {
         /// Which element, already checked against the tuple's length.
         position: usize,
     },
+    /// Read an attribute of an object.
+    Attribute {
+        /// The object being read.
+        object: Box<Expr>,
+        /// Which attribute, already checked against the class's declarations.
+        name: String,
+    },
+    /// Construct an instance.
+    ///
+    /// Its own form rather than a call. Leaving it a call would mean unit validation resolving it
+    /// against functions, and the type rules differ enough — arguments check against `__init__`,
+    /// the result is an instance type — that one form would make each path carry the other's
+    /// cases. The same reasoning already applied to `len` and `range`.
+    Construct {
+        /// The class being instantiated.
+        class: String,
+        /// Constructor arguments, already checked against `__init__`.
+        args: Vec<Expr>,
+    },
+    /// Call a method on an object.
+    ///
+    /// The method resolves against the receiver's class rather than against the unit, which is why
+    /// [`Expr::walk_calls`] deliberately does not report it: demanding a free function of that
+    /// name would fail on a program the user wrote correctly.
+    MethodCall {
+        /// The object the method is called on.
+        receiver: Box<Expr>,
+        /// Which method.
+        method: String,
+        /// Arguments, already checked against the method's signature.
+        args: Vec<Expr>,
+    },
     /// Whether a value is present in a container.
     ///
     /// What "present" means is the container's own: a sequence and a set test elements, a mapping
@@ -387,6 +434,20 @@ impl Expr {
             }
             Self::TupleIndex { base, .. } => base.walk_calls(visit),
             Self::Not(inner) => inner.walk_calls(visit),
+            Self::Attribute { object, .. } => object.walk_calls(visit),
+            Self::Construct { args, .. } => {
+                for arg in args {
+                    arg.walk_calls(visit);
+                }
+            }
+            // The method itself is deliberately not reported: it resolves against the receiver's
+            // class, and demanding a free function of that name would reject correct code.
+            Self::MethodCall { receiver, args, .. } => {
+                receiver.walk_calls(visit);
+                for arg in args {
+                    arg.walk_calls(visit);
+                }
+            }
             Self::Contains { value, container } => {
                 value.walk_calls(visit);
                 container.walk_calls(visit);
@@ -442,6 +503,20 @@ pub enum Stmt {
         /// re-deriving what lowering already established.
         ty: Ty,
         /// Value assigned. Its type matches `ty`.
+        value: Expr,
+    },
+    /// Assign to an attribute of an object.
+    ///
+    /// Distinct from [`Self::SetItem`]: an attribute is declared once with a fixed type, so the
+    /// set of them is known from the class rather than growing at runtime.
+    SetAttr {
+        /// The object being modified.
+        object: Expr,
+        /// Which attribute.
+        name: String,
+        /// The type it was declared with, so a backend need not re-derive it.
+        ty: Ty,
+        /// The new value, already checked against `ty`.
         value: Expr,
     },
     /// Assign to one element of a collection.
@@ -592,6 +667,7 @@ pub fn returns_on_all_paths(stmts: &[Stmt]) -> bool {
         Stmt::Bind { .. }
         | Stmt::Assign { .. }
         | Stmt::SetItem { .. }
+        | Stmt::SetAttr { .. }
         | Stmt::Append { .. }
         | Stmt::Break
         | Stmt::Continue => false,
@@ -634,12 +710,76 @@ fn walk_stmts(stmts: &[Stmt], visit: &mut impl FnMut(&str, usize)) {
                 index.walk_calls(visit);
                 value.walk_calls(visit);
             }
+            Stmt::SetAttr { object, value, .. } => {
+                object.walk_calls(visit);
+                value.walk_calls(visit);
+            }
             Stmt::Append { sequence, value } => {
                 sequence.walk_calls(visit);
                 value.walk_calls(visit);
             }
             Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => {}
         }
+    }
+}
+
+/// One attribute of a class, as declared in `__init__`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Attribute {
+    /// Attribute name, without the `self.` prefix.
+    pub name: String,
+    /// Declared type. Mandatory, on the same terms as a parameter's.
+    pub ty: Ty,
+}
+
+/// A class: named state and the methods over it.
+///
+/// Attributes are held in declaration order rather than sorted, because that order is the class's
+/// shape as its author wrote it and a backend emitting fields wants to preserve it. Methods are
+/// keyed by name, which gives uniqueness and a deterministic order in one structure — the same
+/// reasoning as [`Unit`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Class {
+    /// Class name, which is also the name of its instance type.
+    pub name: String,
+    /// Attributes, in declaration order.
+    pub attributes: Vec<Attribute>,
+    /// The constructor. Its parameters exclude `self`, and its body initialises the attributes.
+    pub init: Function,
+    /// Methods other than `__init__`, by name.
+    pub methods: BTreeMap<String, Function>,
+    /// Docstring, excluded from the fingerprint like a function's.
+    pub doc: Option<String>,
+    /// Where the class was defined.
+    #[serde(skip)]
+    pub span: Span,
+}
+
+impl Class {
+    /// A fingerprint over the class's structure, excluding documentation and spans.
+    pub fn fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.name.hash(&mut hasher);
+        self.attributes.hash(&mut hasher);
+        self.init.fingerprint().hash(&mut hasher);
+        // Sorted by the map, so declaration order of methods does not move the print.
+        for method in self.methods.values() {
+            method.fingerprint().hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Every function in the class, constructor first.
+    pub fn functions(&self) -> impl Iterator<Item = &Function> {
+        std::iter::once(&self.init).chain(self.methods.values())
+    }
+
+    /// The declared type of one attribute.
+    pub fn attribute(&self, name: &str) -> Option<&Ty> {
+        self.attributes
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| &a.ty)
     }
 }
 
@@ -653,6 +793,9 @@ pub struct Unit {
     // A BTreeMap keys the unit by name, which gives uniqueness and a deterministic,
     // addition-order-independent iteration order in one structure.
     functions: BTreeMap<String, Function>,
+    // Classes share the namespace with functions: they compile into one file and one module, so a
+    // collision would surface as a Rust error rather than a diagnostic.
+    classes: BTreeMap<String, Class>,
 }
 
 impl Unit {
@@ -661,20 +804,47 @@ impl Unit {
         Self::default()
     }
 
-    /// Add a function, failing if one of that name is already present.
+    /// Add a function, failing if that name is already taken by a function or a class.
     pub fn add_function(&mut self, function: Function) -> Result<(), LowerError> {
-        if let Some(existing) = self.functions.get(&function.name) {
-            return Err(LowerError::new(
-                LowerErrorKind::DuplicateFunction,
-                format!(
-                    "function '{}' is already defined in this unit",
-                    existing.name
-                ),
-                function.span,
-            ));
-        }
+        self.reject_taken_name(&function.name, function.span)?;
         self.functions.insert(function.name.clone(), function);
         Ok(())
+    }
+
+    /// Add a class, failing if that name is already taken by a class or a function.
+    pub fn add_class(&mut self, class: Class) -> Result<(), LowerError> {
+        self.reject_taken_name(&class.name, class.span)?;
+        self.classes.insert(class.name.clone(), class);
+        Ok(())
+    }
+
+    /// Refuse a name already used by either kind of member.
+    fn reject_taken_name(&self, name: &str, span: Span) -> Result<(), LowerError> {
+        let taken = if self.functions.contains_key(name) {
+            Some("function")
+        } else if self.classes.contains_key(name) {
+            Some("class")
+        } else {
+            None
+        };
+        match taken {
+            None => Ok(()),
+            Some(kind) => Err(LowerError::new(
+                LowerErrorKind::DuplicateFunction,
+                format!("{kind} '{name}' is already defined in this unit"),
+                span,
+            )),
+        }
+    }
+
+    /// Classes in deterministic (name) order.
+    pub fn classes(&self) -> impl Iterator<Item = &Class> {
+        self.classes.values()
+    }
+
+    /// Look up a class by name.
+    pub fn class(&self, name: &str) -> Option<&Class> {
+        self.classes.get(name)
     }
 
     /// Functions in deterministic (name) order.
@@ -706,6 +876,16 @@ impl Unit {
         prints.sort_unstable();
         let mut hasher = DefaultHasher::new();
         prints.hash(&mut hasher);
+
+        // Classes contribute only when there are some. A unit with none must fingerprint exactly
+        // as it did before classes existed, or every cached build in every project invalidates on
+        // upgrade with nothing to show for it.
+        if !self.classes.is_empty() {
+            let mut class_prints: Vec<u64> =
+                self.classes.values().map(Class::fingerprint).collect();
+            class_prints.sort_unstable();
+            class_prints.hash(&mut hasher);
+        }
         hasher.finish()
     }
 
@@ -722,6 +902,7 @@ impl Unit {
             version: ARTIFACT_VERSION,
             fingerprint: format!("{:016x}", self.fingerprint()),
             functions: self.functions.values().cloned().collect(),
+            classes: self.classes.values().cloned().collect(),
         };
         Ok(serde_json::to_string_pretty(&artifact)?)
     }
@@ -745,6 +926,10 @@ impl Unit {
             unit.add_function(function)
                 .map_err(|e| ArtifactError::DuplicateFunction(Box::new(e)))?;
         }
+        for class in artifact.classes {
+            unit.add_class(class)
+                .map_err(|e| ArtifactError::DuplicateFunction(Box::new(e)))?;
+        }
 
         let computed = format!("{:016x}", unit.fingerprint());
         if computed != artifact.fingerprint {
@@ -762,7 +947,20 @@ impl Unit {
     /// legitimately call one that has not been added yet — resolving early would make success
     /// depend on the order functions happened to arrive.
     pub fn validate(&self) -> Result<(), LowerError> {
+        for class in self.classes.values() {
+            for function in class.functions() {
+                self.validate_calls(function)?;
+            }
+        }
         for function in self.functions.values() {
+            self.validate_calls(function)?;
+        }
+        Ok(())
+    }
+
+    /// Check one function's calls against the unit.
+    fn validate_calls(&self, function: &Function) -> Result<(), LowerError> {
+        {
             let mut failure: Option<LowerError> = None;
             function.walk_calls(&mut |callee, argc| {
                 if failure.is_some() {

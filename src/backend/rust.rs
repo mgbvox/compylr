@@ -74,6 +74,8 @@ pub fn rust_ty(ty: &Ty) -> String {
         Ty::List(element) => format!("Vec<{}>", rust_ty(element)),
         Ty::Dict(key, value) => format!("HashMap<{}, {}>", rust_ty(key), rust_ty(value)),
         Ty::Set(element) => format!("HashSet<{}>", rust_ty(element)),
+        // A class emits a struct of the same name, so the instance type is spelled the same way.
+        Ty::Instance(class) => rust_ident(class),
         Ty::Tuple(elements) => {
             let inner: Vec<String> = elements.iter().map(rust_ty).collect();
             // A one-element tuple needs the trailing comma, or it is just a parenthesised type.
@@ -373,6 +375,16 @@ impl Emitter<'_> {
                 Stmt::ReturnUnit => {
                     let _ = writeln!(self.out, "{pad}return Ok(());");
                 }
+                Stmt::SetAttr {
+                    object,
+                    name,
+                    ty,
+                    value,
+                } => {
+                    let object = emit_expr(object, self.unit, &Ty::Unit)?;
+                    let value = emit_expr(value, self.unit, ty)?;
+                    let _ = writeln!(self.out, "{pad}({object}).{} = {value};", rust_ident(name));
+                }
                 Stmt::SetItem {
                     collection,
                     index,
@@ -658,6 +670,40 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
                 ));
             }
             format!("HashMap::from([{}])", rendered.join(", "))
+        }
+        Expr::Attribute { object, name } => {
+            // Cloned rather than moved: reading one field must not consume the object, and the
+            // object may well be `self`.
+            let object = emit_expr(object, unit, &Ty::Unit)?;
+            format!("({object}).{}.clone()", rust_ident(name))
+        }
+        Expr::Construct { class, args } => {
+            let class_def = unit.class(class).ok_or_else(|| BackendError::Unsupported {
+                detail: format!("class '{class}' is not in this unit"),
+            })?;
+            let rendered = args
+                .iter()
+                .zip(class_def.init.params.iter())
+                .map(|(arg, param)| emit_expr(arg, unit, &param.ty))
+                .collect::<Result<Vec<_>, _>>()?;
+            format!(
+                "{}::__compylr_new({})?",
+                rust_ident(class),
+                rendered.join(", ")
+            )
+        }
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            let receiver = emit_expr(receiver, unit, &Ty::Unit)?;
+            let rendered = render_all(args, unit, &Ty::Unit)?;
+            format!(
+                "({receiver}).{}({})?",
+                rust_ident(method),
+                rendered.join(", ")
+            )
         }
         Expr::Not(inner) => {
             let inner = emit_expr(inner, unit, &Ty::Bool)?;
