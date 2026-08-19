@@ -24,7 +24,7 @@
 //! its type together, so shape and type can never be derived from separate traversals and
 //! disagree.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ruff_python_ast::{
     CmpOp, ElifElseClause, Expr as PyExpr, ModModule, Number, Operator, Parameters, Stmt as PyStmt,
@@ -34,7 +34,9 @@ use ruff_python_parser::Parsed;
 use ruff_text_size::Ranged;
 
 use crate::error::{LowerError, LowerErrorKind};
-use crate::ir::{BinOp, Expr, Function, Literal, Param, Stmt, Ty, returns_on_all_paths};
+use crate::ir::{
+    Attribute, BinOp, Class, Expr, Function, Literal, Param, Stmt, Ty, returns_on_all_paths,
+};
 use crate::span::Span;
 
 /// Names visible inside a function body, with the type each was bound at.
@@ -172,8 +174,10 @@ impl Scope {
 struct Ctx<'a> {
     /// The enclosing function's declared return type.
     ret: &'a Ty,
-    /// Signatures of every function in the source, for typing calls.
-    sigs: &'a Signatures,
+    /// Everything nameable while lowering: functions and classes.
+    names: Names<'a>,
+    /// Whether the body being lowered is a constructor, where attributes may be declared.
+    in_init: bool,
     /// Names that arrived as parameters.
     ///
     /// Needed because mutation is confined to locals, and a parameter shares a scope frame with
@@ -216,6 +220,63 @@ pub struct Signature {
 /// Every signature visible while lowering one source.
 pub type Signatures = HashMap<String, Signature>;
 
+/// What a class offers, without any body having been lowered.
+///
+/// Collected in the same first pass as function signatures and for the same reason: a function may
+/// construct a class defined below it, and acceptance must not depend on definition order.
+#[derive(Debug, Clone, Default)]
+pub struct ClassSignature {
+    /// Attributes in declaration order, with their declared types.
+    pub attributes: Vec<Attribute>,
+    /// The constructor's parameters, excluding `self`.
+    pub init: Vec<Ty>,
+    /// Method signatures by name, excluding `__init__`.
+    pub methods: HashMap<String, Signature>,
+}
+
+/// Every class visible while lowering one source.
+pub type ClassSignatures = HashMap<String, ClassSignature>;
+
+/// The names of every class in scope.
+///
+/// Separate from [`ClassSignatures`] and gathered before it: an annotation may name a class whose
+/// own attributes are not yet collected, including its own. Names are all an annotation needs.
+pub type ClassNames = HashSet<String>;
+
+/// Scan a source for class names, before anything else is collected.
+pub fn collect_class_names(parsed: &Parsed<ModModule>) -> ClassNames {
+    parsed
+        .syntax()
+        .body
+        .iter()
+        .filter_map(|stmt| match stmt {
+            PyStmt::ClassDef(def) => Some(def.name.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Everything nameable while lowering: the functions and the classes.
+///
+/// Bundled because expression lowering needs both — a call resolves against one and an attribute
+/// read against the other — and threading a second reference through every helper would obscure
+/// the two things that actually vary between them.
+#[derive(Clone, Copy)]
+pub struct Names<'a> {
+    /// Function signatures.
+    pub sigs: &'a Signatures,
+    /// Class signatures.
+    pub classes: &'a ClassSignatures,
+    /// Just the class names, which is all an annotation needs.
+    pub class_names: &'a ClassNames,
+}
+
+/// The name a method's receiver must carry.
+const SELF: &str = "self";
+
+/// The constructor's name.
+const INIT: &str = "__init__";
+
 /// Collect the signature of every function in a source, without lowering any body.
 ///
 /// This reads annotations only. Parameters and returns are mandatory, so nothing here needs
@@ -223,19 +284,19 @@ pub type Signatures = HashMap<String, Signature>;
 ///
 /// Malformed signatures are left for `lower_function` to report. Failing here would produce the
 /// same diagnostics from a different place, and the body pass reports them in source order.
-pub fn collect_signatures(parsed: &Parsed<ModModule>) -> Signatures {
+pub fn collect_signatures(parsed: &Parsed<ModModule>, classes: &ClassNames) -> Signatures {
     let mut signatures = Signatures::new();
     for stmt in &parsed.syntax().body {
         let PyStmt::FunctionDef(def) = stmt else {
             continue;
         };
-        let Ok(params) = lower_parameters(&def.parameters, def.name.as_str()) else {
+        let Ok(params) = lower_parameters(&def.parameters, def.name.as_str(), classes) else {
             continue;
         };
         let Some(annotation) = def.returns.as_deref() else {
             continue;
         };
-        let Ok(ret) = lower_annotation(annotation, true) else {
+        let Ok(ret) = lower_annotation(annotation, true, classes) else {
             continue;
         };
         signatures.insert(
@@ -249,6 +310,125 @@ pub fn collect_signatures(parsed: &Parsed<ModModule>) -> Signatures {
     signatures
 }
 
+/// Collect what every class in a source offers, without lowering any body.
+///
+/// Attribute types come from the annotated assignments in `__init__`, which is the only place they
+/// may be declared. Malformed classes are skipped rather than reported, exactly as malformed
+/// function signatures are: the body pass reports them in source order.
+pub fn collect_class_signatures(
+    parsed: &Parsed<ModModule>,
+    classes: &ClassNames,
+) -> ClassSignatures {
+    let mut collected = ClassSignatures::new();
+    for stmt in &parsed.syntax().body {
+        let PyStmt::ClassDef(def) = stmt else {
+            continue;
+        };
+        let mut signature = ClassSignature::default();
+        for member in &def.body {
+            let PyStmt::FunctionDef(method) = member else {
+                continue;
+            };
+            let Ok(params) = method_parameters(method, classes) else {
+                continue;
+            };
+            if method.name.as_str() == INIT {
+                signature.init = params.iter().map(|p| p.ty.clone()).collect();
+                signature.attributes = collect_attributes(&method.body, classes);
+                continue;
+            }
+            let Some(annotation) = method.returns.as_deref() else {
+                continue;
+            };
+            let Ok(ret) = lower_annotation(annotation, true, classes) else {
+                continue;
+            };
+            signature.methods.insert(
+                method.name.to_string(),
+                Signature {
+                    params: params.into_iter().map(|p| p.ty).collect(),
+                    ret,
+                },
+            );
+        }
+        collected.insert(def.name.to_string(), signature);
+    }
+    collected
+}
+
+/// The attributes an `__init__` body declares, reading annotations only.
+fn collect_attributes(body: &[PyStmt], classes: &ClassNames) -> Vec<Attribute> {
+    let mut attributes = Vec::new();
+    for stmt in body {
+        let PyStmt::AnnAssign(assign) = stmt else {
+            continue;
+        };
+        let Some(name) = self_attribute_name(&assign.target) else {
+            continue;
+        };
+        let Ok(ty) = lower_annotation(&assign.annotation, false, classes) else {
+            continue;
+        };
+        attributes.push(Attribute {
+            name: name.to_string(),
+            ty,
+        });
+    }
+    attributes
+}
+
+/// The attribute name in `self.<name>`, or `None` for anything else.
+fn self_attribute_name(target: &PyExpr) -> Option<&str> {
+    let PyExpr::Attribute(attribute) = target else {
+        return None;
+    };
+    let PyExpr::Name(object) = attribute.value.as_ref() else {
+        return None;
+    };
+    (object.id.as_str() == SELF).then(|| attribute.attr.as_str())
+}
+
+/// A method's parameters, with `self` removed and checked.
+fn method_parameters(
+    def: &StmtFunctionDef,
+    classes: &ClassNames,
+) -> Result<Vec<Param>, LowerError> {
+    let receiver = def.parameters.args.first().ok_or_else(|| {
+        err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!(
+                "method '{}' must take 'self' as its first parameter",
+                def.name
+            ),
+            def,
+        )
+    })?;
+    if receiver.parameter.name.as_str() != SELF {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!(
+                "method '{}' must take 'self' as its first parameter, not '{}'",
+                def.name, receiver.parameter.name
+            ),
+            def,
+        ));
+    }
+    if receiver.parameter.annotation.is_some() {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            "'self' must not be annotated: its type is the class it is defined in, and writing it \
+             invites writing it differently",
+            def,
+        ));
+    }
+
+    // The receiver is stripped before the usual parameter rules run, so every remaining parameter
+    // is checked exactly as a free function's would be.
+    let mut without_self = def.parameters.clone();
+    without_self.args.remove(0);
+    lower_parameters(&without_self, def.name.as_str(), classes)
+}
+
 /// Lower every top-level function definition in a parsed source.
 ///
 /// Only function definitions are permitted at top level; a module-level statement such as an
@@ -256,6 +436,16 @@ pub fn collect_signatures(parsed: &Parsed<ModModule>) -> Signatures {
 /// shared artifact, so it is rejected rather than silently dropped.
 pub fn lower_source(parsed: &Parsed<ModModule>) -> Result<Vec<Function>, LowerError> {
     lower_source_with(parsed, &Signatures::new())
+}
+
+/// Lower a source into its functions **and** its classes.
+///
+/// [`lower_source`] remains for callers that only want functions; this is what the pipeline uses,
+/// since a unit holds both.
+pub fn lower_source_members(
+    parsed: &Parsed<ModModule>,
+) -> Result<(Vec<Function>, Vec<Class>), LowerError> {
+    lower_source_members_with(parsed, &Signatures::new(), &ClassSignatures::new())
 }
 
 /// Lower a source with signatures from elsewhere already known.
@@ -271,14 +461,37 @@ pub fn lower_source_with(
     parsed: &Parsed<ModModule>,
     external: &Signatures,
 ) -> Result<Vec<Function>, LowerError> {
-    // Pass one: every signature in the source, so a call to a function defined later types the
-    // same as a call to one defined earlier.
+    Ok(lower_source_members_with(parsed, external, &ClassSignatures::new())?.0)
+}
+
+/// Lower a source into both kinds of member, with names from elsewhere already known.
+pub fn lower_source_members_with(
+    parsed: &Parsed<ModModule>,
+    external: &Signatures,
+    external_classes: &ClassSignatures,
+) -> Result<(Vec<Function>, Vec<Class>), LowerError> {
+    // Pass one: every signature in the source, so a call to a function or class defined later
+    // types the same as one defined earlier.
+    // Class names come first: an annotation may name a class whose attributes are collected in the
+    // very same pass, including its own.
+    let mut class_names: ClassNames = external_classes.keys().cloned().collect();
+    class_names.extend(collect_class_names(parsed));
     let mut signatures = external.clone();
-    signatures.extend(collect_signatures(parsed));
+    signatures.extend(collect_signatures(parsed, &class_names));
+    let mut class_signatures = external_classes.clone();
+    class_signatures.extend(collect_class_signatures(parsed, &class_names));
+    let names = Names {
+        sigs: &signatures,
+        classes: &class_signatures,
+        class_names: &class_names,
+    };
+
     let mut functions = Vec::new();
+    let mut classes = Vec::new();
     for stmt in &parsed.syntax().body {
         match stmt {
-            PyStmt::FunctionDef(def) => functions.push(lower_function(def, &signatures)?),
+            PyStmt::FunctionDef(def) => functions.push(lower_function_in(def, names, None, false)?),
+            PyStmt::ClassDef(def) => classes.push(lower_class(def, names)?),
             PyStmt::Import(_) | PyStmt::ImportFrom(_) => {
                 return Err(err(
                     LowerErrorKind::UnsupportedConstruct,
@@ -286,27 +499,173 @@ pub fn lower_source_with(
                     stmt,
                 ));
             }
-            PyStmt::ClassDef(_) => {
-                return Err(err(
-                    LowerErrorKind::UnsupportedConstruct,
-                    "class definitions are not supported; only function definitions may appear at top level",
-                    stmt,
-                ));
-            }
             other => {
                 return Err(err(
                     LowerErrorKind::UnsupportedConstruct,
-                    "only function definitions are permitted at top level",
+                    "only function and class definitions are permitted at top level",
                     other,
                 ));
             }
         }
     }
-    Ok(functions)
+    Ok((functions, classes))
 }
 
-/// Lower a single function definition.
+/// Lower a class definition.
+pub fn lower_class(
+    def: &ruff_python_ast::StmtClassDef,
+    names: Names<'_>,
+) -> Result<Class, LowerError> {
+    if !def.decorator_list.is_empty() {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!(
+                "class '{}' carries a decorator, which is not supported",
+                def.name
+            ),
+            def,
+        ));
+    }
+    if def.type_params.is_some() {
+        return Err(err(
+            LowerErrorKind::UnsupportedType,
+            format!(
+                "class '{}' declares type parameters, which are not yet supported",
+                def.name
+            ),
+            def,
+        ));
+    }
+    if def
+        .arguments
+        .as_ref()
+        .is_some_and(|a| !a.args.is_empty() || !a.keywords.is_empty())
+    {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!(
+                "class '{}' declares a base class; inheritance is not supported",
+                def.name
+            ),
+            def,
+        ));
+    }
+
+    let (doc, body) = split_docstring(&def.body);
+
+    let mut init: Option<&StmtFunctionDef> = None;
+    let mut method_defs: Vec<&StmtFunctionDef> = Vec::new();
+    for member in body {
+        let PyStmt::FunctionDef(method) = member else {
+            return Err(err(
+                LowerErrorKind::UnsupportedConstruct,
+                "a class body may only contain method definitions: a class-level assignment is \
+                 state shared by every instance, which is a different thing than an attribute",
+                member,
+            ));
+        };
+        let name = method.name.as_str();
+        if name == INIT {
+            init = Some(method);
+            continue;
+        }
+        // Every other dunder would need a decision about what the target language does with it,
+        // and nothing depends on one yet.
+        if name.starts_with("__") && name.ends_with("__") {
+            return Err(err(
+                LowerErrorKind::UnsupportedConstruct,
+                format!(
+                    "'{name}' is not supported; '__init__' is the only special method in the subset"
+                ),
+                method,
+            ));
+        }
+        if method_defs.iter().any(|m| m.name.as_str() == name) {
+            return Err(err(
+                LowerErrorKind::DuplicateFunction,
+                format!("method '{name}' is defined twice in class '{}'", def.name),
+                method,
+            ));
+        }
+        method_defs.push(method);
+    }
+
+    let Some(init_def) = init else {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!(
+                "class '{}' has no '__init__'; attributes are declared there, so without one the \
+                 class has no defined shape",
+                def.name
+            ),
+            def,
+        ));
+    };
+
+    let name = def.name.to_string();
+    let init = lower_function_in(init_def, names, Some(&name), true)?;
+    if init.ret != Ty::Unit {
+        return Err(err(
+            LowerErrorKind::TypeMismatch,
+            "'__init__' must be annotated '-> None'",
+            init_def,
+        ));
+    }
+
+    // Read back from the lowered constructor rather than from the annotations again, so the
+    // declared shape and the code that initialises it cannot disagree.
+    let attributes: Vec<Attribute> = init
+        .body
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::SetAttr { name, ty, .. } => Some(Attribute {
+                name: name.clone(),
+                ty: ty.clone(),
+            }),
+            _ => None,
+        })
+        .collect();
+
+    let mut methods = BTreeMap::new();
+    for method in method_defs {
+        let lowered = lower_function_in(method, names, Some(&name), false)?;
+        methods.insert(lowered.name.clone(), lowered);
+    }
+
+    Ok(Class {
+        name,
+        attributes,
+        init,
+        methods,
+        doc,
+        span: Span::from(def.range()),
+    })
+}
+
+/// Lower a single top-level function definition.
 pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Function, LowerError> {
+    lower_function_in(
+        def,
+        Names {
+            sigs,
+            classes: &ClassSignatures::new(),
+            class_names: &ClassNames::new(),
+        },
+        None,
+        false,
+    )
+}
+
+/// Lower a function or method.
+///
+/// `enclosing` names the class when this is a method, which is what gives `self` a type;
+/// `in_init` permits attribute declarations, which are legal in exactly one place.
+pub fn lower_function_in(
+    def: &StmtFunctionDef,
+    names: Names<'_>,
+    enclosing: Option<&str>,
+    in_init: bool,
+) -> Result<Function, LowerError> {
     if def.is_async {
         return Err(err(
             LowerErrorKind::UnsupportedConstruct,
@@ -353,10 +712,15 @@ pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Functi
         ));
     }
 
-    let params = lower_parameters(&def.parameters, def.name.as_str())?;
+    // A method's receiver is stripped and re-introduced as a typed name below, so every remaining
+    // parameter goes through exactly the rules a free function's would.
+    let params = match enclosing {
+        Some(_) => method_parameters(def, names.class_names)?,
+        None => lower_parameters(&def.parameters, def.name.as_str(), names.class_names)?,
+    };
 
     let ret = match def.returns.as_deref() {
-        Some(annotation) => lower_annotation(annotation, true)?,
+        Some(annotation) => lower_annotation(annotation, true, names.class_names)?,
         None => {
             return Err(err(
                 LowerErrorKind::MissingAnnotation,
@@ -368,9 +732,15 @@ pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Functi
 
     let mut scope = Scope::function(&params);
     let param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+    // `self` is visible but is not a parameter for the mutation rule: an instance is not converted
+    // at the boundary, so mutating through it is exactly what the caller observes.
+    if let Some(class) = enclosing {
+        scope.declare(SELF.to_string(), Ty::Instance(class.to_string()), None);
+    }
     let ctx = Ctx {
         ret: &ret,
-        sigs,
+        names,
+        in_init,
         params: &param_names,
         in_loop: false,
     };
@@ -429,7 +799,11 @@ fn split_docstring(body: &[PyStmt]) -> (Option<String>, &[PyStmt]) {
     (Some(literal.value.to_str().to_string()), &body[1..])
 }
 
-fn lower_parameters(parameters: &Parameters, owner: &str) -> Result<Vec<Param>, LowerError> {
+fn lower_parameters(
+    parameters: &Parameters,
+    owner: &str,
+    classes: &ClassNames,
+) -> Result<Vec<Param>, LowerError> {
     // Only plain positional parameters are in the subset. Each of the other forms would need a
     // calling-convention decision on the target side that nothing depends on yet.
     if !parameters.posonlyargs.is_empty() {
@@ -485,7 +859,7 @@ fn lower_parameters(parameters: &Parameters, owner: &str) -> Result<Vec<Param>, 
         };
         params.push(Param {
             name: arg.parameter.name.to_string(),
-            ty: lower_annotation(annotation, false)?,
+            ty: lower_annotation(annotation, false, classes)?,
         });
     }
     Ok(params)
@@ -495,13 +869,20 @@ fn lower_parameters(parameters: &Parameters, owner: &str) -> Result<Vec<Param>, 
 ///
 /// `allow_unit` is true only for return annotations: `None` describes "returns nothing", which
 /// is meaningless for a parameter.
-fn lower_annotation(annotation: &PyExpr, allow_unit: bool) -> Result<Ty, LowerError> {
+fn lower_annotation(
+    annotation: &PyExpr,
+    allow_unit: bool,
+    classes: &ClassNames,
+) -> Result<Ty, LowerError> {
     match annotation {
         PyExpr::Name(name) => match name.id.as_str() {
             "int" => Ok(Ty::Int),
             "float" => Ok(Ty::Float),
             "bool" => Ok(Ty::Bool),
             "str" => Ok(Ty::Str),
+            // A class defined in the same source names its instance type. Unknown names are
+            // still rejected, so a typo does not become a phantom type.
+            other if classes.contains(other) => Ok(Ty::Instance(other.to_string())),
             other => Err(err(
                 LowerErrorKind::UnsupportedType,
                 format!("'{other}' is not a supported type annotation"),
@@ -519,7 +900,7 @@ fn lower_annotation(annotation: &PyExpr, allow_unit: bool) -> Result<Ty, LowerEr
                 ))
             }
         }
-        PyExpr::Subscript(subscript) => lower_generic_annotation(subscript, annotation),
+        PyExpr::Subscript(subscript) => lower_generic_annotation(subscript, annotation, classes),
         other => Err(err(
             LowerErrorKind::UnsupportedType,
             "unsupported type annotation",
@@ -536,14 +917,14 @@ fn lower_annotation(annotation: &PyExpr, allow_unit: bool) -> Result<Ty, LowerEr
 fn unify_elements(
     elements: &[PyExpr],
     scope: &Scope,
-    sigs: &Signatures,
+    names: Names<'_>,
     node: &PyExpr,
     what: &str,
 ) -> Result<(Vec<Expr>, Option<Ty>), LowerError> {
     let mut lowered = Vec::with_capacity(elements.len());
     let mut types = Vec::with_capacity(elements.len());
     for element in elements {
-        let (expr, ty) = lower_expr(element, scope, sigs)?;
+        let (expr, ty) = lower_expr(element, scope, names)?;
         lowered.push(expr);
         types.push(ty);
     }
@@ -599,7 +980,7 @@ fn agree(types: &[Option<Ty>], node: &PyExpr, what: &str) -> Result<Option<Ty>, 
 fn lower_subscript(
     subscript: &ruff_python_ast::ExprSubscript,
     scope: &Scope,
-    sigs: &Signatures,
+    names: Names<'_>,
     node: &PyExpr,
 ) -> Result<(Expr, TyResult), LowerError> {
     if matches!(subscript.slice.as_ref(), PyExpr::Slice(_)) {
@@ -610,8 +991,8 @@ fn lower_subscript(
         ));
     }
 
-    let (base, base_ty) = lower_expr(&subscript.value, scope, sigs)?;
-    let (index, index_ty) = lower_expr(&subscript.slice, scope, sigs)?;
+    let (base, base_ty) = lower_expr(&subscript.value, scope, names)?;
+    let (index, index_ty) = lower_expr(&subscript.slice, scope, names)?;
 
     let Some(base_ty) = base_ty else {
         // The collection's own type is undetermined, so the element's is too.
@@ -711,6 +1092,7 @@ fn expect_index(
 fn lower_generic_annotation(
     subscript: &ruff_python_ast::ExprSubscript,
     node: &PyExpr,
+    classes: &ClassNames,
 ) -> Result<Ty, LowerError> {
     let PyExpr::Name(name) = subscript.value.as_ref() else {
         return Err(err(
@@ -730,7 +1112,7 @@ fn lower_generic_annotation(
     let lowered = |exprs: &[&PyExpr]| -> Result<Vec<Ty>, LowerError> {
         exprs
             .iter()
-            .map(|p| lower_annotation(p, false))
+            .map(|p| lower_annotation(p, false, classes))
             .collect::<Result<Vec<_>, _>>()
     };
 
@@ -842,7 +1224,7 @@ fn lower_block(body: &[PyStmt], scope: &mut Scope, ctx: Ctx<'_>) -> Result<Vec<S
 /// everywhere should not then infer that an integer means a condition — requiring a boolean keeps
 /// the meaning of a test written down rather than guessed.
 fn lower_test(test: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<Expr, LowerError> {
-    let (lowered, ty) = lower_expr(test, scope, ctx.sigs)?;
+    let (lowered, ty) = lower_expr(test, scope, ctx.names)?;
     match ty {
         // Undetermined means the test calls a function this source does not define; taken on
         // trust here exactly as a returned call is.
@@ -955,7 +1337,7 @@ fn lower_iterable(iter: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<(Expr, T
     if let Some(range) = lower_range(iter, scope, ctx)? {
         return Ok((range, Ty::Int));
     }
-    let (lowered, ty) = lower_expr(iter, scope, ctx.sigs)?;
+    let (lowered, ty) = lower_expr(iter, scope, ctx.names)?;
     let Some(ty) = ty else {
         return Err(err(
             LowerErrorKind::UndeterminedBinding,
@@ -1019,7 +1401,7 @@ fn lower_range(iter: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<Option<Expr
 
     let mut lowered = Vec::with_capacity(args.len());
     for arg in args {
-        let (expr, ty) = lower_expr(arg, scope, ctx.sigs)?;
+        let (expr, ty) = lower_expr(arg, scope, ctx.names)?;
         match ty {
             // Undetermined is taken on trust, as everywhere else a cross-source call appears.
             None | Some(Ty::Int) => lowered.push(expr),
@@ -1161,11 +1543,11 @@ fn lower_set_item(
         ));
     }
 
-    let (collection, collection_ty) = lower_expr(&target.value, scope, ctx.sigs)?;
+    let (collection, collection_ty) = lower_expr(&target.value, scope, ctx.names)?;
     reject_mutating_a_parameter(&collection, scope, ctx, stmt)?;
 
-    let (index, index_ty) = lower_expr(&target.slice, scope, ctx.sigs)?;
-    let (value, value_ty) = lower_expr(value, scope, ctx.sigs)?;
+    let (index, index_ty) = lower_expr(&target.slice, scope, ctx.names)?;
+    let (value, value_ty) = lower_expr(value, scope, ctx.names)?;
 
     let Some(collection_ty) = collection_ty else {
         return Err(err(
@@ -1234,6 +1616,31 @@ fn lower_method_statement(
     };
 
     let method = attribute.attr.as_str();
+
+    // A method call on an instance, made for its effect. Accepted only when the method returns
+    // nothing, so no value is actually discarded.
+    let (_, receiver_ty) = lower_expr(&attribute.value, scope, ctx.names)?;
+    if let Some(Ty::Instance(class)) = &receiver_ty
+        && ctx
+            .names
+            .classes
+            .get(class)
+            .is_some_and(|signature| signature.methods.contains_key(method))
+    {
+        let (lowered, ty) = lower_expr(value, scope, ctx.names)?;
+        if ty != Some(Ty::Unit) {
+            return Err(err(
+                LowerErrorKind::UnsupportedConstruct,
+                format!(
+                    "'{class}.{method}' returns a value, and discarding it is either dead code or \
+                     a side effect the subset cannot express"
+                ),
+                stmt,
+            ));
+        }
+        return Ok(Stmt::Effect(lowered));
+    }
+
     if method != APPEND {
         return Err(err(
             LowerErrorKind::UnsupportedConstruct,
@@ -1261,10 +1668,10 @@ fn lower_method_statement(
         ));
     }
 
-    let (sequence, sequence_ty) = lower_expr(&attribute.value, scope, ctx.sigs)?;
+    let (sequence, sequence_ty) = lower_expr(&attribute.value, scope, ctx.names)?;
     reject_mutating_a_parameter(&sequence, scope, ctx, stmt)?;
 
-    let (value, value_ty) = lower_expr(&call.arguments.args[0], scope, ctx.sigs)?;
+    let (value, value_ty) = lower_expr(&call.arguments.args[0], scope, ctx.names)?;
 
     let Some(sequence_ty) = sequence_ty else {
         return Err(err(
@@ -1312,11 +1719,11 @@ fn lower_membership(
     container: &PyExpr,
     negated: bool,
     scope: &Scope,
-    sigs: &Signatures,
+    names: Names<'_>,
     node: &PyExpr,
 ) -> Result<(Expr, TyResult), LowerError> {
-    let (value, value_ty) = lower_expr(value, scope, sigs)?;
-    let (container, container_ty) = lower_expr(container, scope, sigs)?;
+    let (value, value_ty) = lower_expr(value, scope, names)?;
+    let (container, container_ty) = lower_expr(container, scope, names)?;
 
     if let Some(container_ty) = container_ty {
         let expected = match &container_ty {
@@ -1368,7 +1775,7 @@ fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ctx: Ctx<'_>) -> Result<Stmt, Lo
         PyStmt::Return(node) => match node.value.as_deref() {
             Some(value) => {
                 let ret = ctx.ret;
-                let (lowered, ty) = lower_expr(value, scope, ctx.sigs)?;
+                let (lowered, ty) = lower_expr(value, scope, ctx.names)?;
                 if *ret == Ty::Unit {
                     return Err(err(
                         LowerErrorKind::TypeMismatch,
@@ -1400,6 +1807,12 @@ fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ctx: Ctx<'_>) -> Result<Stmt, Lo
         PyStmt::Pass(_) => unreachable!("`pass` is dropped by lower_body"),
         PyStmt::AnnAssign(assign) => lower_annotated_binding(stmt, assign, scope, ctx),
         PyStmt::Assign(assign) => {
+            // `self.x = v` assigns an attribute the class already declares.
+            if assign.targets.len() == 1
+                && let PyExpr::Attribute(target) = &assign.targets[0]
+            {
+                return lower_set_attr(stmt, target, &assign.value, scope, ctx);
+            }
             // A subscripted target is an element assignment, not a binding: the name keeps
             // denoting the same collection and one of its entries changes.
             if assign.targets.len() == 1
@@ -1494,17 +1907,227 @@ fn binding_target<'a>(target: &'a PyExpr, node: &impl Ranged) -> Result<&'a str,
     }
 }
 
+/// Check one argument against a declared parameter type, promoting where Python would.
+fn check_argument(
+    arg: Expr,
+    actual: TyResult,
+    expected: &Ty,
+    callee: &str,
+    node: &PyExpr,
+) -> Result<Expr, LowerError> {
+    match actual {
+        // Undetermined is taken on trust; the unit checks it once every source is assembled.
+        None => Ok(arg),
+        Some(actual) => coerce(arg, &actual, expected).ok_or_else(|| {
+            err(
+                LowerErrorKind::TypeMismatch,
+                format!(
+                    "'{callee}' expects '{}' here but was given '{}'",
+                    expected.python_name(),
+                    actual.python_name()
+                ),
+                node,
+            )
+        }),
+    }
+}
+
+/// Lower `<receiver>.<method>(...)`.
+fn lower_method_call(
+    call: &ruff_python_ast::ExprCall,
+    receiver: &ruff_python_ast::ExprAttribute,
+    scope: &Scope,
+    names: Names<'_>,
+    expr: &PyExpr,
+) -> Result<(Expr, TyResult), LowerError> {
+    let method = receiver.attr.as_str();
+    let (object, object_ty) = lower_expr(&receiver.value, scope, names)?;
+
+    let mut args = Vec::with_capacity(call.arguments.args.len());
+    let mut arg_types = Vec::with_capacity(call.arguments.args.len());
+    for arg in &call.arguments.args {
+        let (lowered, ty) = lower_expr(arg, scope, names)?;
+        args.push(lowered);
+        arg_types.push(ty);
+    }
+
+    let node = |args| Expr::MethodCall {
+        receiver: Box::new(object.clone()),
+        method: method.to_string(),
+        args,
+    };
+
+    // Undetermined propagates: the receiver may be an instance of a class in another source.
+    let Some(Ty::Instance(class)) = object_ty else {
+        return Ok((node(args), None));
+    };
+    let Some(signature) = names.classes.get(&class) else {
+        return Ok((node(args), None));
+    };
+    let Some(method_sig) = signature.methods.get(method) else {
+        return Err(err(
+            LowerErrorKind::Unresolved,
+            format!("'{class}' has no method '{method}'"),
+            expr,
+        ));
+    };
+    if method_sig.params.len() != args.len() {
+        return Err(err(
+            LowerErrorKind::ArityMismatch,
+            format!(
+                "'{class}.{method}' expects {} argument(s) but {} were given",
+                method_sig.params.len(),
+                args.len()
+            ),
+            expr,
+        ));
+    }
+    let mut checked = Vec::with_capacity(args.len());
+    for ((arg, actual), expected) in args.into_iter().zip(arg_types).zip(&method_sig.params) {
+        checked.push(check_argument(arg, actual, expected, method, expr)?);
+    }
+    Ok((node(checked), Some(method_sig.ret.clone())))
+}
+
+/// Lower `<object>.<name> = <value>`.
+///
+/// In `__init__` an annotated form declares the attribute; anywhere else the attribute must already
+/// exist. A struct's fields cannot depend on which methods happened to run, which is why the
+/// declaration has exactly one legal home.
+fn lower_set_attr(
+    stmt: &PyStmt,
+    target: &ruff_python_ast::ExprAttribute,
+    value: &PyExpr,
+    scope: &mut Scope,
+    ctx: Ctx<'_>,
+) -> Result<Stmt, LowerError> {
+    let (object, object_ty) = lower_expr(&target.value, scope, ctx.names)?;
+    let attribute = target.attr.as_str();
+
+    let Some(Ty::Instance(class)) = object_ty else {
+        return Err(err(
+            LowerErrorKind::TypeMismatch,
+            "only an attribute of a class instance can be assigned",
+            stmt,
+        ));
+    };
+
+    let declared = ctx
+        .names
+        .classes
+        .get(&class)
+        .and_then(|signature| {
+            signature
+                .attributes
+                .iter()
+                .find(|a| a.name == attribute)
+                .map(|a| a.ty.clone())
+        })
+        .ok_or_else(|| {
+            // Inside the constructor an undeclared attribute is almost always a missing
+            // annotation rather than a typo, and saying so points at the actual fix.
+            let kind = if ctx.in_init {
+                LowerErrorKind::MissingAnnotation
+            } else {
+                LowerErrorKind::Unresolved
+            };
+            err(
+                kind,
+                format!(
+                    "'{class}' has no attribute '{attribute}'; declare it with an annotation in \
+                     '__init__', which is the only place an attribute may be introduced"
+                ),
+                stmt,
+            )
+        })?;
+
+    let (value, actual) = lower_expr(value, scope, ctx.names)?;
+    let value = match actual {
+        Some(actual) => coerce(value, &actual, &declared).ok_or_else(|| {
+            err(
+                LowerErrorKind::TypeMismatch,
+                format!(
+                    "attribute '{attribute}' is '{}', but this assigns a value of type '{}'",
+                    declared.python_name(),
+                    actual.python_name()
+                ),
+                stmt,
+            )
+        })?,
+        None => value,
+    };
+
+    Ok(Stmt::SetAttr {
+        object,
+        name: attribute.to_string(),
+        ty: declared,
+        value,
+    })
+}
+
+/// Lower `self.<name>: T = <value>`, which declares an attribute.
+fn lower_attribute_declaration(
+    stmt: &PyStmt,
+    assign: &ruff_python_ast::StmtAnnAssign,
+    attribute: &str,
+    scope: &mut Scope,
+    ctx: Ctx<'_>,
+) -> Result<Stmt, LowerError> {
+    if !ctx.in_init {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!(
+                "attribute '{attribute}' must be declared in '__init__'; declaring it elsewhere \
+                 would make the class's shape depend on which methods happened to run"
+            ),
+            stmt,
+        ));
+    }
+    let declared = lower_annotation(&assign.annotation, false, ctx.names.class_names)?;
+    let Some(value) = assign.value.as_deref() else {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!("attribute '{attribute}' is declared without a value, which is not supported"),
+            stmt,
+        ));
+    };
+    let (value, actual) = lower_expr(value, scope, ctx.names)?;
+    let value = match actual {
+        Some(actual) => coerce(value, &actual, &declared).ok_or_else(|| {
+            err(
+                LowerErrorKind::TypeMismatch,
+                format!(
+                    "attribute '{attribute}' is declared as '{}' but the value is '{}'",
+                    declared.python_name(),
+                    actual.python_name()
+                ),
+                stmt,
+            )
+        })?,
+        None => value,
+    };
+    Ok(Stmt::SetAttr {
+        object: Expr::name(SELF),
+        name: attribute.to_string(),
+        ty: declared,
+        value,
+    })
+}
+
 fn lower_annotated_binding(
     stmt: &PyStmt,
     assign: &ruff_python_ast::StmtAnnAssign,
     scope: &mut Scope,
     ctx: Ctx<'_>,
 ) -> Result<Stmt, LowerError> {
-    let sigs = ctx.sigs;
+    if let Some(attribute) = self_attribute_name(&assign.target) {
+        let attribute = attribute.to_string();
+        return lower_attribute_declaration(stmt, assign, &attribute, scope, ctx);
+    }
     let name = binding_target(&assign.target, stmt)?.to_string();
     ensure_undeclared(&name, scope, stmt)?;
 
-    let declared = lower_annotation(&assign.annotation, false)?;
+    let declared = lower_annotation(&assign.annotation, false, ctx.names.class_names)?;
     let Some(value) = assign.value.as_deref() else {
         return Err(err(
             LowerErrorKind::UnsupportedConstruct,
@@ -1512,7 +2135,7 @@ fn lower_annotated_binding(
             stmt,
         ));
     };
-    let (lowered, actual) = lower_expr(value, scope, sigs)?;
+    let (lowered, actual) = lower_expr(value, scope, ctx.names)?;
 
     // An undetermined initializer cannot be checked; the declared type is taken on trust.
     let value = match actual {
@@ -1558,7 +2181,7 @@ fn lower_bare_binding(
     // so the value is checked against that rather than inferring a fresh one — the alternative is
     // a name that denotes different things at different points in the same function.
     if let Some(existing) = scope.get(&name).cloned() {
-        let (value, actual) = lower_expr(&assign.value, scope, ctx.sigs)?;
+        let (value, actual) = lower_expr(&assign.value, scope, ctx.names)?;
         let value = match actual {
             Some(actual) => coerce(value, &actual, &existing).ok_or_else(|| {
                 err(
@@ -1583,7 +2206,7 @@ fn lower_bare_binding(
         });
     }
 
-    let (value, inferred) = lower_expr(&assign.value, scope, ctx.sigs)?;
+    let (value, inferred) = lower_expr(&assign.value, scope, ctx.names)?;
 
     // Infer when the initializer's type is determined; otherwise the answer is genuinely
     // unknown here and an annotation is the only way to supply it.
@@ -1686,7 +2309,7 @@ fn build_binary(
 fn lower_expr(
     expr: &PyExpr,
     scope: &Scope,
-    sigs: &Signatures,
+    names: Names<'_>,
 ) -> Result<(Expr, TyResult), LowerError> {
     match expr {
         PyExpr::NumberLiteral(literal) => match &literal.value {
@@ -1735,7 +2358,7 @@ fn lower_expr(
         }
         PyExpr::UnaryOp(unary) => match unary.op {
             UnaryOp::USub => {
-                let (operand, ty) = lower_expr(&unary.operand, scope, sigs)?;
+                let (operand, ty) = lower_expr(&unary.operand, scope, names)?;
                 match ty {
                     Some(ty) if ty.is_numeric() => Ok((Expr::Neg(Box::new(operand)), Some(ty))),
                     Some(ty) => Err(err(
@@ -1778,8 +2401,8 @@ fn lower_expr(
                     ));
                 }
             };
-            let (left, left_ty) = lower_expr(&binary.left, scope, sigs)?;
-            let (right, right_ty) = lower_expr(&binary.right, scope, sigs)?;
+            let (left, left_ty) = lower_expr(&binary.left, scope, names)?;
+            let (right, right_ty) = lower_expr(&binary.right, scope, names)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
                     let (node, ty) = build_binary(op, left, &l, right, &r, expr)?;
@@ -1803,7 +2426,7 @@ fn lower_expr(
                     &compare.comparators[0],
                     matches!(compare.ops[0], CmpOp::NotIn),
                     scope,
-                    sigs,
+                    names,
                     expr,
                 );
             }
@@ -1822,8 +2445,8 @@ fn lower_expr(
                     ));
                 }
             };
-            let (left, left_ty) = lower_expr(&compare.left, scope, sigs)?;
-            let (right, right_ty) = lower_expr(&compare.comparators[0], scope, sigs)?;
+            let (left, left_ty) = lower_expr(&compare.left, scope, names)?;
+            let (right, right_ty) = lower_expr(&compare.comparators[0], scope, names)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
                     let (node, ty) = build_binary(op, left, &l, right, &r, expr)?;
@@ -1833,14 +2456,14 @@ fn lower_expr(
             }
         }
         PyExpr::List(list) => {
-            let (items, element) = unify_elements(&list.elts, scope, sigs, expr, "list")?;
+            let (items, element) = unify_elements(&list.elts, scope, names, expr, "list")?;
             Ok((
                 Expr::ListLit(items),
                 element.map(|ty| Ty::List(Box::new(ty))),
             ))
         }
         PyExpr::Set(set) => {
-            let (items, element) = unify_elements(&set.elts, scope, sigs, expr, "set")?;
+            let (items, element) = unify_elements(&set.elts, scope, names, expr, "set")?;
             let element = match element {
                 Some(ty) if !ty.can_key() => {
                     return Err(err(
@@ -1863,7 +2486,7 @@ fn lower_expr(
             let mut types = Vec::with_capacity(tuple.elts.len());
             let mut determined = true;
             for element in &tuple.elts {
-                let (lowered, ty) = lower_expr(element, scope, sigs)?;
+                let (lowered, ty) = lower_expr(element, scope, names)?;
                 items.push(lowered);
                 match ty {
                     Some(ty) => types.push(ty),
@@ -1889,8 +2512,8 @@ fn lower_expr(
                         expr,
                     ));
                 };
-                let (key, key_ty) = lower_expr(key_expr, scope, sigs)?;
-                let (value, value_ty) = lower_expr(&item.value, scope, sigs)?;
+                let (key, key_ty) = lower_expr(key_expr, scope, names)?;
+                let (value, value_ty) = lower_expr(&item.value, scope, names)?;
                 pairs.push((key, value));
                 keys.push(key_ty);
                 values.push(value_ty);
@@ -1918,7 +2541,38 @@ fn lower_expr(
             };
             Ok((Expr::DictLit(pairs), ty))
         }
-        PyExpr::Subscript(subscript) => lower_subscript(subscript, scope, sigs, expr),
+        PyExpr::Subscript(subscript) => lower_subscript(subscript, scope, names, expr),
+        PyExpr::Attribute(attribute) => {
+            let (object, object_ty) = lower_expr(&attribute.value, scope, names)?;
+            let node = Expr::Attribute {
+                object: Box::new(object),
+                name: attribute.attr.to_string(),
+            };
+            // Undetermined propagates: the object may be an instance of a class in another source.
+            let Some(Ty::Instance(class)) = object_ty else {
+                return Ok((node, None));
+            };
+            let Some(signature) = names.classes.get(&class) else {
+                return Ok((node, None));
+            };
+            let ty = signature
+                .attributes
+                .iter()
+                .find(|a| a.name == attribute.attr.as_str())
+                .map(|a| a.ty.clone())
+                .ok_or_else(|| {
+                    err(
+                        LowerErrorKind::Unresolved,
+                        format!(
+                            "'{class}' has no attribute '{}'; every attribute must be declared \
+                             with an annotation in '__init__'",
+                            attribute.attr
+                        ),
+                        expr,
+                    )
+                })?;
+            Ok((node, Some(ty)))
+        }
         PyExpr::Call(call) => {
             if !call.arguments.keywords.is_empty() {
                 return Err(err(
@@ -1926,6 +2580,9 @@ fn lower_expr(
                     "keyword arguments are not supported",
                     expr,
                 ));
+            }
+            if let PyExpr::Attribute(receiver) = call.func.as_ref() {
+                return lower_method_call(call, receiver, scope, names, expr);
             }
             let PyExpr::Name(callee) = call.func.as_ref() else {
                 return Err(err(
@@ -1937,12 +2594,42 @@ fn lower_expr(
             let mut args = Vec::with_capacity(call.arguments.args.len());
             let mut arg_types = Vec::with_capacity(call.arguments.args.len());
             for arg in &call.arguments.args {
-                let (lowered, ty) = lower_expr(arg, scope, sigs)?;
+                let (lowered, ty) = lower_expr(arg, scope, names)?;
                 args.push(lowered);
                 arg_types.push(ty);
             }
 
             let name = callee.id.as_str();
+
+            // A class name is a construction, not a call. Unit validation would otherwise try to
+            // resolve it against functions, and the type rules differ enough that one form would
+            // make each path carry the other's cases.
+            if let Some(signature) = names.classes.get(name) {
+                if signature.init.len() != args.len() {
+                    return Err(err(
+                        LowerErrorKind::ArityMismatch,
+                        format!(
+                            "'{name}' takes {} constructor argument(s) but {} were given",
+                            signature.init.len(),
+                            args.len()
+                        ),
+                        expr,
+                    ));
+                }
+                let mut checked = Vec::with_capacity(args.len());
+                for ((arg, actual), expected) in
+                    args.into_iter().zip(arg_types).zip(signature.init.iter())
+                {
+                    checked.push(check_argument(arg, actual, expected, name, expr)?);
+                }
+                return Ok((
+                    Expr::Construct {
+                        class: name.to_string(),
+                        args: checked,
+                    },
+                    Some(Ty::Instance(name.to_string())),
+                ));
+            }
 
             // A range is only meaningful as something to iterate: there is no range value in the
             // subset, so `r = range(n)` has nothing to bind. Caught here rather than left to
@@ -1989,7 +2676,7 @@ fn lower_expr(
                 };
             }
 
-            let Some(signature) = sigs.get(name) else {
+            let Some(signature) = names.sigs.get(name) else {
                 // The callee is defined in another source, which lowering cannot see: it handles
                 // one source at a time, and a decorated function may legitimately call one in a
                 // module that has not been marked yet. Rejecting here would make acceptance

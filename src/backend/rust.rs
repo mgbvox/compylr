@@ -375,6 +375,10 @@ impl Emitter<'_> {
                 Stmt::ReturnUnit => {
                     let _ = writeln!(self.out, "{pad}return Ok(());");
                 }
+                Stmt::Effect(expr) => {
+                    let value = emit_expr(expr, self.unit, &Ty::Unit)?;
+                    let _ = writeln!(self.out, "{pad}{value};");
+                }
                 Stmt::SetAttr {
                     object,
                     name,

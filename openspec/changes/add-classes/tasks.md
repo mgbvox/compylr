@@ -21,28 +21,28 @@
 
 ## 4. Class definitions
 
-- [ ] 4.1 Write tests asserting a class with `__init__` and a method lowers, and that a class without `__init__` is rejected
-- [ ] 4.2 Write tests asserting `self` is required, must not be annotated, and that method parameters and returns stay mandatory
-- [ ] 4.3 Write tests asserting inheritance, a class-level statement, a dunder other than `__init__`, and a duplicate method are each rejected naming what was found
-- [ ] 4.4 Implement class-definition lowering
+- [x] 4.1 Write tests asserting a class with `__init__` and a method lowers, and that a class without `__init__` is rejected
+- [x] 4.2 Write tests asserting `self` is required, must not be annotated, and that method parameters and returns stay mandatory
+- [x] 4.3 Write tests asserting inheritance, a class-level statement, a dunder other than `__init__`, and a duplicate method are each rejected naming what was found
+- [x] 4.4 Implement class-definition lowering
 
 ## 5. Attributes
 
-- [ ] 5.1 Write tests asserting an annotated assignment in `__init__` declares a typed attribute, including a collection attribute
-- [ ] 5.2 Write tests asserting an undeclared attribute, an unannotated declaration, and a declaration outside `__init__` are each rejected
-- [ ] 5.3 Write a test asserting the undeclared-attribute diagnostic says where to declare it, per design.md D2 — a refusal that does not say where leaves the user guessing
-- [ ] 5.4 Write a test asserting a declared attribute must be initialised
-- [ ] 5.5 Write tests for attribute read and assignment typing, promotion, an unknown attribute, and reading from another object
-- [ ] 5.6 Write a test asserting a collection **attribute** may be mutated, unlike a collection parameter
-- [ ] 5.7 Implement attribute declaration, access, and assignment
+- [x] 5.1 Write tests asserting an annotated assignment in `__init__` declares a typed attribute, including a collection attribute
+- [x] 5.2 Write tests asserting an undeclared attribute, an unannotated declaration, and a declaration outside `__init__` are each rejected
+- [x] 5.3 Write a test asserting the undeclared-attribute diagnostic says where to declare it, per design.md D2 — a refusal that does not say where leaves the user guessing
+- [x] 5.4 Write a test asserting a declared attribute must be initialised
+- [x] 5.5 Write tests for attribute read and assignment typing, promotion, an unknown attribute, and reading from another object
+- [x] 5.6 Write a test asserting a collection **attribute** may be mutated, unlike a collection parameter
+- [x] 5.7 Implement attribute declaration, access, and assignment
 
 ## 6. Methods and construction
 
-- [ ] 6.1 Write tests asserting a method call is typed from its signature, with arity and argument checks and promotion
-- [ ] 6.2 Write tests asserting an unknown method is rejected naming it and the class, and that a method may call another on the same object
-- [ ] 6.3 Write tests asserting construction is typed as the instance type and its arguments are checked against `__init__`
-- [ ] 6.4 Write a test asserting a class in another source leaves construction undetermined and resolves at the unit, matching how functions behave
-- [ ] 6.5 Implement method-call and construction lowering
+- [x] 6.1 Write tests asserting a method call is typed from its signature, with arity and argument checks and promotion
+- [x] 6.2 Write tests asserting an unknown method is rejected naming it and the class, and that a method may call another on the same object
+- [x] 6.3 Write tests asserting construction is typed as the instance type and its arguments are checked against `__init__`
+- [x] 6.4 Write a test asserting a class in another source leaves construction undetermined and resolves at the unit, matching how functions behave
+- [x] 6.5 Implement method-call and construction lowering
 
 ## 7. Backend: structs and receivers
 

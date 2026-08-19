@@ -18,7 +18,9 @@ use crate::backend::{self, BackendError, GeneratedFiles};
 use crate::error::{FrontendError, LowerError};
 use crate::frontend::parse_source;
 use crate::ir::Unit;
-use crate::lower::{Signatures, collect_signatures, lower_source, lower_source_with};
+use crate::lower::{
+    Signatures, collect_class_names, collect_signatures, lower_source, lower_source_with,
+};
 
 /// Everything a successful compilation produces.
 #[derive(Debug, Clone)]
@@ -121,7 +123,7 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
 
     let mut signatures = Signatures::new();
     for (_, parsed) in &parsed_sources {
-        signatures.extend(collect_signatures(parsed));
+        signatures.extend(collect_signatures(parsed, &collect_class_names(parsed)));
     }
 
     let mut unit = Unit::new();

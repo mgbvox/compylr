@@ -505,6 +505,12 @@ pub enum Stmt {
         /// Value assigned. Its type matches `ty`.
         value: Expr,
     },
+    /// Evaluate an expression for its effect, discarding a unit result.
+    ///
+    /// Lowering only ever puts a unit-returning **method** call here. A free function in this
+    /// subset can reach no mutable state, so calling one and discarding the result is dead code and
+    /// stays rejected; a method can mutate its receiver, which is the whole point of one.
+    Effect(Expr),
     /// Assign to an attribute of an object.
     ///
     /// Distinct from [`Self::SetItem`]: an attribute is declared once with a fixed type, so the
@@ -668,6 +674,7 @@ pub fn returns_on_all_paths(stmts: &[Stmt]) -> bool {
         | Stmt::Assign { .. }
         | Stmt::SetItem { .. }
         | Stmt::SetAttr { .. }
+        | Stmt::Effect(_)
         | Stmt::Append { .. }
         | Stmt::Break
         | Stmt::Continue => false,
@@ -710,6 +717,7 @@ fn walk_stmts(stmts: &[Stmt], visit: &mut impl FnMut(&str, usize)) {
                 index.walk_calls(visit);
                 value.walk_calls(visit);
             }
+            Stmt::Effect(expr) => expr.walk_calls(visit),
             Stmt::SetAttr { object, value, .. } => {
                 object.walk_calls(visit);
                 value.walk_calls(visit);
