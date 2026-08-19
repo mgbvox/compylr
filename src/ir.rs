@@ -275,6 +275,23 @@ pub enum Expr {
         /// Which element, already checked against the tuple's length.
         position: usize,
     },
+    /// Whether a value is present in a container.
+    ///
+    /// What "present" means is the container's own: a sequence and a set test elements, a mapping
+    /// tests **keys**, and a string tests substrings. Each matches Python, and none is what a naive
+    /// containment check over the target's native type would do for at least one of them.
+    Contains {
+        /// The value being looked for.
+        value: Box<Expr>,
+        /// What is being searched.
+        container: Box<Expr>,
+    },
+    /// Logical negation of a boolean.
+    ///
+    /// Exists so `not in` can be the negation of a membership test rather than a second spelling of
+    /// one. A flag on [`Self::Contains`] would make every consumer responsible for remembering to
+    /// honour it, and the one that forgot would silently invert an answer.
+    Not(Box<Expr>),
     Subscript {
         /// The collection being read.
         base: Box<Expr>,
@@ -369,6 +386,11 @@ impl Expr {
                 }
             }
             Self::TupleIndex { base, .. } => base.walk_calls(visit),
+            Self::Not(inner) => inner.walk_calls(visit),
+            Self::Contains { value, container } => {
+                value.walk_calls(visit);
+                container.walk_calls(visit);
+            }
             Self::Subscript { base, index } => {
                 base.walk_calls(visit);
                 index.walk_calls(visit);
@@ -420,6 +442,31 @@ pub enum Stmt {
         /// re-deriving what lowering already established.
         ty: Ty,
         /// Value assigned. Its type matches `ty`.
+        value: Expr,
+    },
+    /// Assign to one element of a collection.
+    ///
+    /// Distinct from [`Self::Assign`], which rebinds a name. Here the name keeps denoting the same
+    /// collection and one of its entries changes — and for a mapping the entry may not exist yet,
+    /// which is why this cannot be expressed as a read followed by a write.
+    SetItem {
+        /// The collection being modified.
+        collection: Expr,
+        /// Which element: an index for a sequence, a key for a mapping.
+        index: Expr,
+        /// The new value, already checked against what the collection holds.
+        value: Expr,
+    },
+    /// Append a value to a sequence.
+    ///
+    /// Its own form rather than a general method call. There is exactly one supported method, and a
+    /// general form would need a table of method signatures per type before anything consumed it,
+    /// plus a decision in every backend about what an unknown method means. An explicit form cannot
+    /// be spelled with the wrong name.
+    Append {
+        /// The sequence being extended.
+        sequence: Expr,
+        /// The value appended, already checked against the element type.
         value: Expr,
     },
     /// Conditional execution.
@@ -542,7 +589,12 @@ pub fn returns_on_all_paths(stmts: &[Stmt]) -> bool {
         // Deliberately false. `while True:` would be provable and is not worth a special case that
         // only one spelling benefits from.
         Stmt::While { .. } | Stmt::For { .. } => false,
-        Stmt::Bind { .. } | Stmt::Assign { .. } | Stmt::Break | Stmt::Continue => false,
+        Stmt::Bind { .. }
+        | Stmt::Assign { .. }
+        | Stmt::SetItem { .. }
+        | Stmt::Append { .. }
+        | Stmt::Break
+        | Stmt::Continue => false,
     })
 }
 
@@ -572,6 +624,19 @@ fn walk_stmts(stmts: &[Stmt], visit: &mut impl FnMut(&str, usize)) {
             Stmt::For { iter, body, .. } => {
                 iter.walk_calls(visit);
                 walk_stmts(body, visit);
+            }
+            Stmt::SetItem {
+                collection,
+                index,
+                value,
+            } => {
+                collection.walk_calls(visit);
+                index.walk_calls(visit);
+                value.walk_calls(visit);
+            }
+            Stmt::Append { sequence, value } => {
+                sequence.walk_calls(visit);
+                value.walk_calls(visit);
             }
             Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => {}
         }

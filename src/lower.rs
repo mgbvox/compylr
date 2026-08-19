@@ -126,6 +126,11 @@ struct Ctx<'a> {
     ret: &'a Ty,
     /// Signatures of every function in the source, for typing calls.
     sigs: &'a Signatures,
+    /// Names that arrived as parameters.
+    ///
+    /// Needed because mutation is confined to locals, and a parameter shares a scope frame with
+    /// the body's own top-level bindings — so the scope alone cannot tell them apart.
+    params: &'a HashSet<String>,
     /// Whether a loop encloses this statement. Conditionals do not reset it, so `break` inside an
     /// `if` inside a loop is fine — which is the common case.
     in_loop: bool,
@@ -314,9 +319,11 @@ pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Functi
     };
 
     let mut scope = Scope::function(&params);
+    let param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
     let ctx = Ctx {
         ret: &ret,
         sigs,
+        params: &param_names,
         in_loop: false,
     };
     let (doc, rest) = split_docstring(&def.body);
@@ -1002,6 +1009,269 @@ fn lower_range(iter: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<Option<Expr
     }))
 }
 
+/// The one supported method.
+const APPEND: &str = "append";
+
+/// The rejection for a statement that computes a value and discards it.
+///
+/// Still the default for a bare expression. `append` is carved out because its whole purpose is
+/// the side effect; anything else is either dead code or a side effect the subset cannot express.
+fn bare_expression_error(node: &impl Ranged) -> LowerError {
+    err(
+        LowerErrorKind::UnsupportedConstruct,
+        "this statement computes a value and discards it, which is either dead code or a side \
+         effect the subset cannot express",
+        node,
+    )
+}
+
+/// Reject mutating a collection that arrived as a parameter.
+///
+/// Collections cross the boundary by value, so a compiled function mutating a parameter would
+/// leave its caller's collection unchanged where the interpreted original would have modified it.
+/// Nothing raises; the caller simply gets the wrong answer. Rejecting makes that program not exist.
+///
+/// The diagnostic explains the copy rather than merely refusing, because the workaround — build a
+/// local and return it — is not guessable from a bare "not supported".
+fn reject_mutating_a_parameter(
+    target: &Expr,
+    ctx: Ctx<'_>,
+    node: &impl Ranged,
+) -> Result<(), LowerError> {
+    let Expr::Name(name) = target else {
+        return Ok(());
+    };
+    if !ctx.params.contains(name) {
+        return Ok(());
+    }
+    Err(err(
+        LowerErrorKind::UnsupportedConstruct,
+        format!(
+            "'{name}' is a parameter, and a collection parameter is a copy — this mutation \
+             could not be observed by the caller. Bind a local and return it instead"
+        ),
+        node,
+    ))
+}
+
+/// Lower `collection[index] = value`.
+fn lower_set_item(
+    stmt: &PyStmt,
+    target: &ruff_python_ast::ExprSubscript,
+    value: &PyExpr,
+    scope: &mut Scope,
+    ctx: Ctx<'_>,
+) -> Result<Stmt, LowerError> {
+    if matches!(target.slice.as_ref(), PyExpr::Slice(_)) {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            "slice assignment is not supported",
+            stmt,
+        ));
+    }
+
+    let (collection, collection_ty) = lower_expr(&target.value, scope, ctx.sigs)?;
+    reject_mutating_a_parameter(&collection, ctx, stmt)?;
+
+    let (index, index_ty) = lower_expr(&target.slice, scope, ctx.sigs)?;
+    let (value, value_ty) = lower_expr(value, scope, ctx.sigs)?;
+
+    let Some(collection_ty) = collection_ty else {
+        return Err(err(
+            LowerErrorKind::UndeterminedBinding,
+            "the type of what is being assigned into cannot be determined here",
+            stmt,
+        ));
+    };
+
+    // Only a sequence and a mapping have an assignable element. A set has no positions, and a
+    // tuple is immutable in Python.
+    let (expected_index, expected_value) = match &collection_ty {
+        Ty::List(element) => (Ty::Int, (**element).clone()),
+        Ty::Dict(key, entry) => ((**key).clone(), (**entry).clone()),
+        other => {
+            return Err(err(
+                LowerErrorKind::TypeMismatch,
+                format!(
+                    "'{}' does not support element assignment; only a list or a dict does",
+                    other.python_name()
+                ),
+                stmt,
+            ));
+        }
+    };
+
+    expect_index(&index_ty, &expected_index, &target.slice, "an index")?;
+    let value = match value_ty {
+        Some(actual) => coerce(value, &actual, &expected_value).ok_or_else(|| {
+            err(
+                LowerErrorKind::TypeMismatch,
+                format!(
+                    "this collection holds '{}', but the assigned value is '{}'",
+                    expected_value.python_name(),
+                    actual.python_name()
+                ),
+                stmt,
+            )
+        })?,
+        None => value,
+    };
+
+    Ok(Stmt::SetItem {
+        collection,
+        index,
+        value,
+    })
+}
+
+/// Lower a statement that is a bare expression.
+///
+/// Only one shape is accepted: a call to `append` on a local sequence. Every other bare expression
+/// is still rejected, because a value computed and discarded is either dead code or a side effect
+/// the subset cannot express.
+fn lower_method_statement(
+    stmt: &PyStmt,
+    value: &PyExpr,
+    scope: &mut Scope,
+    ctx: Ctx<'_>,
+) -> Result<Stmt, LowerError> {
+    let PyExpr::Call(call) = value else {
+        return Err(bare_expression_error(stmt));
+    };
+    let PyExpr::Attribute(attribute) = call.func.as_ref() else {
+        return Err(bare_expression_error(stmt));
+    };
+
+    let method = attribute.attr.as_str();
+    if method != APPEND {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!(
+                "'{method}' is not supported; 'append' is the only collection method in the subset"
+            ),
+            stmt,
+        ));
+    }
+    if !call.arguments.keywords.is_empty() {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            "'append' does not take keyword arguments",
+            stmt,
+        ));
+    }
+    if call.arguments.args.len() != 1 {
+        return Err(err(
+            LowerErrorKind::ArityMismatch,
+            format!(
+                "'append' takes exactly one argument, but {} were given",
+                call.arguments.args.len()
+            ),
+            stmt,
+        ));
+    }
+
+    let (sequence, sequence_ty) = lower_expr(&attribute.value, scope, ctx.sigs)?;
+    reject_mutating_a_parameter(&sequence, ctx, stmt)?;
+
+    let (value, value_ty) = lower_expr(&call.arguments.args[0], scope, ctx.sigs)?;
+
+    let Some(sequence_ty) = sequence_ty else {
+        return Err(err(
+            LowerErrorKind::UndeterminedBinding,
+            "the type of what is being appended to cannot be determined here",
+            stmt,
+        ));
+    };
+    let Ty::List(element) = &sequence_ty else {
+        return Err(err(
+            LowerErrorKind::TypeMismatch,
+            format!(
+                "'append' is defined on a list, but this is '{}'",
+                sequence_ty.python_name()
+            ),
+            stmt,
+        ));
+    };
+
+    let value = match value_ty {
+        Some(actual) => coerce(value, &actual, element).ok_or_else(|| {
+            err(
+                LowerErrorKind::TypeMismatch,
+                format!(
+                    "this list holds '{}', but the appended value is '{}'",
+                    element.python_name(),
+                    actual.python_name()
+                ),
+                stmt,
+            )
+        })?,
+        None => value,
+    };
+
+    Ok(Stmt::Append { sequence, value })
+}
+
+/// Lower a membership test, or its negation.
+///
+/// What membership means is the container's own: a sequence and a set test elements, a mapping
+/// tests **keys**, and a string tests substrings. All three match Python, and the last two are not
+/// what a reader expecting element membership would predict.
+fn lower_membership(
+    value: &PyExpr,
+    container: &PyExpr,
+    negated: bool,
+    scope: &Scope,
+    sigs: &Signatures,
+    node: &PyExpr,
+) -> Result<(Expr, TyResult), LowerError> {
+    let (value, value_ty) = lower_expr(value, scope, sigs)?;
+    let (container, container_ty) = lower_expr(container, scope, sigs)?;
+
+    if let Some(container_ty) = container_ty {
+        let expected = match &container_ty {
+            Ty::List(element) | Ty::Set(element) => (**element).clone(),
+            Ty::Dict(key, _) => (**key).clone(),
+            Ty::Str => Ty::Str,
+            other => {
+                return Err(err(
+                    LowerErrorKind::TypeMismatch,
+                    format!(
+                        "'{}' does not support membership; only a list, dict, set, or str does",
+                        other.python_name()
+                    ),
+                    node,
+                ));
+            }
+        };
+        if let Some(actual) = &value_ty
+            && *actual != expected
+        {
+            return Err(err(
+                LowerErrorKind::TypeMismatch,
+                format!(
+                    "membership in this container tests '{}', but the value is '{}'",
+                    expected.python_name(),
+                    actual.python_name()
+                ),
+                node,
+            ));
+        }
+    }
+
+    let test = Expr::Contains {
+        value: Box::new(value),
+        container: Box::new(container),
+    };
+    // `not in` is the negation of a membership test rather than a second form, so nothing
+    // consuming the IR has to remember to honour a flag.
+    let node = if negated {
+        Expr::Not(Box::new(test))
+    } else {
+        test
+    };
+    Ok((node, Some(Ty::Bool)))
+}
+
 fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ctx: Ctx<'_>) -> Result<Stmt, LowerError> {
     match stmt {
         PyStmt::Return(node) => match node.value.as_deref() {
@@ -1038,7 +1308,17 @@ fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ctx: Ctx<'_>) -> Result<Stmt, Lo
         // Filtered out before reaching here; a `pass` produces no statement at all.
         PyStmt::Pass(_) => unreachable!("`pass` is dropped by lower_body"),
         PyStmt::AnnAssign(assign) => lower_annotated_binding(stmt, assign, scope, ctx),
-        PyStmt::Assign(assign) => lower_bare_binding(stmt, assign, scope, ctx),
+        PyStmt::Assign(assign) => {
+            // A subscripted target is an element assignment, not a binding: the name keeps
+            // denoting the same collection and one of its entries changes.
+            if assign.targets.len() == 1
+                && let PyExpr::Subscript(target) = &assign.targets[0]
+            {
+                return lower_set_item(stmt, target, &assign.value, scope, ctx);
+            }
+            lower_bare_binding(stmt, assign, scope, ctx)
+        }
+        PyStmt::Expr(statement) => lower_method_statement(stmt, &statement.value, scope, ctx),
         PyStmt::If(node) => {
             let test = lower_test(&node.test, scope, ctx)?;
             let then = lower_block(&node.body, scope, ctx)?;
@@ -1420,6 +1700,16 @@ fn lower_expr(
                     "chained comparisons are not supported",
                     expr,
                 ));
+            }
+            if matches!(compare.ops[0], CmpOp::In | CmpOp::NotIn) {
+                return lower_membership(
+                    &compare.left,
+                    &compare.comparators[0],
+                    matches!(compare.ops[0], CmpOp::NotIn),
+                    scope,
+                    sigs,
+                    expr,
+                );
             }
             let op = match compare.ops[0] {
                 CmpOp::Eq => BinOp::Eq,

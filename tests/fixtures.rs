@@ -141,7 +141,7 @@ fn every_rejected_fixture_is_covered_by_the_table() {
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "py"))
         .count();
-    assert_eq!(count, 46, "update the rejection table when adding fixtures");
+    assert_eq!(count, 52, "update the rejection table when adding fixtures");
 }
 
 #[test]

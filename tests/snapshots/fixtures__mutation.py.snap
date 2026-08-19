@@ -1,0 +1,418 @@
+---
+source: tests/fixtures.rs
+assertion_line: 52
+expression: functions
+---
+[
+    Function {
+        name: "evens_below",
+        params: [
+            Param {
+                name: "limit",
+                ty: Int,
+            },
+        ],
+        ret: List(
+            Int,
+        ),
+        body: [
+            Bind {
+                name: "found",
+                ty: List(
+                    Int,
+                ),
+                value: ListLit(
+                    [],
+                ),
+            },
+            For {
+                name: "n",
+                ty: Int,
+                iter: Range {
+                    start: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    stop: Name(
+                        "limit",
+                    ),
+                    step: Literal(
+                        Int(
+                            1,
+                        ),
+                    ),
+                },
+                body: [
+                    If {
+                        test: Binary {
+                            op: Eq,
+                            left: Binary {
+                                op: Mod,
+                                left: Name(
+                                    "n",
+                                ),
+                                right: Literal(
+                                    Int(
+                                        2,
+                                    ),
+                                ),
+                            },
+                            right: Literal(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                        },
+                        then: [
+                            Append {
+                                sequence: Name(
+                                    "found",
+                                ),
+                                value: Name(
+                                    "n",
+                                ),
+                            },
+                        ],
+                        otherwise: [],
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "found",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 0,
+            end: 162,
+        },
+    },
+    Function {
+        name: "replace_first",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: List(
+            Int,
+        ),
+        body: [
+            Bind {
+                name: "xs",
+                ty: List(
+                    Int,
+                ),
+                value: ListLit(
+                    [
+                        Literal(
+                            Int(
+                                0,
+                            ),
+                        ),
+                        Literal(
+                            Int(
+                                0,
+                            ),
+                        ),
+                        Literal(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ],
+                ),
+            },
+            SetItem {
+                collection: Name(
+                    "xs",
+                ),
+                index: Literal(
+                    Int(
+                        0,
+                    ),
+                ),
+                value: Name(
+                    "n",
+                ),
+            },
+            Return(
+                Name(
+                    "xs",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 165,
+            end: 262,
+        },
+    },
+    Function {
+        name: "counts",
+        params: [
+            Param {
+                name: "words",
+                ty: List(
+                    Str,
+                ),
+            },
+        ],
+        ret: Dict(
+            Str,
+            Int,
+        ),
+        body: [
+            Bind {
+                name: "seen",
+                ty: Dict(
+                    Str,
+                    Int,
+                ),
+                value: DictLit(
+                    [],
+                ),
+            },
+            For {
+                name: "word",
+                ty: Str,
+                iter: Name(
+                    "words",
+                ),
+                body: [
+                    If {
+                        test: Contains {
+                            value: Name(
+                                "word",
+                            ),
+                            container: Name(
+                                "seen",
+                            ),
+                        },
+                        then: [
+                            SetItem {
+                                collection: Name(
+                                    "seen",
+                                ),
+                                index: Name(
+                                    "word",
+                                ),
+                                value: Binary {
+                                    op: Add,
+                                    left: Subscript {
+                                        base: Name(
+                                            "seen",
+                                        ),
+                                        index: Name(
+                                            "word",
+                                        ),
+                                    },
+                                    right: Literal(
+                                        Int(
+                                            1,
+                                        ),
+                                    ),
+                                },
+                            },
+                        ],
+                        otherwise: [
+                            SetItem {
+                                collection: Name(
+                                    "seen",
+                                ),
+                                index: Name(
+                                    "word",
+                                ),
+                                value: Literal(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                            },
+                        ],
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "seen",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 265,
+            end: 487,
+        },
+    },
+    Function {
+        name: "has_element",
+        params: [
+            Param {
+                name: "xs",
+                ty: List(
+                    Int,
+                ),
+            },
+            Param {
+                name: "x",
+                ty: Int,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Return(
+                Contains {
+                    value: Name(
+                        "x",
+                    ),
+                    container: Name(
+                        "xs",
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 490,
+            end: 556,
+        },
+    },
+    Function {
+        name: "has_key",
+        params: [
+            Param {
+                name: "d",
+                ty: Dict(
+                    Str,
+                    Int,
+                ),
+            },
+            Param {
+                name: "k",
+                ty: Str,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Return(
+                Contains {
+                    value: Name(
+                        "k",
+                    ),
+                    container: Name(
+                        "d",
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 559,
+            end: 624,
+        },
+    },
+    Function {
+        name: "has_member",
+        params: [
+            Param {
+                name: "s",
+                ty: Set(
+                    Int,
+                ),
+            },
+            Param {
+                name: "x",
+                ty: Int,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Return(
+                Contains {
+                    value: Name(
+                        "x",
+                    ),
+                    container: Name(
+                        "s",
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 627,
+            end: 689,
+        },
+    },
+    Function {
+        name: "has_substring",
+        params: [
+            Param {
+                name: "hay",
+                ty: Str,
+            },
+            Param {
+                name: "needle",
+                ty: Str,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Return(
+                Contains {
+                    value: Name(
+                        "needle",
+                    ),
+                    container: Name(
+                        "hay",
+                    ),
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 692,
+            end: 766,
+        },
+    },
+    Function {
+        name: "lacks_element",
+        params: [
+            Param {
+                name: "xs",
+                ty: List(
+                    Int,
+                ),
+            },
+            Param {
+                name: "x",
+                ty: Int,
+            },
+        ],
+        ret: Bool,
+        body: [
+            Return(
+                Not(
+                    Contains {
+                        value: Name(
+                            "x",
+                        ),
+                        container: Name(
+                            "xs",
+                        ),
+                    },
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 769,
+            end: 841,
+        },
+    },
+]

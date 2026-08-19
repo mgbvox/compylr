@@ -724,3 +724,202 @@ fn only_reassigned_bindings_are_marked_mutable() {
         "an untouched parameter is not mutable:\n{source}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Mutation and membership
+//
+// These assert on **values after mutation**, never on emitted text. The failure
+// mode that matters here is a mutation applied to a clone: it compiles, it runs,
+// and it silently does nothing. Emitted text would look right.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn appending_in_a_loop_accumulates() {
+    let out = run(
+        "mut_append",
+        concat!(
+            "def evens(n: int) -> list[int]:\n",
+            "    found: list[int] = []\n",
+            "    for i in range(n):\n",
+            "        if i % 2 == 0:\n",
+            "            found.append(i)\n",
+            "    return found\n\n",
+            "def counted(n: int) -> int:\n",
+            "    found: list[int] = []\n",
+            "    for i in range(n):\n",
+            "        found.append(i)\n",
+            "    return len(found)\n",
+        ),
+        r#"
+    println!("{:?}", evens(7).unwrap());
+    println!("{:?}", evens(0).unwrap());
+    println!("{}", counted(5).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    // If the append landed on a clone, this would be `[]` and nothing would report an error.
+    assert_eq!(
+        lines[0], "[0, 2, 4, 6]",
+        "each append must survive the loop"
+    );
+    assert_eq!(lines[1], "[]", "nothing to append leaves it empty");
+    assert_eq!(lines[2], "5", "mutation and reading compose");
+}
+
+#[test]
+fn an_element_assignment_is_observed_by_a_later_read() {
+    let out = run(
+        "mut_setitem",
+        concat!(
+            "def replaced(n: int) -> int:\n",
+            "    xs: list[int] = [1, 2, 3]\n",
+            "    xs[1] = n\n",
+            "    return xs[1]\n\n",
+            "def from_the_end(n: int) -> list[int]:\n",
+            "    xs: list[int] = [1, 2, 3]\n",
+            "    xs[-1] = n\n",
+            "    return xs\n\n",
+            "def out_of_range(n: int) -> int:\n",
+            "    xs: list[int] = [1]\n",
+            "    xs[n] = 0\n",
+            "    return xs[0]\n",
+        ),
+        r#"
+    println!("{}", replaced(9).unwrap());
+    println!("{:?}", from_the_end(9).unwrap());
+    println!("{}", out_of_range(5).is_err());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "9", "the write is visible to a later read");
+    assert_eq!(
+        lines[1], "[1, 2, 9]",
+        "a negative index counts from the end"
+    );
+    assert_eq!(
+        lines[2], "true",
+        "a sequence has no element to create, so out of range still fails"
+    );
+}
+
+#[test]
+fn assigning_a_mapping_key_creates_or_replaces_it() {
+    // Reading a missing key is a KeyError; assigning to one is not. Routing assignment through the
+    // checked read would make every insertion of a new key fail.
+    let out = run(
+        "mut_insert",
+        concat!(
+            "def inserted(k: str, v: int) -> int:\n",
+            "    d: dict[str, int] = {}\n",
+            "    d[k] = v\n",
+            "    return d[k]\n\n",
+            "def replaced(v: int) -> int:\n",
+            "    d: dict[str, int] = {}\n",
+            "    d[\"a\"] = 1\n",
+            "    d[\"a\"] = v\n",
+            "    return d[\"a\"]\n\n",
+            "def sized(k: str) -> int:\n",
+            "    d: dict[str, int] = {}\n",
+            "    d[k] = 1\n",
+            "    d[k] = 2\n",
+            "    return len(d)\n\n",
+            "def missing(k: str) -> int:\n",
+            "    d: dict[str, int] = {}\n",
+            "    d[\"a\"] = 1\n",
+            "    return d[k]\n",
+        ),
+        r#"
+    println!("{}", inserted(String::from("k"), 7).unwrap());
+    println!("{}", replaced(5).unwrap());
+    println!("{}", sized(String::from("k")).unwrap());
+    println!("{}", missing(String::from("absent")).is_err());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "7", "assigning a new key creates it");
+    assert_eq!(lines[1], "5", "assigning an existing key replaces it");
+    assert_eq!(lines[2], "1", "replacing does not add a second entry");
+    assert_eq!(lines[3], "true", "reading a missing key still fails");
+}
+
+#[test]
+fn membership_means_what_each_container_means_by_it() {
+    let out = run(
+        "mut_contains",
+        concat!(
+            "def in_list(xs: list[int], x: int) -> bool:\n    return x in xs\n\n",
+            "def in_set(s: set[int], x: int) -> bool:\n    return x in s\n\n",
+            // A mapping tests keys. A naive containment check over the values would answer the
+            // opposite for both of the cases below.
+            "def in_map(d: dict[str, int], k: str) -> bool:\n    return k in d\n\n",
+            // A string tests substrings, not characters -- `\"ab\" in \"cab\"` is true in Python.
+            "def in_str(hay: str, needle: str) -> bool:\n    return needle in hay\n\n",
+            "def not_in_list(xs: list[int], x: int) -> bool:\n    return x not in xs\n\n",
+            "def tested_then_measured(xs: list[int], x: int) -> int:\n",
+            "    if x in xs:\n        return len(xs)\n",
+            "    return 0 - len(xs)\n",
+        ),
+        r#"
+    println!("{}", in_list(vec![1, 2, 3], 2).unwrap());
+    println!("{}", in_list(vec![1, 2, 3], 9).unwrap());
+    println!("{}", in_set(std::collections::HashSet::from([1i64, 2]), 2).unwrap());
+    let mut d = std::collections::HashMap::new();
+    d.insert(String::from("a"), 7i64);
+    println!("{}", in_map(d.clone(), String::from("a")).unwrap());
+    println!("{}", in_map(d, String::from("7")).unwrap());
+    println!("{}", in_str(String::from("cab"), String::from("ab")).unwrap());
+    println!("{}", in_str(String::from("cab"), String::from("ba")).unwrap());
+    println!("{}", not_in_list(vec![1, 2], 9).unwrap());
+    println!("{}", not_in_list(vec![1, 2], 1).unwrap());
+    println!("{}", tested_then_measured(vec![1, 2, 3], 2).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0..2], ["true", "false"], "sequence membership");
+    assert_eq!(lines[2], "true", "set membership");
+    assert_eq!(lines[3], "true", "a mapping tests its keys");
+    assert_eq!(
+        lines[4], "false",
+        "and not its values -- 7 is a value, not a key"
+    );
+    assert_eq!(
+        lines[5], "true",
+        "a string tests substrings: 'ab' is in 'cab'"
+    );
+    assert_eq!(lines[6], "false", "and 'ba' is not");
+    assert_eq!(lines[7..9], ["true", "false"], "`not in` is the negation");
+    assert_eq!(
+        lines[9], "3",
+        "membership does not consume the container, which is still measurable"
+    );
+}
+
+#[test]
+fn only_mutated_collections_are_bound_mutably() {
+    // The one text assertion in this group, and it is about `mut` rather than about mutation
+    // working: a spurious `mut` is a warning in code that must compile clean, and a missing one
+    // fails to compile.
+    let unit = unit_from(
+        "def f() -> int:\n\
+         \x20   read_only: list[int] = [1, 2]\n\
+         \x20   appended: list[int] = []\n\
+         \x20   written: list[int] = [0]\n\
+         \x20   appended.append(1)\n\
+         \x20   written[0] = 1\n\
+         \x20   return read_only[0] + len(appended) + written[0]\n",
+    );
+    let emitted = lookup("rust").unwrap().emit(&unit).expect("must emit");
+    let source = &emitted["src/generated.rs"];
+    assert!(
+        source.contains("let read_only: Vec<i64>"),
+        "an unmutated collection is not mutable:\n{source}"
+    );
+    assert!(
+        source.contains("let mut appended: Vec<i64>"),
+        "an appended-to collection is mutable:\n{source}"
+    );
+    assert!(
+        source.contains("let mut written: Vec<i64>"),
+        "an assigned-into collection is mutable:\n{source}"
+    );
+}

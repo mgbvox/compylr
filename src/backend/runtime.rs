@@ -279,6 +279,86 @@ where
     collection.py_get(index)
 }
 
+/// Assigning to one element of a collection.
+///
+/// Deliberately **not** routed through [`PyIndexable`]. Reading a missing key is a `KeyError`;
+/// assigning to one creates it. They share a spelling in Python and are different operations, and
+/// conflating them would either make reads silently create entries or make assignments fail on any
+/// key that was not already there.
+pub trait PySetItem<I, V> {
+    /// Assign one element, creating it where the container's semantics say to.
+    fn py_set(&mut self, index: &I, value: V) -> Result<(), RuntimeError>;
+}
+
+impl<T> PySetItem<i64, T> for Vec<T> {
+    fn py_set(&mut self, index: &i64, value: T) -> Result<(), RuntimeError> {
+        // A sequence has no element to create, so an out-of-range index is an error here exactly
+        // as it is on a read. Negative indices count from the end, as they do everywhere else.
+        let length = self.len() as i64;
+        let resolved = if *index < 0 { index + length } else { *index };
+        if resolved < 0 || resolved >= length {
+            return Err(RuntimeError::IndexOutOfRange);
+        }
+        self[resolved as usize] = value;
+        Ok(())
+    }
+}
+
+impl<K, V> PySetItem<K, V> for std::collections::HashMap<K, V>
+where
+    K: std::hash::Hash + Eq + Clone,
+{
+    fn py_set(&mut self, key: &K, value: V) -> Result<(), RuntimeError> {
+        self.insert(key.clone(), value);
+        Ok(())
+    }
+}
+
+/// Membership, meaning whatever the container means by it.
+///
+/// A trait for the same reason subscripting is one: the IR does not annotate expressions with their
+/// types, so the backend emits one call and Rust selects the implementation rather than the backend
+/// re-deriving what the type checker already knew.
+///
+/// Two of these are **not** what a naive containment check would do, and both match Python: a
+/// mapping tests its **keys**, and a string tests **substrings** rather than characters.
+pub trait PyContains<T> {
+    /// Whether the value is present.
+    fn py_contains(&self, value: &T) -> bool;
+}
+
+impl<T: PartialEq> PyContains<T> for Vec<T> {
+    fn py_contains(&self, value: &T) -> bool {
+        self.contains(value)
+    }
+}
+
+impl<K, V> PyContains<K> for std::collections::HashMap<K, V>
+where
+    K: std::hash::Hash + Eq,
+{
+    fn py_contains(&self, key: &K) -> bool {
+        self.contains_key(key)
+    }
+}
+
+impl<T> PyContains<T> for std::collections::HashSet<T>
+where
+    T: std::hash::Hash + Eq,
+{
+    fn py_contains(&self, value: &T) -> bool {
+        self.contains(value)
+    }
+}
+
+impl PyContains<String> for String {
+    fn py_contains(&self, value: &String) -> bool {
+        // A substring test. `"ab" in "cab"` is true in Python, and a character-membership reading
+        // would answer false.
+        self.contains(value.as_str())
+    }
+}
+
 /// The number of elements Python would report.
 pub trait PyLen {
     /// The length.

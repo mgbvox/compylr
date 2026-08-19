@@ -209,9 +209,13 @@ fn emit_generated(functions: &str) -> String {
          \n\
          use std::collections::{{HashMap, HashSet}};\n\
          \n\
-         use crate::compat::{{PyAdd, PyIterate, PyLen, PyNum, RuntimeError, py_subscript, py_truediv}};\n\
+         use crate::compat::{{\n\
+         {}PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,\n\
+         {}py_truediv,\n\
+         }};\n\
          \n\
-         {functions}"
+         {functions}",
+        "    ", "    "
     )
 }
 
@@ -369,6 +373,40 @@ impl Emitter<'_> {
                 Stmt::ReturnUnit => {
                     let _ = writeln!(self.out, "{pad}return Ok(());");
                 }
+                Stmt::SetItem {
+                    collection,
+                    index,
+                    value,
+                } => {
+                    // The collection is emitted as a place rather than a value: this is the one
+                    // context where the usual clone would be actively wrong, since assigning into
+                    // a copy compiles and does nothing.
+                    //
+                    // The operands are bound first, in Python's own order — the value, then the
+                    // target's index. That is not cosmetic: `d[k] = d[k] + 1` reads the same
+                    // collection it writes, and evaluating inline would ask for a shared borrow
+                    // inside a mutable one.
+                    let collection = emit_expr(collection, self.unit, &Ty::Unit)?;
+                    let index = emit_owned_operand(index, self.unit)?;
+                    let value = emit_owned_operand(value, self.unit)?;
+                    let _ = writeln!(self.out, "{pad}{{");
+                    let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
+                    let _ = writeln!(self.out, "{pad}    let __compylr_index = {index};");
+                    let _ = writeln!(
+                        self.out,
+                        "{pad}    PySetItem::py_set(&mut ({collection}), &__compylr_index, __compylr_value)?;"
+                    );
+                    let _ = writeln!(self.out, "{pad}}}");
+                }
+                Stmt::Append { sequence, value } => {
+                    // Bound first for the same reason: `xs.append(xs[0])` reads what it extends.
+                    let sequence = emit_expr(sequence, self.unit, &Ty::Unit)?;
+                    let value = emit_owned_operand(value, self.unit)?;
+                    let _ = writeln!(self.out, "{pad}{{");
+                    let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
+                    let _ = writeln!(self.out, "{pad}    ({sequence}).push(__compylr_value);");
+                    let _ = writeln!(self.out, "{pad}}}");
+                }
                 Stmt::Break => {
                     let _ = writeln!(self.out, "{pad}break;");
                 }
@@ -481,10 +519,7 @@ impl Emitter<'_> {
         // A snapshot, not a borrow. Python's `for` holds the object itself, so rebinding the name
         // inside the body must not change what is iterated; an owned copy says that directly, and
         // also keeps a loop-long borrow from colliding with what the body does to the original.
-        let iterable = match iterable {
-            Expr::Name(name) => format!("{}.clone()", rust_ident(name)),
-            other => emit_expr(other, self.unit, &Ty::Unit)?,
-        };
+        let iterable = emit_owned_operand(iterable, self.unit)?;
 
         let _ = writeln!(self.out, "{pad}{{");
         let _ = writeln!(self.out, "{pad}    let __compylr_iter = {iterable};");
@@ -507,13 +542,36 @@ impl Emitter<'_> {
     }
 }
 
-/// Whether any statement assigns to `name`, including inside nested bodies.
+/// Emit an expression that is about to be bound to a temporary or moved into a container.
 ///
-/// Emission needs this before the binding is written, because the `let` comes before the
-/// assignment that makes it mutable.
+/// A bare name is cloned. Python has no notion of a value being consumed by being used, so a name
+/// that is passed somewhere must still be readable afterwards — `d[k] = 1` followed by `d[k]` reads
+/// `k` twice. Anything else already produces an owned value.
+///
+/// `expected` is unavailable at these sites (the IR does not annotate expressions with their
+/// types), so the name check stands in for it. Cloning a `Copy` type is free enough that being
+/// wrong in that direction costs nothing.
+fn emit_owned_operand(expr: &Expr, unit: &Unit) -> Result<String, BackendError> {
+    match expr {
+        Expr::Name(name) => Ok(format!("{}.clone()", rust_ident(name))),
+        other => emit_expr(other, unit, &Ty::Unit),
+    }
+}
+
+/// Whether any statement writes to `name`, including inside nested bodies.
+///
+/// Emission needs this before the binding is written, because the `let` comes before the statement
+/// that makes it mutable. Mutating a collection counts as writing: `xs.push(v)` needs `xs` to be
+/// `mut` just as `x = 1` does, and a scan that missed one would produce code that fails to compile.
+///
+/// Only a bare name is a target. `f(xs)[0] = v` is not something the subset can express, so there
+/// is no case where the collection being written is anything but a name.
 fn is_assigned(stmts: &[Stmt], name: &str) -> bool {
+    let names_it = |expr: &Expr| matches!(expr, Expr::Name(target) if target == name);
     stmts.iter().any(|stmt| match stmt {
         Stmt::Assign { name: target, .. } => target == name,
+        Stmt::SetItem { collection, .. } => names_it(collection),
+        Stmt::Append { sequence, .. } => names_it(sequence),
         Stmt::If {
             then, otherwise, ..
         } => is_assigned(then, name) || is_assigned(otherwise, name),
@@ -600,6 +658,16 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
                 ));
             }
             format!("HashMap::from([{}])", rendered.join(", "))
+        }
+        Expr::Not(inner) => {
+            let inner = emit_expr(inner, unit, &Ty::Bool)?;
+            format!("!({inner})")
+        }
+        Expr::Contains { value, container } => {
+            // Borrowed, so a container can be tested and then still read or iterated.
+            let value = emit_expr(value, unit, &Ty::Unit)?;
+            let container = emit_expr(container, unit, &Ty::Unit)?;
+            format!("PyContains::py_contains(&({container}), &({value}))")
         }
         Expr::TupleIndex { base, position } => {
             // A field access rather than a call: the result type differs per position, so no
