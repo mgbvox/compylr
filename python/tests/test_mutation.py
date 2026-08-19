@@ -37,7 +37,10 @@ def _doubled(xs: list[int]) -> list[int]:
 
 
 def _replace_first(xs: list[int], value: int) -> list[int]:
-    copied = xs
+    """Copies explicitly, which is the workaround for the alias rule and the only safe shape."""
+    copied: list[int] = []
+    for x in xs:
+        copied.append(x)
     copied[0] = value
     return copied
 
@@ -117,22 +120,22 @@ class TestBuildingCollections:
 
 class TestCollectionsCrossByValue:
     def test_the_callers_list_is_unchanged(self, project: compylr.Manager) -> None:
-        # The compiled function binds a local to its parameter and writes through the local, which
-        # lowering allows because the local is the function's own value. The caller's list is a
-        # different object entirely, so it must be untouched.
         original = [1, 2, 3]
         returned = project._functions["_replace_first"](original, 99)
-        assert returned == [99, 2, 3], "the function's own copy is modified"
+        assert returned == [99, 2, 3], "the function's own collection is modified"
         assert original == [1, 2, 3], (
             "the caller's list must be untouched: collections cross by value"
         )
 
-    def test_the_interpreted_original_does_modify_it(self) -> None:
-        # The divergence stated plainly. This is exactly why mutating a *parameter* is rejected:
-        # if it compiled, this asymmetry would be a silent wrong answer rather than a rule.
+    def test_compiled_and_interpreted_agree_about_the_caller(self) -> None:
+        # The pair that used to diverge. Every program that could tell the two apart is now
+        # rejected at the decorator, so the only shapes that compile are ones where they agree.
         original = [1, 2, 3]
         _replace_first(original, 99)
-        assert original == [99, 2, 3], "Python aliases; compylr copies"
+        assert original == [1, 2, 3], (
+            "the interpreted original must leave it alone too, or a compiled replacement would "
+            "silently change behaviour"
+        )
 
     def test_the_workaround_agrees_with_interpreted(self, project: compylr.Manager) -> None:
         xs = [1, 2, 3]
@@ -152,3 +155,19 @@ class TestMutatingAParameterIsRejected:
         message = str(caught.value)
         assert "copy" in message, f"the diagnostic must explain the copy, got: {message}"
         assert "caller" in message, f"and name the caller, got: {message}"
+
+    def test_aliasing_first_does_not_get_around_it(self) -> None:
+        # `copied = xs` is an alias in Python and a copy in compylr. Accepting this would mean a
+        # compiled function silently leaving the caller's list alone where the interpreted original
+        # modified it -- the divergence the parameter rule exists to prevent, one line further out.
+        c = compylr.initialize()
+        with pytest.raises(_core.CompilationError) as caught:
+
+            @c.compyle
+            def appends_via_alias(xs: list[int]) -> None:
+                copied = xs
+                copied.append(1)
+
+        message = str(caught.value)
+        assert "copied" in message, f"the diagnostic must name the local, got: {message}"
+        assert "xs" in message, f"and the parameter it came from, got: {message}"

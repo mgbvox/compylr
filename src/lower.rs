@@ -48,10 +48,25 @@ use crate::span::Span;
 ///
 /// Lookup walks outward and binding writes to the innermost frame, which together are what make
 /// `i = i + 1` inside a loop update the counter declared outside it rather than shadow it.
+/// What a name denotes, and where its value came from.
+#[derive(Debug, Clone)]
+struct Binding {
+    /// The type it was bound at.
+    ty: Ty,
+    /// The collection parameter this value ultimately came from, if any.
+    ///
+    /// Recorded so mutating an alias can be refused on the same terms as mutating the parameter.
+    /// In Python `copied = xs` binds a second name to one object; under compylr's value semantics
+    /// it copies. Mutating either is observable to the caller in the first reading and in neither
+    /// under the second, so a rule that stopped at the parameter would be blind to one spelling of
+    /// the same hazard.
+    origin: Option<String>,
+}
+
 #[derive(Debug)]
 struct Scope {
     /// Innermost frame last.
-    frames: Vec<HashMap<String, Ty>>,
+    frames: Vec<HashMap<String, Binding>>,
     /// Names that were bound in a block that has since ended.
     ///
     /// Kept only so that reading one afterwards can say the binding may not have happened, rather
@@ -68,7 +83,15 @@ impl Scope {
             frames: vec![
                 params
                     .iter()
-                    .map(|param| (param.name.clone(), param.ty.clone()))
+                    .map(|param| {
+                        (
+                            param.name.clone(),
+                            Binding {
+                                ty: param.ty.clone(),
+                                origin: None,
+                            },
+                        )
+                    })
                     .collect(),
             ],
             departed: HashSet::new(),
@@ -98,7 +121,32 @@ impl Scope {
 
     /// The type a visible name was bound at, searching innermost frame outward.
     fn get(&self, name: &str) -> Option<&Ty> {
+        self.binding(name).map(|binding| &binding.ty)
+    }
+
+    /// The whole binding a visible name refers to.
+    fn binding(&self, name: &str) -> Option<&Binding> {
         self.frames.iter().rev().find_map(|frame| frame.get(name))
+    }
+
+    /// The collection parameter a name's value ultimately came from, if any.
+    fn origin(&self, name: &str) -> Option<&str> {
+        self.binding(name).and_then(|b| b.origin.as_deref())
+    }
+
+    /// Update the origin of an existing binding, in whichever frame owns it.
+    ///
+    /// Reassignment changes where a name's value came from. `working = xs` then `working = []`
+    /// leaves `working` holding a fresh collection, and mutating it afterwards is safe — which
+    /// matters because building a fresh collection is exactly the workaround the alias diagnostic
+    /// recommends.
+    fn set_origin(&mut self, name: &str, origin: Option<String>) {
+        for frame in self.frames.iter_mut().rev() {
+            if let Some(binding) = frame.get_mut(name) {
+                binding.origin = origin;
+                return;
+            }
+        }
     }
 
     /// Whether a name is visible here.
@@ -107,11 +155,11 @@ impl Scope {
     }
 
     /// Introduce a name in the innermost frame.
-    fn declare(&mut self, name: String, ty: Ty) {
+    fn declare(&mut self, name: String, ty: Ty, origin: Option<String>) {
         self.frames
             .last_mut()
             .expect("the function frame is never popped")
-            .insert(name, ty);
+            .insert(name, Binding { ty, origin });
     }
 }
 
@@ -889,7 +937,8 @@ fn lower_for(
     // The loop variable belongs to the loop's own frame, so it is gone afterwards — a read of it
     // after the loop would otherwise depend on the collection having been non-empty.
     scope.push();
-    scope.declare(name.clone(), element.clone());
+    // The loop variable holds one element, cloned out of the container, so it is never an alias.
+    scope.declare(name.clone(), element.clone(), None);
     let body = lower_body(&node.body, scope, ctx.inside_loop());
     scope.pop();
 
@@ -1012,6 +1061,29 @@ fn lower_range(iter: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<Option<Expr
 /// The one supported method.
 const APPEND: &str = "append";
 
+/// Where a binding's value came from, if it is a collection that a caller still holds.
+///
+/// Only a bare name can alias: every other initializer — a literal, a call, an expression — has
+/// produced a fresh value. That is why the whole analysis is a lookup rather than a dataflow pass;
+/// the subset has no other way to make two names denote one object.
+///
+/// Only collection parameters are tracked. A scalar has no mutation to observe, so a user who
+/// writes `total = count` must never see a word about aliasing.
+fn alias_origin(initializer: &Expr, ty: &Ty, scope: &Scope, ctx: Ctx<'_>) -> Option<String> {
+    if ty.is_trivially_copyable() {
+        return None;
+    }
+    let Expr::Name(source) = initializer else {
+        return None;
+    };
+    // Either the source is the parameter, or it already carries one — which is what makes the
+    // relation transitive without a second pass.
+    if ctx.params.contains(source) {
+        return Some(source.clone());
+    }
+    scope.origin(source).map(str::to_string)
+}
+
 /// The rejection for a statement that computes a value and discards it.
 ///
 /// Still the default for a bare expression. `append` is carved out because its whole purpose is
@@ -1035,20 +1107,39 @@ fn bare_expression_error(node: &impl Ranged) -> LowerError {
 /// local and return it — is not guessable from a bare "not supported".
 fn reject_mutating_a_parameter(
     target: &Expr,
+    scope: &Scope,
     ctx: Ctx<'_>,
     node: &impl Ranged,
 ) -> Result<(), LowerError> {
     let Expr::Name(name) = target else {
         return Ok(());
     };
-    if !ctx.params.contains(name) {
-        return Ok(());
+
+    if ctx.params.contains(name) {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!(
+                "'{name}' is a parameter, and a collection parameter is a copy — this mutation \
+                 could not be observed by the caller. Build a local collection and return it \
+                 instead"
+            ),
+            node,
+        ));
     }
+
+    // An alias is the same hazard at one remove: in Python `copied = xs` leaves both names denoting
+    // one object, so the caller would have seen this. Naming the parameter is the load-bearing part
+    // of the diagnostic — pointing only at a local the user just wrote gives them no reason to look
+    // at the signature.
+    let Some(origin) = scope.origin(name) else {
+        return Ok(());
+    };
     Err(err(
         LowerErrorKind::UnsupportedConstruct,
         format!(
-            "'{name}' is a parameter, and a collection parameter is a copy — this mutation \
-             could not be observed by the caller. Bind a local and return it instead"
+            "'{name}' holds the parameter '{origin}', and a collection parameter is a copy — this \
+             mutation could not be observed by the caller. Build a fresh collection and fill it \
+             from '{origin}' instead"
         ),
         node,
     ))
@@ -1071,7 +1162,7 @@ fn lower_set_item(
     }
 
     let (collection, collection_ty) = lower_expr(&target.value, scope, ctx.sigs)?;
-    reject_mutating_a_parameter(&collection, ctx, stmt)?;
+    reject_mutating_a_parameter(&collection, scope, ctx, stmt)?;
 
     let (index, index_ty) = lower_expr(&target.slice, scope, ctx.sigs)?;
     let (value, value_ty) = lower_expr(value, scope, ctx.sigs)?;
@@ -1171,7 +1262,7 @@ fn lower_method_statement(
     }
 
     let (sequence, sequence_ty) = lower_expr(&attribute.value, scope, ctx.sigs)?;
-    reject_mutating_a_parameter(&sequence, ctx, stmt)?;
+    reject_mutating_a_parameter(&sequence, scope, ctx, stmt)?;
 
     let (value, value_ty) = lower_expr(&call.arguments.args[0], scope, ctx.sigs)?;
 
@@ -1439,7 +1530,8 @@ fn lower_annotated_binding(
         None => lowered,
     };
 
-    scope.declare(name.clone(), declared.clone());
+    let origin = alias_origin(&value, &declared, scope, ctx);
+    scope.declare(name.clone(), declared.clone(), origin);
     Ok(Stmt::Bind {
         name,
         ty: declared,
@@ -1481,6 +1573,9 @@ fn lower_bare_binding(
             })?,
             None => value,
         };
+        // Reassignment changes where the name's value came from, so the origin moves with it.
+        let origin = alias_origin(&value, &existing, scope, ctx);
+        scope.set_origin(&name, origin);
         return Ok(Stmt::Assign {
             name,
             ty: existing,
@@ -1503,7 +1598,8 @@ fn lower_bare_binding(
         ));
     };
 
-    scope.declare(name.clone(), ty.clone());
+    let origin = alias_origin(&value, &ty, scope, ctx);
+    scope.declare(name.clone(), ty.clone(), origin);
     Ok(Stmt::Bind { name, ty, value })
 }
 

@@ -215,14 +215,17 @@ fn reading_a_parameter_is_unaffected() {
 }
 
 #[test]
-fn a_local_bound_from_a_parameter_may_be_mutated() {
-    // The local is the function's own value -- collections cross by value, so the copy the local
-    // holds is exactly what the caller could never have observed anyway.
-    accepts(
-        "def f(xs: list[int]) -> list[int]:\n\
-         \x20   copied = xs\n\
-         \x20   copied.append(1)\n\
-         \x20   return copied\n",
+fn a_local_bound_from_a_parameter_may_not_be_mutated() {
+    // Aliasing is the parameter hazard at one remove: in Python `copied = xs` leaves both names
+    // denoting one object, so the caller would have seen this. See tests/alias_mutation.rs.
+    assert_eq!(
+        reject(
+            "def f(xs: list[int]) -> list[int]:\n\
+             \x20   copied = xs\n\
+             \x20   copied.append(1)\n\
+             \x20   return copied\n"
+        ),
+        LowerErrorKind::UnsupportedConstruct
     );
 }
 

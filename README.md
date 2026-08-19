@@ -179,8 +179,20 @@ def f(xs: list[int]) -> None:
 
 Collections cross the boundary by value. If that compiled, the caller's list would be silently
 unchanged where the interpreted original would have modified it — a wrong answer with no error.
-Rejecting it makes the program not exist rather than making the divergence documented. Build a local
-and return it instead.
+Rejecting it makes the program not exist rather than making the divergence documented.
+
+**Aliasing does not get around it.** `copied = xs` binds a second name to the same object in Python
+and copies in compylr, so mutating `copied` is the same hazard one line further out and is rejected
+the same way, transitively. Build a *fresh* collection and fill it:
+
+```python
+@c.compyle
+def doubled(xs: list[int]) -> list[int]:
+    out: list[int] = []
+    for x in xs:
+        out.append(x * 2)     # the workaround, and the shape you wanted anyway
+    return out
+```
 
 `append` is the only supported method; any other is rejected with a diagnostic naming it. `in` and
 `not in` work over a list, dict, set, and str — a **dict tests its keys** and a **str tests

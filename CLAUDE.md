@@ -99,13 +99,6 @@ Known gaps worth knowing before you trip on them:
   what reversing it costs. Iteration is where a user meets this: `for k in d` yields keys, in
   whatever order the map gives, so **never assert on mapping or set iteration order** — the suite
   would become flaky rather than the compiler being wrong.
-* **Aliasing a parameter defeats the mutation rule.** `copied = xs; copied.append(1)` is accepted
-  — the spec sanctions it, on the reasoning that the local is the function's own value. That
-  reasoning holds under compylr's value semantics and *not* under Python's: in Python `copied = xs`
-  is an alias, so the interpreted function modifies the caller's list and the compiled one does
-  not. `python/tests/test_mutation.py` documents the divergence rather than hiding it. Closing it
-  means tainting locals bound from a parameter, transitively; see the note in
-  `add-collection-mutation`.
 * **Mutating a collection while iterating it is not rejected.** Rust's borrow checker will refuse
   it, so the failure is a rustc error rather than a located diagnostic. The honest fix is a
   lowering rule, and it belongs with whatever change first makes it reachable.
