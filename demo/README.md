@@ -139,6 +139,25 @@ list on every pass, which is quadratic. Every correctness test passed; the bench
 found it. Fixed — the iterative variant went from 240 µs to 17 µs, and from 2.6× to 37× — and the
 emitted loop now borrows unless the body could disturb what it walks.
 
+## The emitted Rust is committed
+
+[`.compylr/crate/src/`](.compylr/crate/src) and [`.compylr/ir/unit.json`](.compylr/ir/unit.json)
+are checked in, so you can read what compylr actually produces without installing a toolchain:
+
+| file | what it is |
+| --- | --- |
+| `ir/unit.json` | the IR: every function and class, target-language neutral |
+| `crate/src/generated.rs` | your code, translated — the file worth reading |
+| `crate/src/compat.rs` | Python's semantics in Rust; identical in every project |
+| `crate/src/bindings.rs` | the PyO3 boundary, including `#[pyclass]` for `PrimeCache` |
+
+`target/` and `dist/` are not committed — they are 64 MB and rebuilt on demand. Neither is
+`state.json`, which records one machine's last build.
+
+Two caveats, since committed generated output invites both mistakes. It is a **snapshot**: rebuild
+and it changes, so treat a diff there as output, not as something to edit. And `crate/.cargo/config.toml`
+carries the linker flags for the platform it was generated on — macOS here.
+
 ## Checks
 
 ```bash

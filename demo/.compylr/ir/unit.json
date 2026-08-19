@@ -1,0 +1,1161 @@
+{
+  "version": 1,
+  "fingerprint": "cfd1e60aa377d578",
+  "functions": [
+    {
+      "name": "iterative_not_divisible",
+      "params": [
+        {
+          "name": "divisible",
+          "ty": "Bool"
+        }
+      ],
+      "ret": "Bool",
+      "body": [
+        {
+          "If": {
+            "test": {
+              "Name": "divisible"
+            },
+            "then": [
+              {
+                "Return": {
+                  "Literal": {
+                    "Bool": false
+                  }
+                }
+              }
+            ],
+            "otherwise": []
+          }
+        },
+        {
+          "Return": {
+            "Literal": {
+              "Bool": true
+            }
+          }
+        }
+      ],
+      "doc": "Negation, written out because the subset has no `not` operator.\n\n    `return not divisible` is what anyone would write, and is rejected. Recorded in the README as a\n    gap this demo found rather than worked around silently.\n    "
+    },
+    {
+      "name": "iterative_nth_prime",
+      "params": [
+        {
+          "name": "n",
+          "ty": "Int"
+        }
+      ],
+      "ret": "Int",
+      "body": [
+        {
+          "If": {
+            "test": {
+              "Binary": {
+                "op": "Lt",
+                "left": {
+                  "Name": "n"
+                },
+                "right": {
+                  "Literal": {
+                    "Int": 1
+                  }
+                }
+              }
+            },
+            "then": [
+              {
+                "Return": {
+                  "Literal": {
+                    "Int": 0
+                  }
+                }
+              }
+            ],
+            "otherwise": []
+          }
+        },
+        {
+          "Bind": {
+            "name": "found",
+            "ty": {
+              "List": "Int"
+            },
+            "value": {
+              "Call": {
+                "callee": "iterative_primes_up_to_count",
+                "args": [
+                  {
+                    "Name": "n"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "Return": {
+            "Subscript": {
+              "base": {
+                "Name": "found"
+              },
+              "index": {
+                "Binary": {
+                  "op": "Sub",
+                  "left": {
+                    "Name": "n"
+                  },
+                  "right": {
+                    "Literal": {
+                      "Int": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "doc": "The `n`th prime, one-indexed. Returns 0 for `n` below one."
+    },
+    {
+      "name": "iterative_primes_up_to_count",
+      "params": [
+        {
+          "name": "n",
+          "ty": "Int"
+        }
+      ],
+      "ret": {
+        "List": "Int"
+      },
+      "body": [
+        {
+          "Bind": {
+            "name": "found",
+            "ty": {
+              "List": "Int"
+            },
+            "value": {
+              "ListLit": []
+            }
+          }
+        },
+        {
+          "Bind": {
+            "name": "candidate",
+            "ty": "Int",
+            "value": {
+              "Literal": {
+                "Int": 2
+              }
+            }
+          }
+        },
+        {
+          "While": {
+            "test": {
+              "Binary": {
+                "op": "Lt",
+                "left": {
+                  "Len": {
+                    "Name": "found"
+                  }
+                },
+                "right": {
+                  "Name": "n"
+                }
+              }
+            },
+            "body": [
+              {
+                "Bind": {
+                  "name": "divisible",
+                  "ty": "Bool",
+                  "value": {
+                    "Literal": {
+                      "Bool": false
+                    }
+                  }
+                }
+              },
+              {
+                "For": {
+                  "name": "p",
+                  "ty": "Int",
+                  "iter": {
+                    "Name": "found"
+                  },
+                  "body": [
+                    {
+                      "If": {
+                        "test": {
+                          "Binary": {
+                            "op": "Gt",
+                            "left": {
+                              "Binary": {
+                                "op": "Mul",
+                                "left": {
+                                  "Name": "p"
+                                },
+                                "right": {
+                                  "Name": "p"
+                                }
+                              }
+                            },
+                            "right": {
+                              "Name": "candidate"
+                            }
+                          }
+                        },
+                        "then": [
+                          "Break"
+                        ],
+                        "otherwise": []
+                      }
+                    },
+                    {
+                      "If": {
+                        "test": {
+                          "Binary": {
+                            "op": "Eq",
+                            "left": {
+                              "Binary": {
+                                "op": "Mod",
+                                "left": {
+                                  "Name": "candidate"
+                                },
+                                "right": {
+                                  "Name": "p"
+                                }
+                              }
+                            },
+                            "right": {
+                              "Literal": {
+                                "Int": 0
+                              }
+                            }
+                          }
+                        },
+                        "then": [
+                          {
+                            "Assign": {
+                              "name": "divisible",
+                              "ty": "Bool",
+                              "value": {
+                                "Literal": {
+                                  "Bool": true
+                                }
+                              }
+                            }
+                          },
+                          "Break"
+                        ],
+                        "otherwise": []
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "If": {
+                  "test": {
+                    "Call": {
+                      "callee": "iterative_not_divisible",
+                      "args": [
+                        {
+                          "Name": "divisible"
+                        }
+                      ]
+                    }
+                  },
+                  "then": [
+                    {
+                      "Append": {
+                        "sequence": {
+                          "Name": "found"
+                        },
+                        "value": {
+                          "Name": "candidate"
+                        }
+                      }
+                    }
+                  ],
+                  "otherwise": []
+                }
+              },
+              {
+                "Assign": {
+                  "name": "candidate",
+                  "ty": "Int",
+                  "value": {
+                    "Binary": {
+                      "op": "Add",
+                      "left": {
+                        "Name": "candidate"
+                      },
+                      "right": {
+                        "Literal": {
+                          "Int": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "Return": {
+            "Name": "found"
+          }
+        }
+      ],
+      "doc": "The first `n` primes, in order."
+    },
+    {
+      "name": "recursive_is_prime",
+      "params": [
+        {
+          "name": "n",
+          "ty": "Int"
+        }
+      ],
+      "ret": "Bool",
+      "body": [
+        {
+          "If": {
+            "test": {
+              "Binary": {
+                "op": "Lt",
+                "left": {
+                  "Name": "n"
+                },
+                "right": {
+                  "Literal": {
+                    "Int": 2
+                  }
+                }
+              }
+            },
+            "then": [
+              {
+                "Return": {
+                  "Literal": {
+                    "Bool": false
+                  }
+                }
+              }
+            ],
+            "otherwise": []
+          }
+        },
+        {
+          "Bind": {
+            "name": "d",
+            "ty": "Int",
+            "value": {
+              "Literal": {
+                "Int": 2
+              }
+            }
+          }
+        },
+        {
+          "While": {
+            "test": {
+              "Binary": {
+                "op": "LtE",
+                "left": {
+                  "Binary": {
+                    "op": "Mul",
+                    "left": {
+                      "Name": "d"
+                    },
+                    "right": {
+                      "Name": "d"
+                    }
+                  }
+                },
+                "right": {
+                  "Name": "n"
+                }
+              }
+            },
+            "body": [
+              {
+                "If": {
+                  "test": {
+                    "Binary": {
+                      "op": "Eq",
+                      "left": {
+                        "Binary": {
+                          "op": "Mod",
+                          "left": {
+                            "Name": "n"
+                          },
+                          "right": {
+                            "Name": "d"
+                          }
+                        }
+                      },
+                      "right": {
+                        "Literal": {
+                          "Int": 0
+                        }
+                      }
+                    }
+                  },
+                  "then": [
+                    {
+                      "Return": {
+                        "Literal": {
+                          "Bool": false
+                        }
+                      }
+                    }
+                  ],
+                  "otherwise": []
+                }
+              },
+              {
+                "Assign": {
+                  "name": "d",
+                  "ty": "Int",
+                  "value": {
+                    "Binary": {
+                      "op": "Add",
+                      "left": {
+                        "Name": "d"
+                      },
+                      "right": {
+                        "Literal": {
+                          "Int": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "Return": {
+            "Literal": {
+              "Bool": true
+            }
+          }
+        }
+      ],
+      "doc": "Whether `n` is prime, by trial division."
+    },
+    {
+      "name": "recursive_next_prime",
+      "params": [
+        {
+          "name": "after",
+          "ty": "Int"
+        }
+      ],
+      "ret": "Int",
+      "body": [
+        {
+          "Bind": {
+            "name": "candidate",
+            "ty": "Int",
+            "value": {
+              "Binary": {
+                "op": "Add",
+                "left": {
+                  "Name": "after"
+                },
+                "right": {
+                  "Literal": {
+                    "Int": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "Bind": {
+            "name": "found",
+            "ty": "Int",
+            "value": {
+              "Literal": {
+                "Int": 0
+              }
+            }
+          }
+        },
+        {
+          "While": {
+            "test": {
+              "Binary": {
+                "op": "Eq",
+                "left": {
+                  "Name": "found"
+                },
+                "right": {
+                  "Literal": {
+                    "Int": 0
+                  }
+                }
+              }
+            },
+            "body": [
+              {
+                "If": {
+                  "test": {
+                    "Call": {
+                      "callee": "recursive_is_prime",
+                      "args": [
+                        {
+                          "Name": "candidate"
+                        }
+                      ]
+                    }
+                  },
+                  "then": [
+                    {
+                      "Assign": {
+                        "name": "found",
+                        "ty": "Int",
+                        "value": {
+                          "Name": "candidate"
+                        }
+                      }
+                    }
+                  ],
+                  "otherwise": []
+                }
+              },
+              {
+                "Assign": {
+                  "name": "candidate",
+                  "ty": "Int",
+                  "value": {
+                    "Binary": {
+                      "op": "Add",
+                      "left": {
+                        "Name": "candidate"
+                      },
+                      "right": {
+                        "Literal": {
+                          "Int": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "Return": {
+            "Name": "found"
+          }
+        }
+      ],
+      "doc": "The smallest prime strictly greater than `after`."
+    },
+    {
+      "name": "recursive_nth_prime",
+      "params": [
+        {
+          "name": "n",
+          "ty": "Int"
+        }
+      ],
+      "ret": "Int",
+      "body": [
+        {
+          "If": {
+            "test": {
+              "Binary": {
+                "op": "Lt",
+                "left": {
+                  "Name": "n"
+                },
+                "right": {
+                  "Literal": {
+                    "Int": 1
+                  }
+                }
+              }
+            },
+            "then": [
+              {
+                "Return": {
+                  "Literal": {
+                    "Int": 0
+                  }
+                }
+              }
+            ],
+            "otherwise": []
+          }
+        },
+        {
+          "Return": {
+            "Call": {
+              "callee": "recursive_nth_prime_from",
+              "args": [
+                {
+                  "Name": "n"
+                },
+                {
+                  "Literal": {
+                    "Int": 1
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "doc": "The `n`th prime, one-indexed. Returns 0 for `n` below one."
+    },
+    {
+      "name": "recursive_nth_prime_from",
+      "params": [
+        {
+          "name": "remaining",
+          "ty": "Int"
+        },
+        {
+          "name": "current",
+          "ty": "Int"
+        }
+      ],
+      "ret": "Int",
+      "body": [
+        {
+          "If": {
+            "test": {
+              "Binary": {
+                "op": "Lt",
+                "left": {
+                  "Name": "remaining"
+                },
+                "right": {
+                  "Literal": {
+                    "Int": 1
+                  }
+                }
+              }
+            },
+            "then": [
+              {
+                "Return": {
+                  "Name": "current"
+                }
+              }
+            ],
+            "otherwise": []
+          }
+        },
+        {
+          "Return": {
+            "Call": {
+              "callee": "recursive_nth_prime_from",
+              "args": [
+                {
+                  "Binary": {
+                    "op": "Sub",
+                    "left": {
+                      "Name": "remaining"
+                    },
+                    "right": {
+                      "Literal": {
+                        "Int": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "Call": {
+                    "callee": "recursive_next_prime",
+                    "args": [
+                      {
+                        "Name": "current"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "doc": "The `remaining`th prime after `current`, recursing once per prime rather than per integer."
+    }
+  ],
+  "classes": [
+    {
+      "name": "PrimeCache",
+      "attributes": [
+        {
+          "name": "known",
+          "ty": {
+            "Dict": [
+              "Int",
+              "Int"
+            ]
+          }
+        },
+        {
+          "name": "hits",
+          "ty": "Int"
+        }
+      ],
+      "init": {
+        "name": "__init__",
+        "params": [],
+        "ret": "Unit",
+        "body": [
+          {
+            "SetAttr": {
+              "object": {
+                "Name": "self"
+              },
+              "name": "known",
+              "ty": {
+                "Dict": [
+                  "Int",
+                  "Int"
+                ]
+              },
+              "value": {
+                "DictLit": []
+              }
+            }
+          },
+          {
+            "SetAttr": {
+              "object": {
+                "Name": "self"
+              },
+              "name": "hits",
+              "ty": "Int",
+              "value": {
+                "Literal": {
+                  "Int": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      "methods": {
+        "hit_count": {
+          "name": "hit_count",
+          "params": [],
+          "ret": "Int",
+          "body": [
+            {
+              "Return": {
+                "Attribute": {
+                  "object": {
+                    "Name": "self"
+                  },
+                  "name": "hits"
+                }
+              }
+            }
+          ],
+          "doc": "How many requests were answered from the cache."
+        },
+        "is_prime": {
+          "name": "is_prime",
+          "params": [
+            {
+              "name": "n",
+              "ty": "Int"
+            }
+          ],
+          "ret": "Bool",
+          "body": [
+            {
+              "If": {
+                "test": {
+                  "Binary": {
+                    "op": "Lt",
+                    "left": {
+                      "Name": "n"
+                    },
+                    "right": {
+                      "Literal": {
+                        "Int": 2
+                      }
+                    }
+                  }
+                },
+                "then": [
+                  {
+                    "Return": {
+                      "Literal": {
+                        "Bool": false
+                      }
+                    }
+                  }
+                ],
+                "otherwise": []
+              }
+            },
+            {
+              "Bind": {
+                "name": "d",
+                "ty": "Int",
+                "value": {
+                  "Literal": {
+                    "Int": 2
+                  }
+                }
+              }
+            },
+            {
+              "While": {
+                "test": {
+                  "Binary": {
+                    "op": "LtE",
+                    "left": {
+                      "Binary": {
+                        "op": "Mul",
+                        "left": {
+                          "Name": "d"
+                        },
+                        "right": {
+                          "Name": "d"
+                        }
+                      }
+                    },
+                    "right": {
+                      "Name": "n"
+                    }
+                  }
+                },
+                "body": [
+                  {
+                    "If": {
+                      "test": {
+                        "Binary": {
+                          "op": "Eq",
+                          "left": {
+                            "Binary": {
+                              "op": "Mod",
+                              "left": {
+                                "Name": "n"
+                              },
+                              "right": {
+                                "Name": "d"
+                              }
+                            }
+                          },
+                          "right": {
+                            "Literal": {
+                              "Int": 0
+                            }
+                          }
+                        }
+                      },
+                      "then": [
+                        {
+                          "Return": {
+                            "Literal": {
+                              "Bool": false
+                            }
+                          }
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  },
+                  {
+                    "Assign": {
+                      "name": "d",
+                      "ty": "Int",
+                      "value": {
+                        "Binary": {
+                          "op": "Add",
+                          "left": {
+                            "Name": "d"
+                          },
+                          "right": {
+                            "Literal": {
+                              "Int": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Return": {
+                "Literal": {
+                  "Bool": true
+                }
+              }
+            }
+          ]
+        },
+        "known_count": {
+          "name": "known_count",
+          "params": [],
+          "ret": "Int",
+          "body": [
+            {
+              "Return": {
+                "Len": {
+                  "Attribute": {
+                    "object": {
+                      "Name": "self"
+                    },
+                    "name": "known"
+                  }
+                }
+              }
+            }
+          ],
+          "doc": "How many answers are cached."
+        },
+        "nth": {
+          "name": "nth",
+          "params": [
+            {
+              "name": "n",
+              "ty": "Int"
+            }
+          ],
+          "ret": "Int",
+          "body": [
+            {
+              "If": {
+                "test": {
+                  "Binary": {
+                    "op": "Lt",
+                    "left": {
+                      "Name": "n"
+                    },
+                    "right": {
+                      "Literal": {
+                        "Int": 1
+                      }
+                    }
+                  }
+                },
+                "then": [
+                  {
+                    "Return": {
+                      "Literal": {
+                        "Int": 0
+                      }
+                    }
+                  }
+                ],
+                "otherwise": []
+              }
+            },
+            {
+              "If": {
+                "test": {
+                  "Contains": {
+                    "value": {
+                      "Name": "n"
+                    },
+                    "container": {
+                      "Attribute": {
+                        "object": {
+                          "Name": "self"
+                        },
+                        "name": "known"
+                      }
+                    }
+                  }
+                },
+                "then": [
+                  {
+                    "SetAttr": {
+                      "object": {
+                        "Name": "self"
+                      },
+                      "name": "hits",
+                      "ty": "Int",
+                      "value": {
+                        "Binary": {
+                          "op": "Add",
+                          "left": {
+                            "Attribute": {
+                              "object": {
+                                "Name": "self"
+                              },
+                              "name": "hits"
+                            }
+                          },
+                          "right": {
+                            "Literal": {
+                              "Int": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "Return": {
+                      "Subscript": {
+                        "base": {
+                          "Attribute": {
+                            "object": {
+                              "Name": "self"
+                            },
+                            "name": "known"
+                          }
+                        },
+                        "index": {
+                          "Name": "n"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "otherwise": []
+              }
+            },
+            {
+              "Bind": {
+                "name": "found",
+                "ty": "Int",
+                "value": {
+                  "Literal": {
+                    "Int": 0
+                  }
+                }
+              }
+            },
+            {
+              "Bind": {
+                "name": "candidate",
+                "ty": "Int",
+                "value": {
+                  "Literal": {
+                    "Int": 1
+                  }
+                }
+              }
+            },
+            {
+              "While": {
+                "test": {
+                  "Binary": {
+                    "op": "Lt",
+                    "left": {
+                      "Name": "found"
+                    },
+                    "right": {
+                      "Name": "n"
+                    }
+                  }
+                },
+                "body": [
+                  {
+                    "Assign": {
+                      "name": "candidate",
+                      "ty": "Int",
+                      "value": {
+                        "Binary": {
+                          "op": "Add",
+                          "left": {
+                            "Name": "candidate"
+                          },
+                          "right": {
+                            "Literal": {
+                              "Int": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "If": {
+                      "test": {
+                        "MethodCall": {
+                          "receiver": {
+                            "Name": "self"
+                          },
+                          "class": "PrimeCache",
+                          "method": "is_prime",
+                          "args": [
+                            {
+                              "Name": "candidate"
+                            }
+                          ]
+                        }
+                      },
+                      "then": [
+                        {
+                          "Assign": {
+                            "name": "found",
+                            "ty": "Int",
+                            "value": {
+                              "Binary": {
+                                "op": "Add",
+                                "left": {
+                                  "Name": "found"
+                                },
+                                "right": {
+                                  "Literal": {
+                                    "Int": 1
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "SetItem": {
+                "collection": {
+                  "Attribute": {
+                    "object": {
+                      "Name": "self"
+                    },
+                    "name": "known"
+                  }
+                },
+                "index": {
+                  "Name": "n"
+                },
+                "value": {
+                  "Name": "candidate"
+                }
+              }
+            },
+            {
+              "Return": {
+                "Name": "candidate"
+              }
+            }
+          ],
+          "doc": "The `n`th prime, one-indexed. Returns 0 for `n` below one."
+        }
+      },
+      "doc": "An nth-prime that remembers what it has already computed."
+    }
+  ]
+}

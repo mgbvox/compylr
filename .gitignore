@@ -5,6 +5,22 @@
 # Generated compilation artifacts: the IR, the emitted target source, the shared
 # generated crate, and the build state. Regenerated from source on demand.
 .compylr/
+
+# ...except the demo's IR and crate, which are committed so the emitted Rust can be read
+# on GitHub without installing a toolchain.
+#
+# The shape below is not stylistic. Git never descends into an excluded *directory*, so a
+# `!` rule beneath one can never match -- `.compylr/` above would swallow the whole tree no
+# matter what followed. So the directory is re-included first, then its contents are
+# excluded, then the two wanted subtrees are re-included one level at a time. Every
+# intermediate directory has to be walkable for the rule under it to be reachable.
+!demo/.compylr/
+demo/.compylr/*
+!demo/.compylr/crate/
+!demo/.compylr/ir/
+
+# The build output under the committed crate, which is ~64M and rebuilt on demand.
+demo/.compylr/crate/target/
 *.so
 *.pyd
 /dist
@@ -30,7 +46,6 @@ __pycache__/
 # Machine-local Claude Code settings (skills and commands ARE committed)
 .claude/settings.local.json
 
-# The demo builds into its own artifact directory.
-demo/.compylr/
+# The demo's own environment. Its .compylr is handled above.
 demo/.venv/
 demo/uv.lock
