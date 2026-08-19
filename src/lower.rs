@@ -694,6 +694,25 @@ pub fn lower_function_in(
         ));
     }
 
+    // `self` is the receiver and nothing else. A free function taking a parameter of that name
+    // would be legal Python, and would make the emitted code ambiguous about what `self` denotes.
+    if enclosing.is_none()
+        && def
+            .parameters
+            .args
+            .iter()
+            .any(|arg| arg.parameter.name.as_str() == SELF)
+    {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            format!(
+                "'{}' takes a parameter named 'self', which is reserved for a method's receiver",
+                def.name
+            ),
+            def,
+        ));
+    }
+
     if def.name.as_str() == RANGE {
         return Err(err(
             LowerErrorKind::UnsupportedConstruct,

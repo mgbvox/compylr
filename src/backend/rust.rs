@@ -23,7 +23,9 @@
 use std::fmt::Write as _;
 
 use super::{Backend, BackendError, GeneratedFiles};
-use crate::ir::{BinOp, Expr, Function, Literal, Stmt, Ty, Unit, returns_on_all_paths};
+use std::collections::BTreeSet;
+
+use crate::ir::{BinOp, Class, Expr, Function, Literal, Stmt, Ty, Unit, returns_on_all_paths};
 
 /// The runtime helpers, embedded verbatim into generated crates.
 ///
@@ -165,6 +167,12 @@ impl Backend for RustBackend {
 
     fn emit(&self, unit: &Unit) -> Result<GeneratedFiles, BackendError> {
         let mut functions = String::new();
+        // Classes first: a reader opening this file wants the shapes before the operations, and a
+        // free function may well take one as a parameter.
+        for class in unit.classes() {
+            functions.push_str(&emit_class(class, unit)?);
+            functions.push('\n');
+        }
         for function in unit.functions() {
             functions.push_str(&emit_function(function, unit)?);
             functions.push('\n');
@@ -285,6 +293,288 @@ fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendErro
     Ok(out)
 }
 
+/// Emit a class: a struct of its attributes and one implementation block of its methods.
+fn emit_class(class: &Class, unit: &Unit) -> Result<String, BackendError> {
+    let mut out = String::new();
+    if let Some(doc) = &class.doc {
+        out.push_str(&doc_comment(doc));
+    }
+    let name = rust_ident(&class.name);
+    let _ = writeln!(out, "pub struct {name} {{");
+    for attribute in &class.attributes {
+        let _ = writeln!(
+            out,
+            "    pub {}: {},",
+            rust_ident(&attribute.name),
+            rust_ty(&attribute.ty)
+        );
+    }
+    out.push_str("}\n\n");
+
+    let mutating = mutating_methods(class);
+
+    let _ = writeln!(out, "impl {name} {{");
+    // The constructor is named rather than spelled `new`, so a class with a method called `new`
+    // cannot collide with it.
+    out.push_str(&emit_constructor(class, unit)?);
+    for method in class.methods.values() {
+        out.push('\n');
+        out.push_str(&emit_method(
+            method,
+            class,
+            unit,
+            mutating.contains(&method.name),
+        )?);
+    }
+    out.push_str("}\n");
+    Ok(out)
+}
+
+/// Emit `__init__` as an associated constructor.
+fn emit_constructor(class: &Class, unit: &Unit) -> Result<String, BackendError> {
+    let mut out = String::new();
+    if let Some(doc) = &class.init.doc {
+        out.push_str(&indent(&doc_comment(doc)));
+    }
+    let params = class
+        .init
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(&p.ty)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(
+        out,
+        "    pub fn __compylr_new({params}) -> Result<Self, RuntimeError> {{"
+    );
+
+    // The constructor body is a sequence of attribute assignments against a `self` that does not
+    // exist yet, so each is evaluated into a local of the attribute's name and the struct is built
+    // from them at the end. That also means an attribute's initialiser may read one declared
+    // before it, which is what a reader of the Python would expect.
+    let mut emitter = Emitter {
+        function: &class.init,
+        unit,
+        out: String::new(),
+    };
+    for stmt in &class.init.body {
+        match stmt {
+            Stmt::SetAttr {
+                name, ty, value, ..
+            } => {
+                let value = emit_expr(value, unit, ty)?;
+                let _ = writeln!(
+                    emitter.out,
+                    "        let {}: {} = {value};",
+                    rust_ident(name),
+                    rust_ty(ty)
+                );
+            }
+            other => emitter.stmts(std::slice::from_ref(other), 2)?,
+        }
+    }
+    out.push_str(&emitter.out);
+
+    let fields = class
+        .attributes
+        .iter()
+        .map(|a| rust_ident(&a.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(out, "        Ok(Self {{ {fields} }})");
+    out.push_str("    }\n");
+    Ok(out)
+}
+
+/// Emit one method, with the receiver its body requires.
+fn emit_method(
+    method: &Function,
+    class: &Class,
+    unit: &Unit,
+    mutates: bool,
+) -> Result<String, BackendError> {
+    let mut out = String::new();
+    if let Some(doc) = &method.doc {
+        out.push_str(&indent(&doc_comment(doc)));
+    }
+    let receiver = if mutates { "&mut self" } else { "&self" };
+    let params = method
+        .params
+        .iter()
+        .map(|p| {
+            let mutable = if is_assigned(&method.body, &p.name) {
+                "mut "
+            } else {
+                ""
+            };
+            format!("{mutable}{}: {}", rust_ident(&p.name), rust_ty(&p.ty))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let separator = if params.is_empty() { "" } else { ", " };
+    let _ = writeln!(
+        out,
+        "    pub fn {}({receiver}{separator}{params}) -> Result<{}, RuntimeError> {{",
+        rust_ident(&method.name),
+        rust_ty(&method.ret)
+    );
+    let _ = class;
+    out.push_str(&indent(&emit_body(method, unit)?));
+    out.push_str("    }\n");
+    Ok(out)
+}
+
+/// Indent a block by one level, leaving blank lines alone.
+fn indent(block: &str) -> String {
+    block
+        .lines()
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("    {line}")
+            }
+        })
+        .map(|line| line + "\n")
+        .collect()
+}
+
+/// Which methods need a mutable receiver.
+///
+/// A method mutates when it assigns an attribute, mutates a collection attribute, **or calls a
+/// method that does**. The transitive case is the one that will be got wrong: a method whose body
+/// is only `self.record(x)` mutates through the call, and a shared receiver there produces a
+/// borrow-checker error about generated code rather than a diagnostic about the user's program.
+///
+/// So this is a fixpoint: mark the directly-mutating methods, then repeatedly mark any method
+/// calling a marked one until nothing changes. A class has few methods, so it converges in a
+/// handful of passes over a small set.
+fn mutating_methods(class: &Class) -> BTreeSet<String> {
+    let mut mutating: BTreeSet<String> = class
+        .methods
+        .values()
+        .filter(|method| mutates_self_directly(&method.body))
+        .map(|method| method.name.clone())
+        .collect();
+
+    loop {
+        let mut added = false;
+        for method in class.methods.values() {
+            if mutating.contains(&method.name) {
+                continue;
+            }
+            if calls_any_of(&method.body, &mutating) {
+                mutating.insert(method.name.clone());
+                added = true;
+            }
+        }
+        if !added {
+            return mutating;
+        }
+    }
+}
+
+/// Whether a body assigns an attribute of `self`, or mutates a collection held in one.
+fn mutates_self_directly(stmts: &[Stmt]) -> bool {
+    fn targets_self(expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(name) => name == "self",
+            // `self.entries[k] = v` mutates through an attribute of self.
+            Expr::Attribute { object, .. } => targets_self(object),
+            _ => false,
+        }
+    }
+    stmts.iter().any(|stmt| match stmt {
+        Stmt::SetAttr { object, .. } => targets_self(object),
+        Stmt::SetItem { collection, .. } => targets_self(collection),
+        Stmt::Append { sequence, .. } => targets_self(sequence),
+        Stmt::If {
+            then, otherwise, ..
+        } => mutates_self_directly(then) || mutates_self_directly(otherwise),
+        Stmt::While { body, .. } | Stmt::For { body, .. } => mutates_self_directly(body),
+        _ => false,
+    })
+}
+
+/// Whether a body calls any of the named methods on `self`.
+///
+/// Only calls on `self` count. A call on some *other* instance mutates that object, which the
+/// receiver of the enclosing method has nothing to do with.
+fn calls_any_of(stmts: &[Stmt], named: &BTreeSet<String>) -> bool {
+    stmts.iter().any(|stmt| match stmt {
+        Stmt::Return(expr) | Stmt::Effect(expr) => expr_calls_any_of(expr, named),
+        Stmt::Bind { value, .. } | Stmt::Assign { value, .. } => expr_calls_any_of(value, named),
+        Stmt::SetAttr { object, value, .. } => {
+            expr_calls_any_of(object, named) || expr_calls_any_of(value, named)
+        }
+        Stmt::SetItem {
+            collection,
+            index,
+            value,
+        } => {
+            expr_calls_any_of(collection, named)
+                || expr_calls_any_of(index, named)
+                || expr_calls_any_of(value, named)
+        }
+        Stmt::Append { sequence, value } => {
+            expr_calls_any_of(sequence, named) || expr_calls_any_of(value, named)
+        }
+        Stmt::If {
+            test,
+            then,
+            otherwise,
+        } => {
+            expr_calls_any_of(test, named)
+                || calls_any_of(then, named)
+                || calls_any_of(otherwise, named)
+        }
+        Stmt::While { test, body } => expr_calls_any_of(test, named) || calls_any_of(body, named),
+        Stmt::For { iter, body, .. } => expr_calls_any_of(iter, named) || calls_any_of(body, named),
+        Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => false,
+    })
+}
+
+/// Whether an expression calls any of the named methods on `self`.
+fn expr_calls_any_of(expr: &Expr, named: &BTreeSet<String>) -> bool {
+    let mut found = false;
+    let recurse = |children: &[&Expr]| children.iter().any(|c| expr_calls_any_of(c, named));
+    match expr {
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            if matches!(receiver.as_ref(), Expr::Name(name) if name == "self")
+                && named.contains(method.as_str())
+            {
+                found = true;
+            }
+            found
+                || expr_calls_any_of(receiver, named)
+                || args.iter().any(|a| expr_calls_any_of(a, named))
+        }
+        Expr::Literal(_) | Expr::Name(_) => false,
+        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) | Expr::Len(inner) => {
+            expr_calls_any_of(inner, named)
+        }
+        Expr::Attribute { object, .. } => expr_calls_any_of(object, named),
+        Expr::TupleIndex { base, .. } => expr_calls_any_of(base, named),
+        Expr::Binary { left, right, .. } => recurse(&[left, right]),
+        Expr::Subscript { base, index } => recurse(&[base, index]),
+        Expr::Contains { value, container } => recurse(&[value, container]),
+        Expr::Range { start, stop, step } => recurse(&[start, stop, step]),
+        Expr::ListLit(items) | Expr::SetLit(items) | Expr::TupleLit(items) => {
+            items.iter().any(|i| expr_calls_any_of(i, named))
+        }
+        Expr::DictLit(pairs) => pairs
+            .iter()
+            .any(|(k, v)| expr_calls_any_of(k, named) || expr_calls_any_of(v, named)),
+        Expr::Call { args, .. } | Expr::Construct { args, .. } => {
+            args.iter().any(|a| expr_calls_any_of(a, named))
+        }
+    }
+}
+
 /// Emit a function body, ending in a tail expression rather than a `return`.
 ///
 /// The final statement becomes the tail so the generated function has no unreachable trailing
@@ -385,7 +675,7 @@ impl Emitter<'_> {
                     ty,
                     value,
                 } => {
-                    let object = emit_expr(object, self.unit, &Ty::Unit)?;
+                    let object = emit_place(object, self.unit)?;
                     let value = emit_expr(value, self.unit, ty)?;
                     let _ = writeln!(self.out, "{pad}({object}).{} = {value};", rust_ident(name));
                 }
@@ -402,7 +692,7 @@ impl Emitter<'_> {
                     // target's index. That is not cosmetic: `d[k] = d[k] + 1` reads the same
                     // collection it writes, and evaluating inline would ask for a shared borrow
                     // inside a mutable one.
-                    let collection = emit_expr(collection, self.unit, &Ty::Unit)?;
+                    let collection = emit_place(collection, self.unit)?;
                     let index = emit_owned_operand(index, self.unit)?;
                     let value = emit_owned_operand(value, self.unit)?;
                     let _ = writeln!(self.out, "{pad}{{");
@@ -416,7 +706,7 @@ impl Emitter<'_> {
                 }
                 Stmt::Append { sequence, value } => {
                     // Bound first for the same reason: `xs.append(xs[0])` reads what it extends.
-                    let sequence = emit_expr(sequence, self.unit, &Ty::Unit)?;
+                    let sequence = emit_place(sequence, self.unit)?;
                     let value = emit_owned_operand(value, self.unit)?;
                     let _ = writeln!(self.out, "{pad}{{");
                     let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
@@ -558,6 +848,28 @@ impl Emitter<'_> {
     }
 }
 
+/// Emit an expression as a **place**: something that can be written through.
+///
+/// The ordinary path clones a collection wherever it is consumed, so a name read twice is not
+/// moved. That rule is exactly wrong for a mutation target — `xs.clone().push(v)` compiles, runs,
+/// and does nothing — and it reaches through attributes too, where `self.entries[k] = v` would
+/// otherwise mutate a copy of the field and leave the object untouched.
+///
+/// Only the two shapes a mutation target can take are places. Anything else is a value, and
+/// lowering has already refused to mutate one.
+fn emit_place(expr: &Expr, unit: &Unit) -> Result<String, BackendError> {
+    match expr {
+        Expr::Name(name) if name == "self" => Ok("self".to_string()),
+        Expr::Name(name) => Ok(rust_ident(name)),
+        Expr::Attribute { object, name } => Ok(format!(
+            "({}).{}",
+            emit_place(object, unit)?,
+            rust_ident(name)
+        )),
+        other => emit_expr(other, unit, &Ty::Unit),
+    }
+}
+
 /// Emit an expression that is about to be bound to a temporary or moved into a container.
 ///
 /// A bare name is cloned. Python has no notion of a value being consumed by being used, so a name
@@ -613,6 +925,10 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
                     .expect("a float literal always converts back to f64"),
             ),
         },
+        // `self` is the Rust receiver, so it is never escaped and never cloned: cloning it would
+        // detach every mutation from the object the caller holds. Lowering reserves the name
+        // outside a method, so nothing else can reach this branch.
+        Expr::Name(name) if name == "self" => "self".to_string(),
         Expr::Name(name) => {
             let name = rust_ident(name);
             if !expected.is_trivially_copyable() {

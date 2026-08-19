@@ -46,19 +46,19 @@
 
 ## 7. Backend: structs and receivers
 
-- [ ] 7.1 Write tests asserting attributes become fields in declaration order, methods become one implementation block, and `__init__` becomes a constructor
-- [ ] 7.2 Write a test asserting a mutating method compiles and a reading method takes a shared receiver
-- [ ] 7.3 Write a test asserting a method that **calls** a mutating method also takes a mutable receiver — the transitive case, and the likeliest bug, per design.md D3
-- [ ] 7.4 Write a test asserting reading and mutating compose in one method
-- [ ] 7.5 Implement the mutable-receiver fixpoint and struct emission
+- [x] 7.1 Write tests asserting attributes become fields in declaration order, methods become one implementation block, and `__init__` becomes a constructor
+- [x] 7.2 Write a test asserting a mutating method compiles and a reading method takes a shared receiver
+- [x] 7.3 Write a test asserting a method that **calls** a mutating method also takes a mutable receiver — the transitive case, and the likeliest bug, per design.md D3
+- [x] 7.4 Write a test asserting reading and mutating compose in one method
+- [x] 7.5 Implement the mutable-receiver fixpoint and struct emission
 
 ## 8. Backend: access, construction, and persistence
 
-- [ ] 8.1 Write executable tests asserting an attribute read yields its value and an assignment is observed by a later call
-- [ ] 8.2 Write a test asserting a collection attribute read twice compiles, so reading a field does not move it
-- [ ] 8.3 Write an executable test asserting construction initialises every field
-- [ ] 8.4 Write an executable test asserting a mutation is observed by a second call — the property the change exists for
-- [ ] 8.5 Implement attribute and construction emission
+- [x] 8.1 Write executable tests asserting an attribute read yields its value and an assignment is observed by a later call
+- [x] 8.2 Write a test asserting a collection attribute read twice compiles, so reading a field does not move it
+- [x] 8.3 Write an executable test asserting construction initialises every field
+- [x] 8.4 Write an executable test asserting a mutation is observed by a second call — the property the change exists for
+- [x] 8.5 Implement attribute and construction emission
 
 ## 9. Bindings
 

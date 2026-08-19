@@ -15,15 +15,18 @@ use std::process::Command;
 use compylr::backend::lookup;
 use compylr::frontend::parse_source;
 use compylr::ir::Unit;
-use compylr::lower::lower_source;
+use compylr::lower::lower_source_members;
 
 fn unit_from(source: &str) -> Unit {
     let parsed = parse_source(source).expect("fixture must parse");
-    let functions =
-        lower_source(&parsed).unwrap_or_else(|e| panic!("should lower: {}", e.render(source)));
+    let (functions, classes) = lower_source_members(&parsed)
+        .unwrap_or_else(|e| panic!("should lower: {}", e.render(source)));
     let mut unit = Unit::new();
     for function in functions {
         unit.add_function(function).unwrap();
+    }
+    for class in classes {
+        unit.add_class(class).unwrap();
     }
     unit.validate().expect("calls must resolve");
     unit
@@ -921,5 +924,159 @@ fn only_mutated_collections_are_bound_mutably() {
     assert!(
         source.contains("let mut written: Vec<i64>"),
         "an assigned-into collection is mutable:\n{source}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Classes
+//
+// The property these exist for is that state survives a call. A struct that
+// compiled but whose methods took a copy of the receiver would pass every
+// type check and lose every mutation.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn instance_state_survives_between_calls() {
+    let out = run(
+        "cls_state",
+        concat!(
+            "class Counter:\n",
+            "    def __init__(self, start: int) -> None:\n",
+            "        self.count: int = start\n",
+            "\n",
+            "    def bump(self, by: int) -> None:\n",
+            "        self.count = self.count + by\n",
+            "\n",
+            "    def get(self) -> int:\n",
+            "        return self.count\n",
+        ),
+        r#"
+    let mut c = Counter::__compylr_new(10).unwrap();
+    println!("{}", c.get().unwrap());
+    c.bump(5).unwrap();
+    c.bump(5).unwrap();
+    println!("{}", c.get().unwrap());
+    let other = Counter::__compylr_new(0).unwrap();
+    println!("{}", other.get().unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "10", "construction initialises every field");
+    assert_eq!(lines[1], "20", "a mutation is observed by a later call");
+    assert_eq!(lines[2], "0", "two instances are independent");
+}
+
+#[test]
+fn a_method_calling_a_mutating_method_takes_a_mutable_receiver() {
+    // The transitive case, and the likeliest bug: a method whose body is only `self.bump()`
+    // mutates through the call, and a shared receiver there produces a borrow-checker error about
+    // generated code rather than a diagnostic about the user's program.
+    let out = run(
+        "cls_transitive",
+        concat!(
+            "class Counter:\n",
+            "    def __init__(self) -> None:\n",
+            "        self.count: int = 0\n",
+            "\n",
+            "    def bump(self) -> None:\n",
+            "        self.count = self.count + 1\n",
+            "\n",
+            "    def bump_twice(self) -> None:\n",
+            "        self.bump()\n",
+            "        self.bump()\n",
+            "\n",
+            "    def bump_four_times(self) -> None:\n",
+            "        self.bump_twice()\n",
+            "        self.bump_twice()\n",
+            "\n",
+            "    def get(self) -> int:\n",
+            "        return self.count\n",
+        ),
+        r#"
+    let mut c = Counter::__compylr_new().unwrap();
+    c.bump_four_times().unwrap();
+    println!("{}", c.get().unwrap());
+"#,
+    );
+    assert_eq!(
+        out.trim(),
+        "4",
+        "mutation must reach through two levels of method call"
+    );
+}
+
+#[test]
+fn a_collection_attribute_is_a_cache() {
+    // The shape the memoized demo needs: membership, read, and insert over an attribute that
+    // outlives the call. A collection *parameter* could not do this, because it is a copy.
+    let out = run(
+        "cls_cache",
+        concat!(
+            "class Cache:\n",
+            "    def __init__(self) -> None:\n",
+            "        self.entries: dict[int, int] = {}\n",
+            "        self.hits: int = 0\n",
+            "\n",
+            "    def square(self, n: int) -> int:\n",
+            "        if n in self.entries:\n",
+            "            self.hits = self.hits + 1\n",
+            "            return self.entries[n]\n",
+            "        computed = n * n\n",
+            "        self.entries[n] = computed\n",
+            "        return computed\n",
+            "\n",
+            "    def hit_count(self) -> int:\n",
+            "        return self.hits\n",
+            "\n",
+            "    def size(self) -> int:\n",
+            "        return len(self.entries)\n",
+        ),
+        r#"
+    let mut c = Cache::__compylr_new().unwrap();
+    println!("{}", c.square(4).unwrap());
+    println!("{}", c.square(4).unwrap());
+    println!("{}", c.hit_count().unwrap());
+    println!("{}", c.square(5).unwrap());
+    println!("{}", c.size().unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "16", "a miss computes");
+    assert_eq!(lines[1], "16", "a hit returns the stored value");
+    assert_eq!(
+        lines[2], "1",
+        "and the hit was counted, so the cache was consulted"
+    );
+    assert_eq!(lines[3], "25");
+    assert_eq!(
+        lines[4], "2",
+        "reading a collection attribute does not move it"
+    );
+}
+
+#[test]
+fn a_reading_method_takes_a_shared_receiver() {
+    // Two methods must be usable on one object. `&mut self` everywhere would make that a borrow
+    // error about the compiler's output rather than about the user's program.
+    let unit = unit_from(
+        "class C:\n\
+         \x20   def __init__(self) -> None:\n\
+         \x20       self.x: int = 0\n\
+         \n\
+         \x20   def get(self) -> int:\n\
+         \x20       return self.x\n\
+         \n\
+         \x20   def set(self, n: int) -> None:\n\
+         \x20       self.x = n\n",
+    );
+    let emitted = lookup("rust").unwrap().emit(&unit).expect("must emit");
+    let source = &emitted["src/generated.rs"];
+    assert!(
+        source.contains("fn get(&self)"),
+        "a reading method takes a shared receiver:\n{source}"
+    );
+    assert!(
+        source.contains("fn set(&mut self"),
+        "a mutating method takes a mutable receiver:\n{source}"
     );
 }
