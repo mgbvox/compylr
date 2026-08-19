@@ -29,3 +29,8 @@ __pycache__/
 
 # Machine-local Claude Code settings (skills and commands ARE committed)
 .claude/settings.local.json
+
+# The demo builds into its own artifact directory.
+demo/.compylr/
+demo/.venv/
+demo/uv.lock

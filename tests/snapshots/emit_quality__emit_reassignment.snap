@@ -1,0 +1,34 @@
+---
+source: tests/emit_quality.rs
+assertion_line: 121
+expression: functions.trim()
+---
+//! Translated from Python by compylr.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
+    py_truediv,
+};
+
+pub fn accumulate(limit: i64) -> Result<i64, RuntimeError> {
+    let mut i: i64 = 0i64;
+    let mut total: i64 = 0i64;
+    while ((&(i)) < (&(limit))) {
+        total = PyAdd::py_add(&(total), &(i))?;
+        i = PyAdd::py_add(&(i), &(1i64))?;
+    }
+    Ok(total)
+}
+
+pub fn increment(mut n: i64) -> Result<i64, RuntimeError> {
+    n = PyAdd::py_add(&(n), &(1i64))?;
+    Ok(n)
+}
+
+pub fn widened() -> Result<f64, RuntimeError> {
+    let mut x: f64 = 1.0f64;
+    x = ((2i64) as f64);
+    Ok(x)
+}

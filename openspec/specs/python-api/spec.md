@@ -229,3 +229,87 @@ compared against its source implementation.
 
 - **WHEN** a marked function is passed to code that accepts any callable
 - **THEN** it behaves as a callable
+
+### Requirement: The decorator accepts a class
+
+The manager's decorator SHALL accept a class as well as a function, marking it for compilation
+under the same settings and validating it at the point it is marked.
+
+A marked class SHALL keep the identifying attributes callers and tooling read — its name,
+docstring, module, and annotations — and SHALL expose the original uncompiled class, so compiled
+and interpreted behaviour can be compared.
+
+#### Scenario: A class is marked
+
+- **WHEN** the decorator is applied to a supported class
+- **THEN** the class is marked for compilation under the manager's settings
+
+#### Scenario: Both decorator forms work on a class
+
+- **WHEN** the decorator is applied to a class bare and called with settings
+- **THEN** both mark it, differing only in the settings in effect
+
+#### Scenario: An unsupported class is rejected when marked
+
+- **WHEN** a class declaring a base is marked
+- **THEN** an error is raised naming the unsupported construct and its location
+
+#### Scenario: Identity attributes are preserved
+
+- **WHEN** a marked class's name, docstring, and module are read
+- **THEN** they match those of the class as written
+
+#### Scenario: The original class is reachable
+
+- **WHEN** a caller needs the uncompiled implementation
+- **THEN** it is accessible from the marked class
+
+#### Scenario: Instantiating a marked class builds the project
+
+- **WHEN** a marked class is instantiated for the first time
+- **THEN** the project is built and the compiled type is used, as calling a marked function does
+
+#### Scenario: Classes and functions share one build
+
+- **WHEN** a project marks both classes and functions
+- **THEN** one build covers all of them
+
+### Requirement: A project can be compiled programmatically
+
+The package SHALL expose an entry point that takes a project root, discovers everything marked
+beneath it, builds once, and reports what it found and did.
+
+The command-line form SHALL be a thin wrapper over it. Anything the command decides that the
+programmatic form does not is a place the two can disagree, and a user debugging a precompile
+should not have to work out which one they are looking at.
+
+#### Scenario: A root is compiled programmatically
+
+- **WHEN** the entry point is called with a project root containing marked functions
+- **THEN** the artifact is built and a report is returned
+
+#### Scenario: The report names what was found
+
+- **WHEN** the entry point returns
+- **THEN** the report carries the modules imported, the functions and classes found, and whether a
+  build occurred
+
+#### Scenario: An empty project is not an error
+
+- **WHEN** the root contains nothing marked
+- **THEN** the report says so and no build is attempted
+
+#### Scenario: Import failures are reported rather than raised
+
+- **WHEN** one module cannot be imported
+- **THEN** the report carries the failure and the others are still processed
+
+#### Scenario: A build failure raises
+
+- **WHEN** the toolchain fails
+- **THEN** the same error is raised as when a call triggers the build, carrying the toolchain output
+
+#### Scenario: The command adds no behaviour of its own
+
+- **WHEN** the same root is compiled through the command and through the entry point
+- **THEN** both produce the same artifact and the same outcome

@@ -1,5 +1,6 @@
 ---
 source: tests/fixtures.rs
+assertion_line: 52
 expression: functions
 ---
 [
@@ -243,15 +244,11 @@ expression: functions
                 ),
             },
             Return(
-                Subscript {
+                TupleIndex {
                     base: Name(
                         "t",
                     ),
-                    index: Literal(
-                        Int(
-                            1,
-                        ),
-                    ),
+                    position: 1,
                 },
             ),
         ],

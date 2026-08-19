@@ -40,6 +40,10 @@ struct UnitArtifact {
     version: u32,
     fingerprint: String,
     functions: Vec<Function>,
+    // Absent from artifacts written before classes existed, so a unit with none still deserializes
+    // and still fingerprints the same.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    classes: Vec<Class>,
 }
 
 /// A type in the supported subset, described by meaning rather than by any target's spelling.
@@ -70,6 +74,16 @@ pub enum Ty {
     Set(Box<Ty>),
     /// A fixed-length tuple carrying a type per position.
     Tuple(Vec<Ty>),
+    /// An instance of a class defined in the same unit.
+    ///
+    /// **The model's one nominal type.** Every other variant is structural — `list[int]` equals
+    /// `list[int]` because of what it contains — and a reader will reasonably assume that holds
+    /// throughout. It does not here: two classes with identical attributes are different types,
+    /// which is what a user means by writing two classes.
+    ///
+    /// The consequence worth knowing is that this type is only meaningful relative to the unit
+    /// that defines the class, which is why an artifact carries class definitions alongside.
+    Instance(String),
 }
 
 impl Ty {
@@ -90,6 +104,7 @@ impl Ty {
                 let inner: Vec<String> = elements.iter().map(Ty::python_name).collect();
                 format!("tuple[{}]", inner.join(", "))
             }
+            Self::Instance(class) => class.clone(),
         }
     }
 
@@ -262,6 +277,75 @@ pub enum Expr {
     /// A tuple literal, which unlike the others carries a type per position.
     TupleLit(Vec<Expr>),
     /// Reading one element of a collection.
+    /// Read a tuple element at a position fixed at compile time.
+    ///
+    /// Distinct from [`Self::Subscript`] because a tuple is heterogeneous: the type of the result
+    /// depends on *which* position, so it cannot be a lookup taking a runtime index the way a
+    /// sequence or mapping read can. Lowering has already resolved the position and rejected a
+    /// computed one, and recording that here is what lets a backend emit a static field access
+    /// rather than search for a lookup operation that cannot exist.
+    TupleIndex {
+        /// The tuple being read.
+        base: Box<Expr>,
+        /// Which element, already checked against the tuple's length.
+        position: usize,
+    },
+    /// Read an attribute of an object.
+    Attribute {
+        /// The object being read.
+        object: Box<Expr>,
+        /// Which attribute, already checked against the class's declarations.
+        name: String,
+    },
+    /// Construct an instance.
+    ///
+    /// Its own form rather than a call. Leaving it a call would mean unit validation resolving it
+    /// against functions, and the type rules differ enough — arguments check against `__init__`,
+    /// the result is an instance type — that one form would make each path carry the other's
+    /// cases. The same reasoning already applied to `len` and `range`.
+    Construct {
+        /// The class being instantiated.
+        class: String,
+        /// Constructor arguments, already checked against `__init__`.
+        args: Vec<Expr>,
+    },
+    /// Call a method on an object.
+    ///
+    /// The method resolves against the receiver's class rather than against the unit, which is why
+    /// [`Expr::walk_calls`] deliberately does not report it: demanding a free function of that
+    /// name would fail on a program the user wrote correctly.
+    MethodCall {
+        /// The object the method is called on.
+        receiver: Box<Expr>,
+        /// The receiver's class, when lowering could determine it.
+        ///
+        /// Carried because a backend has to know whether the call mutates the receiver, and the
+        /// method name alone does not say: two classes may both define `get`, one mutating and one
+        /// not. `None` means the receiver's class was in another source, which lowering resolves at
+        /// the unit; a backend must then assume the call mutates rather than guess.
+        class: Option<String>,
+        /// Which method.
+        method: String,
+        /// Arguments, already checked against the method's signature.
+        args: Vec<Expr>,
+    },
+    /// Whether a value is present in a container.
+    ///
+    /// What "present" means is the container's own: a sequence and a set test elements, a mapping
+    /// tests **keys**, and a string tests substrings. Each matches Python, and none is what a naive
+    /// containment check over the target's native type would do for at least one of them.
+    Contains {
+        /// The value being looked for.
+        value: Box<Expr>,
+        /// What is being searched.
+        container: Box<Expr>,
+    },
+    /// Logical negation of a boolean.
+    ///
+    /// Exists so `not in` can be the negation of a membership test rather than a second spelling of
+    /// one. A flag on [`Self::Contains`] would make every consumer responsible for remembering to
+    /// honour it, and the one that forgot would silently invert an answer.
+    Not(Box<Expr>),
     Subscript {
         /// The collection being read.
         base: Box<Expr>,
@@ -274,6 +358,20 @@ pub enum Expr {
     /// so leaving `len` as one would make its meaning depend on whether someone had decorated a
     /// function of that name.
     Len(Box<Expr>),
+    /// A range of integers, as Python's `range` produces.
+    ///
+    /// All three components are present even when the source omitted them, so a backend never has
+    /// to know Python's defaulting rules. A distinct form rather than a call, for the reason
+    /// [`Expr::Len`] is: a call is resolved against the unit, so leaving it as one would make its
+    /// meaning depend on what else was compiled.
+    Range {
+        /// First value.
+        start: Box<Expr>,
+        /// Exclusive bound.
+        stop: Box<Expr>,
+        /// Amount added each step. May be negative; may not be zero at runtime.
+        step: Box<Expr>,
+    },
     /// A call to a function by name.
     Call {
         /// Name of the target function.
@@ -341,9 +439,34 @@ impl Expr {
                     value.walk_calls(visit);
                 }
             }
+            Self::TupleIndex { base, .. } => base.walk_calls(visit),
+            Self::Not(inner) => inner.walk_calls(visit),
+            Self::Attribute { object, .. } => object.walk_calls(visit),
+            Self::Construct { args, .. } => {
+                for arg in args {
+                    arg.walk_calls(visit);
+                }
+            }
+            // The method itself is deliberately not reported: it resolves against the receiver's
+            // class, and demanding a free function of that name would reject correct code.
+            Self::MethodCall { receiver, args, .. } => {
+                receiver.walk_calls(visit);
+                for arg in args {
+                    arg.walk_calls(visit);
+                }
+            }
+            Self::Contains { value, container } => {
+                value.walk_calls(visit);
+                container.walk_calls(visit);
+            }
             Self::Subscript { base, index } => {
                 base.walk_calls(visit);
                 index.walk_calls(visit);
+            }
+            Self::Range { start, stop, step } => {
+                start.walk_calls(visit);
+                stop.walk_calls(visit);
+                step.walk_calls(visit);
             }
             Self::Binary { left, right, .. } => {
                 left.walk_calls(visit);
@@ -367,9 +490,6 @@ pub enum Stmt {
     /// Return no value, or do nothing (`pass`).
     ReturnUnit,
     /// Introduce a new local bound to a value.
-    ///
-    /// A binding always introduces a *new* name; reassignment is rejected during lowering, so a
-    /// backend can render this as a plain immutable binding.
     Bind {
         /// Name being introduced.
         name: String,
@@ -378,6 +498,99 @@ pub enum Stmt {
         /// Value bound to the name.
         value: Expr,
     },
+    /// Assign to a name already bound.
+    ///
+    /// Distinct from [`Stmt::Bind`] because a backend renders them differently: a binding declares,
+    /// an assignment updates. Keeping them apart also means a backend never has to work out which
+    /// of two identically-shaped statements introduced the name.
+    Assign {
+        /// Name being assigned.
+        name: String,
+        /// The type the name was bound at. Carried so a backend can render the value without
+        /// re-deriving what lowering already established.
+        ty: Ty,
+        /// Value assigned. Its type matches `ty`.
+        value: Expr,
+    },
+    /// Evaluate an expression for its effect, discarding a unit result.
+    ///
+    /// Lowering only ever puts a unit-returning **method** call here. A free function in this
+    /// subset can reach no mutable state, so calling one and discarding the result is dead code and
+    /// stays rejected; a method can mutate its receiver, which is the whole point of one.
+    Effect(Expr),
+    /// Assign to an attribute of an object.
+    ///
+    /// Distinct from [`Self::SetItem`]: an attribute is declared once with a fixed type, so the
+    /// set of them is known from the class rather than growing at runtime.
+    SetAttr {
+        /// The object being modified.
+        object: Expr,
+        /// Which attribute.
+        name: String,
+        /// The type it was declared with, so a backend need not re-derive it.
+        ty: Ty,
+        /// The new value, already checked against `ty`.
+        value: Expr,
+    },
+    /// Assign to one element of a collection.
+    ///
+    /// Distinct from [`Self::Assign`], which rebinds a name. Here the name keeps denoting the same
+    /// collection and one of its entries changes — and for a mapping the entry may not exist yet,
+    /// which is why this cannot be expressed as a read followed by a write.
+    SetItem {
+        /// The collection being modified.
+        collection: Expr,
+        /// Which element: an index for a sequence, a key for a mapping.
+        index: Expr,
+        /// The new value, already checked against what the collection holds.
+        value: Expr,
+    },
+    /// Append a value to a sequence.
+    ///
+    /// Its own form rather than a general method call. There is exactly one supported method, and a
+    /// general form would need a table of method signatures per type before anything consumed it,
+    /// plus a decision in every backend about what an unknown method means. An explicit form cannot
+    /// be spelled with the wrong name.
+    Append {
+        /// The sequence being extended.
+        sequence: Expr,
+        /// The value appended, already checked against the element type.
+        value: Expr,
+    },
+    /// Conditional execution.
+    ///
+    /// `elif` has no form of its own: it is a conditional in the `otherwise` of another, which is
+    /// what it means, and gives a backend one shape to render rather than two.
+    If {
+        /// The test, which must be a boolean.
+        test: Expr,
+        /// Statements run when the test holds.
+        then: Vec<Stmt>,
+        /// Statements run otherwise. Empty when the source had no `else`.
+        otherwise: Vec<Stmt>,
+    },
+    /// Repetition while a test holds.
+    While {
+        /// The test, which must be a boolean.
+        test: Expr,
+        /// The body.
+        body: Vec<Stmt>,
+    },
+    /// Repetition over the values of an iterable.
+    For {
+        /// Name bound to each value. Visible only inside the body.
+        name: String,
+        /// Type each value takes.
+        ty: Ty,
+        /// What is iterated: a range, or a collection.
+        iter: Expr,
+        /// The body.
+        body: Vec<Stmt>,
+    },
+    /// Abandon the nearest enclosing loop.
+    Break,
+    /// Restart the nearest enclosing loop.
+    Continue,
 }
 
 /// A function parameter.
@@ -442,13 +655,146 @@ impl Function {
 
     /// Visit every call made anywhere in this function's body.
     pub fn walk_calls(&self, visit: &mut impl FnMut(&str, usize)) {
-        for stmt in &self.body {
-            match stmt {
-                Stmt::Return(expr) => expr.walk_calls(visit),
-                Stmt::Bind { value, .. } => value.walk_calls(visit),
-                Stmt::ReturnUnit => {}
+        walk_stmts(&self.body, visit);
+    }
+}
+
+/// Whether a sequence of statements produces a value on **every** path.
+///
+/// Shared by lowering, which rejects a function that does not, and by the backend, which uses it to
+/// decide whether a trailing value is needed. One implementation rather than two, because the two
+/// disagreeing means either a valid program is rejected or generated code fails to compile — and
+/// the second surfaces as a complaint about Rust rather than about the user's function.
+///
+/// A conditional counts only when it has an alternative and **both** branches return. A loop never
+/// counts: its body may run zero times, and proving otherwise would mean evaluating the test.
+pub fn returns_on_all_paths(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|stmt| match stmt {
+        Stmt::Return(_) | Stmt::ReturnUnit => true,
+        Stmt::If {
+            then, otherwise, ..
+        } => !otherwise.is_empty() && returns_on_all_paths(then) && returns_on_all_paths(otherwise),
+        // Deliberately false. `while True:` would be provable and is not worth a special case that
+        // only one spelling benefits from.
+        Stmt::While { .. } | Stmt::For { .. } => false,
+        Stmt::Bind { .. }
+        | Stmt::Assign { .. }
+        | Stmt::SetItem { .. }
+        | Stmt::SetAttr { .. }
+        | Stmt::Effect(_)
+        | Stmt::Append { .. }
+        | Stmt::Break
+        | Stmt::Continue => false,
+    })
+}
+
+/// Visit every call in a sequence of statements, descending into nested bodies.
+///
+/// Nested bodies are why this is a free function rather than a loop inside `walk_calls`: a call
+/// inside a loop inside a branch must still be found, or unit validation would miss it and the
+/// backend would emit a call to something that does not exist.
+fn walk_stmts(stmts: &[Stmt], visit: &mut impl FnMut(&str, usize)) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Return(expr) => expr.walk_calls(visit),
+            Stmt::Bind { value, .. } | Stmt::Assign { value, .. } => value.walk_calls(visit),
+            Stmt::If {
+                test,
+                then,
+                otherwise,
+            } => {
+                test.walk_calls(visit);
+                walk_stmts(then, visit);
+                walk_stmts(otherwise, visit);
             }
+            Stmt::While { test, body } => {
+                test.walk_calls(visit);
+                walk_stmts(body, visit);
+            }
+            Stmt::For { iter, body, .. } => {
+                iter.walk_calls(visit);
+                walk_stmts(body, visit);
+            }
+            Stmt::SetItem {
+                collection,
+                index,
+                value,
+            } => {
+                collection.walk_calls(visit);
+                index.walk_calls(visit);
+                value.walk_calls(visit);
+            }
+            Stmt::Effect(expr) => expr.walk_calls(visit),
+            Stmt::SetAttr { object, value, .. } => {
+                object.walk_calls(visit);
+                value.walk_calls(visit);
+            }
+            Stmt::Append { sequence, value } => {
+                sequence.walk_calls(visit);
+                value.walk_calls(visit);
+            }
+            Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => {}
         }
+    }
+}
+
+/// One attribute of a class, as declared in `__init__`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Attribute {
+    /// Attribute name, without the `self.` prefix.
+    pub name: String,
+    /// Declared type. Mandatory, on the same terms as a parameter's.
+    pub ty: Ty,
+}
+
+/// A class: named state and the methods over it.
+///
+/// Attributes are held in declaration order rather than sorted, because that order is the class's
+/// shape as its author wrote it and a backend emitting fields wants to preserve it. Methods are
+/// keyed by name, which gives uniqueness and a deterministic order in one structure — the same
+/// reasoning as [`Unit`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Class {
+    /// Class name, which is also the name of its instance type.
+    pub name: String,
+    /// Attributes, in declaration order.
+    pub attributes: Vec<Attribute>,
+    /// The constructor. Its parameters exclude `self`, and its body initialises the attributes.
+    pub init: Function,
+    /// Methods other than `__init__`, by name.
+    pub methods: BTreeMap<String, Function>,
+    /// Docstring, excluded from the fingerprint like a function's.
+    pub doc: Option<String>,
+    /// Where the class was defined.
+    #[serde(skip)]
+    pub span: Span,
+}
+
+impl Class {
+    /// A fingerprint over the class's structure, excluding documentation and spans.
+    pub fn fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.name.hash(&mut hasher);
+        self.attributes.hash(&mut hasher);
+        self.init.fingerprint().hash(&mut hasher);
+        // Sorted by the map, so declaration order of methods does not move the print.
+        for method in self.methods.values() {
+            method.fingerprint().hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Every function in the class, constructor first.
+    pub fn functions(&self) -> impl Iterator<Item = &Function> {
+        std::iter::once(&self.init).chain(self.methods.values())
+    }
+
+    /// The declared type of one attribute.
+    pub fn attribute(&self, name: &str) -> Option<&Ty> {
+        self.attributes
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| &a.ty)
     }
 }
 
@@ -462,6 +808,9 @@ pub struct Unit {
     // A BTreeMap keys the unit by name, which gives uniqueness and a deterministic,
     // addition-order-independent iteration order in one structure.
     functions: BTreeMap<String, Function>,
+    // Classes share the namespace with functions: they compile into one file and one module, so a
+    // collision would surface as a Rust error rather than a diagnostic.
+    classes: BTreeMap<String, Class>,
 }
 
 impl Unit {
@@ -470,20 +819,47 @@ impl Unit {
         Self::default()
     }
 
-    /// Add a function, failing if one of that name is already present.
+    /// Add a function, failing if that name is already taken by a function or a class.
     pub fn add_function(&mut self, function: Function) -> Result<(), LowerError> {
-        if let Some(existing) = self.functions.get(&function.name) {
-            return Err(LowerError::new(
-                LowerErrorKind::DuplicateFunction,
-                format!(
-                    "function '{}' is already defined in this unit",
-                    existing.name
-                ),
-                function.span,
-            ));
-        }
+        self.reject_taken_name(&function.name, function.span)?;
         self.functions.insert(function.name.clone(), function);
         Ok(())
+    }
+
+    /// Add a class, failing if that name is already taken by a class or a function.
+    pub fn add_class(&mut self, class: Class) -> Result<(), LowerError> {
+        self.reject_taken_name(&class.name, class.span)?;
+        self.classes.insert(class.name.clone(), class);
+        Ok(())
+    }
+
+    /// Refuse a name already used by either kind of member.
+    fn reject_taken_name(&self, name: &str, span: Span) -> Result<(), LowerError> {
+        let taken = if self.functions.contains_key(name) {
+            Some("function")
+        } else if self.classes.contains_key(name) {
+            Some("class")
+        } else {
+            None
+        };
+        match taken {
+            None => Ok(()),
+            Some(kind) => Err(LowerError::new(
+                LowerErrorKind::DuplicateFunction,
+                format!("{kind} '{name}' is already defined in this unit"),
+                span,
+            )),
+        }
+    }
+
+    /// Classes in deterministic (name) order.
+    pub fn classes(&self) -> impl Iterator<Item = &Class> {
+        self.classes.values()
+    }
+
+    /// Look up a class by name.
+    pub fn class(&self, name: &str) -> Option<&Class> {
+        self.classes.get(name)
     }
 
     /// Functions in deterministic (name) order.
@@ -515,6 +891,16 @@ impl Unit {
         prints.sort_unstable();
         let mut hasher = DefaultHasher::new();
         prints.hash(&mut hasher);
+
+        // Classes contribute only when there are some. A unit with none must fingerprint exactly
+        // as it did before classes existed, or every cached build in every project invalidates on
+        // upgrade with nothing to show for it.
+        if !self.classes.is_empty() {
+            let mut class_prints: Vec<u64> =
+                self.classes.values().map(Class::fingerprint).collect();
+            class_prints.sort_unstable();
+            class_prints.hash(&mut hasher);
+        }
         hasher.finish()
     }
 
@@ -531,6 +917,7 @@ impl Unit {
             version: ARTIFACT_VERSION,
             fingerprint: format!("{:016x}", self.fingerprint()),
             functions: self.functions.values().cloned().collect(),
+            classes: self.classes.values().cloned().collect(),
         };
         Ok(serde_json::to_string_pretty(&artifact)?)
     }
@@ -554,6 +941,10 @@ impl Unit {
             unit.add_function(function)
                 .map_err(|e| ArtifactError::DuplicateFunction(Box::new(e)))?;
         }
+        for class in artifact.classes {
+            unit.add_class(class)
+                .map_err(|e| ArtifactError::DuplicateFunction(Box::new(e)))?;
+        }
 
         let computed = format!("{:016x}", unit.fingerprint());
         if computed != artifact.fingerprint {
@@ -571,7 +962,20 @@ impl Unit {
     /// legitimately call one that has not been added yet — resolving early would make success
     /// depend on the order functions happened to arrive.
     pub fn validate(&self) -> Result<(), LowerError> {
+        for class in self.classes.values() {
+            for function in class.functions() {
+                self.validate_calls(function)?;
+            }
+        }
         for function in self.functions.values() {
+            self.validate_calls(function)?;
+        }
+        Ok(())
+    }
+
+    /// Check one function's calls against the unit.
+    fn validate_calls(&self, function: &Function) -> Result<(), LowerError> {
+        {
             let mut failure: Option<LowerError> = None;
             function.walk_calls(&mut |callee, argc| {
                 if failure.is_some() {

@@ -311,7 +311,7 @@ mod cross_source_inference {
     fn the_failure_category_is_machine_readable() {
         // The decorator branches on this to decide what to defer, so it must not be prose.
         let failure = compile(
-            &["def f(n: int) -> int:\n    while n:\n        pass\n    return n\n".to_string()],
+            &["def f(n: int) -> int:\n    return n ** 2\n".to_string()],
             "rust",
         )
         .expect_err("must fail");

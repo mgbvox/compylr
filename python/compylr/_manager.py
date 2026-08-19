@@ -20,7 +20,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Generic, ParamSpec, TypeVar
+from typing import Any, Generic, ParamSpec, TypeVar, overload
 
 from . import _core
 from ._build import BuildPipeline
@@ -79,6 +79,50 @@ class CompiledFunction(Generic[P, R]):
         return f"<compylr function {self._function.__name__!r} ({state})>"
 
 
+class CompiledClass:
+    """A marked class.
+
+    Instantiating it builds the project if needed and returns an instance of the **compiled** type,
+    not of the Python original. That is the whole point: the object Python holds is the translated
+    struct, so a method mutating an attribute persists between calls — where a collection passed to
+    a compiled function is a copy and cannot.
+
+    The original stays reachable through `python_class`, so compiled and interpreted behaviour can
+    be compared the same way they can for a function.
+    """
+
+    def __init__(self, cls: type, manager: Manager, settings: Settings) -> None:
+        self._class = cls
+        self._manager = manager
+        self._settings = settings
+        # Typed as a plain callable rather than `type`: what the module exposes is a PyO3 class
+        # object, and calling it is all this needs of it.
+        self._compiled: Callable[..., Any] | None = None
+        self.__name__ = cls.__name__
+        self.__qualname__ = cls.__qualname__
+        self.__doc__ = cls.__doc__
+        self.__module__ = cls.__module__
+
+    @property
+    def settings(self) -> Settings:
+        """The settings this class compiles under."""
+        return self._settings
+
+    @property
+    def python_class(self) -> type:
+        """The original, uncompiled class."""
+        return self._class
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        if self._compiled is None:
+            self._compiled = self._manager._resolve(self._class.__name__)
+        return self._compiled(*args, **kwargs)
+
+    def __repr__(self) -> str:
+        state = "compiled" if self._compiled is not None else "not built yet"
+        return f"<compylr class {self._class.__name__!r} ({state})>"
+
+
 class Manager:
     """A project's compylr configuration and the functions marked under it."""
 
@@ -89,6 +133,9 @@ class Manager:
         self._functions: dict[str, CompiledFunction[Any, Any]] = {}
         self._module: Any = None
         self._built_fingerprint: str | None = None
+        #: Whether the last `ensure_built` actually ran the toolchain, as opposed to reusing what
+        #: was already loaded or already on disk.
+        self.last_build_invoked_toolchain = False
 
     @property
     def settings(self) -> Settings:
@@ -100,21 +147,39 @@ class Manager:
         """Where this project's build artifacts live."""
         return self._pipeline.paths
 
+    # `type` is itself callable, so mypy reads the two as overlapping. The callable form comes
+    # first and the class form is spelled with a distinct return, which is enough to keep a
+    # decorated function's signature intact -- the case that actually matters for callers.
+    @overload
+    def compyle(self, function: Callable[P, R], /) -> CompiledFunction[P, R]: ...
+
+    @overload
+    def compyle(self, function: type, /) -> CompiledClass: ...
+
+    @overload
     def compyle(
         self,
-        function: Callable[P, R] | None = None,
+        function: None = None,
+        *,
+        backend: str | object = ...,
+        llm_assist: bool | object = ...,
+    ) -> Callable[[Any], Any]: ...
+
+    def compyle(
+        self,
+        function: Any = None,
         *,
         backend: str | object = INHERIT,
         llm_assist: bool | object = INHERIT,
     ) -> Any:
-        """Mark a function for compilation.
+        """Mark a function or a class for compilation.
 
         Usable bare (`@c.compyle`) or called (`@c.compyle(backend=...)`). Settings not named are
         inherited from the manager, so naming one does not silently reset the others.
         """
         settings = self._settings.override(backend=backend, llm_assist=llm_assist)
 
-        def mark(target: Callable[P, R]) -> CompiledFunction[P, R]:
+        def mark(target: Callable[P, R]) -> Any:
             return self._register(target, settings)
 
         # Bare form: the decorated function arrives as the first positional argument.
@@ -122,7 +187,7 @@ class Manager:
             return mark(function)
         return mark
 
-    def _register(self, function: Callable[P, R], settings: Settings) -> CompiledFunction[P, R]:
+    def _register(self, function: Any, settings: Settings) -> Any:
         source = capture_source(function)
         # Raises here, with a line and column, if the function is outside the subset -- which is
         # the point of validating at all: the failure should point at the decorator, not at a call
@@ -152,7 +217,13 @@ class Manager:
             )
 
         self._sources[name] = source
-        wrapper = CompiledFunction(function, self, settings)
+        # A class and a function are marked the same way and share one build; only what the
+        # wrapper does on call differs.
+        wrapper: Any = (
+            CompiledClass(function, self, settings)
+            if isinstance(function, type)
+            else CompiledFunction(function, self, settings)
+        )
         self._functions[name] = wrapper
         # A newly marked function changes the unit, so whatever was built no longer covers it.
         self._built_fingerprint = None
@@ -167,7 +238,12 @@ class Manager:
             raise ConfigurationError(f"{name!r} is missing from the compiled module") from error
 
     def ensure_built(self) -> Any:
-        """Build the project if what is loaded does not cover every marked function."""
+        """Build the project if what is loaded does not cover every marked function.
+
+        Records whether the toolchain actually ran, in `last_build_invoked_toolchain`. A caller
+        cannot infer that from the fingerprint: a fresh process reusing a cached artifact moves the
+        fingerprint from unset to set without having built anything.
+        """
         backends = {f.settings.backend for f in self._functions.values()}
         if len(backends) > 1:
             raise ConfigurationError(
@@ -181,6 +257,7 @@ class Manager:
         # Already loaded and current: nothing to do. This is the path every run after the first
         # takes, and the reason reformatting does not cost a rebuild.
         if self._module is not None and self._built_fingerprint == compiled.fingerprint:
+            self.last_build_invoked_toolchain = False
             return self._module
 
         if (
@@ -191,10 +268,12 @@ class Manager:
             if module is not None:
                 self._module = module
                 self._built_fingerprint = compiled.fingerprint
+                self.last_build_invoked_toolchain = False
                 return module
 
         self._module = self._pipeline.build(compiled)
         self._built_fingerprint = compiled.fingerprint
+        self.last_build_invoked_toolchain = True
         return self._module
 
     def _import_cached(self, module_name: str) -> Any:
@@ -214,6 +293,15 @@ class Manager:
 
 #: The process-wide manager, so a project compiles to one shared artifact.
 _MANAGER: Manager | None = None
+
+
+def _active_manager() -> Manager | None:
+    """The process-wide manager, if one has been created.
+
+    Precompiling needs it after importing a project, which is the only way to learn what that
+    project marked -- a decorator registers when it runs and not before.
+    """
+    return _MANAGER
 
 
 def initialize(

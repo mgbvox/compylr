@@ -1,0 +1,123 @@
+---
+source: tests/emit_quality.rs
+assertion_line: 121
+expression: functions.trim()
+---
+//! Translated from Python by compylr.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
+    py_truediv,
+};
+
+pub fn countdown(n: i64) -> Result<i64, RuntimeError> {
+    let mut steps: i64 = 0i64;
+    {
+        let __compylr_stop: i64 = 0i64;
+        let __compylr_step: i64 = PyNum::py_neg(&(1i64))?;
+        if __compylr_step == 0 {
+            return Err(RuntimeError::ZeroStep);
+        }
+        let mut __compylr_cursor: i64 = n;
+        while (__compylr_step > 0 && __compylr_cursor < __compylr_stop)
+            || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
+        {
+            let i: i64 = __compylr_cursor;
+            steps = PyAdd::py_add(&(steps), &(1i64))?;
+            __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+        }
+    }
+    Ok(steps)
+}
+
+pub fn first_over(xs: Vec<i64>, limit: i64) -> Result<i64, RuntimeError> {
+    {
+        let __compylr_iter = xs.clone();
+        for __compylr_item in PyIterate::py_iter(&__compylr_iter) {
+            let x: i64 = __compylr_item;
+            if ((&(x)) > (&(limit))) {
+                return Ok(x);
+            }
+        }
+    }
+    Ok(PyNum::py_neg(&(1i64))?)
+}
+
+pub fn halve_until_odd(mut n: i64) -> Result<i64, RuntimeError> {
+    while ((&(PyNum::py_mod(&(n), &(2i64))?)) == (&(0i64))) {
+        if ((&(n)) == (&(0i64))) {
+            break;
+        }
+        n = PyNum::py_floordiv(&(n), &(2i64))?;
+    }
+    Ok(n)
+}
+
+pub fn key_lengths(d: HashMap<String, i64>) -> Result<i64, RuntimeError> {
+    let mut total_length: i64 = 0i64;
+    {
+        let __compylr_iter = d.clone();
+        for __compylr_item in PyIterate::py_iter(&__compylr_iter) {
+            let k: String = __compylr_item;
+            total_length = PyAdd::py_add(&(total_length), &(PyLen::py_len(&(k))))?;
+        }
+    }
+    Ok(total_length)
+}
+
+pub fn skip_negatives(xs: Vec<i64>) -> Result<i64, RuntimeError> {
+    let mut kept: i64 = 0i64;
+    {
+        let __compylr_iter = xs.clone();
+        for __compylr_item in PyIterate::py_iter(&__compylr_iter) {
+            let x: i64 = __compylr_item;
+            if ((&(x)) < (&(0i64))) {
+                continue;
+            }
+            kept = PyAdd::py_add(&(kept), &(1i64))?;
+        }
+    }
+    Ok(kept)
+}
+
+pub fn stepped(n: i64) -> Result<i64, RuntimeError> {
+    let mut seen: i64 = 0i64;
+    {
+        let __compylr_stop: i64 = n;
+        let __compylr_step: i64 = 2i64;
+        if __compylr_step == 0 {
+            return Err(RuntimeError::ZeroStep);
+        }
+        let mut __compylr_cursor: i64 = 0i64;
+        while (__compylr_step > 0 && __compylr_cursor < __compylr_stop)
+            || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
+        {
+            let i: i64 = __compylr_cursor;
+            seen = PyAdd::py_add(&(seen), &(i))?;
+            __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+        }
+    }
+    Ok(seen)
+}
+
+pub fn total(n: i64) -> Result<i64, RuntimeError> {
+    let mut running: i64 = 0i64;
+    {
+        let __compylr_stop: i64 = n;
+        let __compylr_step: i64 = 1i64;
+        if __compylr_step == 0 {
+            return Err(RuntimeError::ZeroStep);
+        }
+        let mut __compylr_cursor: i64 = 0i64;
+        while (__compylr_step > 0 && __compylr_cursor < __compylr_stop)
+            || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
+        {
+            let i: i64 = __compylr_cursor;
+            running = PyAdd::py_add(&(running), &(i))?;
+            __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+        }
+    }
+    Ok(running)
+}

@@ -18,7 +18,10 @@ use crate::backend::{self, BackendError, GeneratedFiles};
 use crate::error::{FrontendError, LowerError};
 use crate::frontend::parse_source;
 use crate::ir::Unit;
-use crate::lower::{Signatures, collect_signatures, lower_source, lower_source_with};
+use crate::lower::{
+    ClassNames, ClassSignatures, Signatures, collect_class_names, collect_class_signatures,
+    collect_signatures, lower_source_members, lower_source_members_with,
+};
 
 /// Everything a successful compilation produces.
 #[derive(Debug, Clone)]
@@ -119,17 +122,31 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
         parsed_sources.push((source, parsed));
     }
 
-    let mut signatures = Signatures::new();
+    // Names are unioned across every source first. The decorator submits each member as its own
+    // source, so a call or a construction between two marked members is a reference across
+    // sources; without this, the arrangement the decorator always produces would not type.
+    let mut class_names = ClassNames::new();
     for (_, parsed) in &parsed_sources {
-        signatures.extend(collect_signatures(parsed));
+        class_names.extend(collect_class_names(parsed));
+    }
+    let mut signatures = Signatures::new();
+    let mut class_signatures = ClassSignatures::new();
+    for (_, parsed) in &parsed_sources {
+        signatures.extend(collect_signatures(parsed, &class_names));
+        class_signatures.extend(collect_class_signatures(parsed, &class_names));
     }
 
     let mut unit = Unit::new();
     for (source, parsed) in &parsed_sources {
-        let functions = lower_source_with(parsed, &signatures)
-            .map_err(|error| CompileFailure::from_lower(&error, source))?;
+        let (functions, classes) =
+            lower_source_members_with(parsed, &signatures, &class_signatures)
+                .map_err(|error| CompileFailure::from_lower(&error, source))?;
         for function in functions {
             unit.add_function(function)
+                .map_err(|error| CompileFailure::from_lower(&error, source))?;
+        }
+        for class in classes {
+            unit.add_class(class)
                 .map_err(|error| CompileFailure::from_lower(&error, source))?;
         }
     }
@@ -313,9 +330,13 @@ fn validate_source(py: Python<'_>, source: &str) -> PyResult<Vec<String>> {
         }
     })?;
 
-    let functions = lower_source(&parsed)
+    let (functions, classes) = lower_source_members(&parsed)
         .map_err(|error| CompileFailure::from_lower(&error, source).into_py_err(py))?;
-    Ok(functions.into_iter().map(|f| f.name).collect())
+    Ok(functions
+        .into_iter()
+        .map(|f| f.name)
+        .chain(classes.into_iter().map(|c| c.name))
+        .collect())
 }
 
 /// Every backend name compylr recognizes, implemented or not.

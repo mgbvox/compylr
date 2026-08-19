@@ -450,3 +450,243 @@ support.
 
 - **WHEN** a unit using collections is serialized twice
 - **THEN** the two outputs are byte-identical
+
+### Requirement: Control-flow statement forms
+
+The IR SHALL support conditional execution, bounded and unbounded repetition, and the two loop
+controls: a conditional carrying a test, a body, and an optional alternative; a loop carrying a
+test and a body; a loop carrying a bound name, an iterable expression, and a body; and statements
+that abandon or restart the enclosing loop.
+
+`elif` SHALL be represented as a conditional nested in the alternative of another, since that is
+what it means; the IR gains no separate form for it.
+
+#### Scenario: Conditional with no alternative
+
+- **WHEN** a function body contains an `if` with no `else`
+- **THEN** the IR contains a conditional carrying the test and the body, with no alternative
+
+#### Scenario: Conditional with an alternative
+
+- **WHEN** a function body contains an `if`/`else`
+- **THEN** the IR contains a conditional carrying both branches
+
+#### Scenario: elif nests
+
+- **WHEN** a function body contains `if`/`elif`/`else`
+- **THEN** the IR represents the `elif` as a conditional inside the first one's alternative
+
+#### Scenario: Conditional test is a boolean
+
+- **WHEN** a conditional is represented in the IR
+- **THEN** its test is an expression, and the type rules require that expression to be a boolean
+
+#### Scenario: Unbounded loop
+
+- **WHEN** a function body contains a `while`
+- **THEN** the IR contains a loop carrying the test and the body
+
+#### Scenario: Iterating loop
+
+- **WHEN** a function body contains a `for`
+- **THEN** the IR contains a loop carrying the bound name, the iterable, and the body
+
+#### Scenario: Loop control
+
+- **WHEN** a loop body contains `break` or `continue`
+- **THEN** the IR contains the corresponding statement
+
+#### Scenario: Bodies nest
+
+- **WHEN** a loop contains a conditional containing another loop
+- **THEN** the IR preserves the nesting
+
+### Requirement: Range expression
+
+The IR SHALL support a range as an expression form carrying a start, a stop, and a step. All three
+SHALL be present in the IR even when the source omitted them, so that a backend never has to know
+Python's defaulting rules.
+
+A range is a distinct form rather than a call, for the same reason length is: a call is resolved
+against the unit, so leaving it as one would make its meaning depend on what else was compiled.
+
+#### Scenario: Range carries all three components
+
+- **WHEN** `range(n)` is represented in the IR
+- **THEN** it carries a start of zero, a stop of `n`, and a step of one
+
+#### Scenario: Explicit bounds are preserved
+
+- **WHEN** `range(a, b, c)` is represented in the IR
+- **THEN** it carries each component as written
+
+#### Scenario: A range is not a call
+
+- **WHEN** a unit containing a range is validated
+- **THEN** validation does not attempt to resolve `range` as a function
+
+### Requirement: Control flow survives the artifact
+
+Every new statement and expression form SHALL serialize to the durable artifact and be
+reconstructible from it, deterministically, on the same terms as the existing forms.
+
+#### Scenario: A unit using every control-flow form round-trips
+
+- **WHEN** a unit containing a conditional, both loop forms, both loop controls, and a range is
+  serialized and deserialized
+- **THEN** the result compares structurally equal to the original
+
+#### Scenario: Nesting survives
+
+- **WHEN** a unit containing a loop inside a conditional inside a loop is round-tripped
+- **THEN** the nesting is preserved
+
+#### Scenario: The artifact stays target-neutral
+
+- **WHEN** an artifact describing control flow is inspected
+- **THEN** it names IR forms only, containing no target-language loop or branch syntax
+
+### Requirement: Element assignment and membership forms
+
+The IR SHALL support assigning to one element of a collection, as a statement carrying the
+collection, the index or key, and the value; and testing membership, as an expression carrying the
+value and the container.
+
+It SHALL also support appending to a sequence. Appending is represented explicitly rather than as a
+general method call: there is exactly one supported method, and a general form would need a method
+signature table before anything needed one.
+
+#### Scenario: Element assignment
+
+- **WHEN** a body assigns to a collection element
+- **THEN** the IR carries the collection, the index or key, and the value
+
+#### Scenario: Membership
+
+- **WHEN** a body tests membership
+- **THEN** the IR carries the value and the container
+
+#### Scenario: Negated membership
+
+- **WHEN** a body tests `not in`
+- **THEN** the IR represents it as the negation of a membership test rather than as its own form
+
+#### Scenario: Append
+
+- **WHEN** a body appends to a sequence
+- **THEN** the IR carries the sequence and the value, as a form distinct from a call
+
+#### Scenario: Appending is not resolved as a call
+
+- **WHEN** a unit containing an append is validated
+- **THEN** validation does not attempt to resolve `append` as a function in the unit
+
+#### Scenario: The new forms survive the artifact
+
+- **WHEN** a unit containing element assignment, membership, and append is round-tripped
+- **THEN** the result compares structurally equal to the original
+
+### Requirement: A unit holds classes as well as functions
+
+The IR SHALL model a class as a member of a compilation unit, carrying its name, its attributes
+with their types in declaration order, and its methods. Classes and functions SHALL share one
+namespace: a unit SHALL refuse a class whose name is already taken by a function, and the reverse.
+
+A unit's ordering and fingerprint guarantees SHALL extend to classes: members SHALL be exposed in
+an order determined by content rather than by addition order, and a unit's fingerprint SHALL cover
+each class's structure.
+
+#### Scenario: A class is a unit member
+
+- **WHEN** a class is added to a unit
+- **THEN** the unit contains it, alongside any functions
+
+#### Scenario: Names are shared across kinds
+
+- **WHEN** a class is added to a unit already containing a function of that name
+- **THEN** the unit refuses the addition and reports the conflicting name
+
+#### Scenario: Ordering is content-determined
+
+- **WHEN** the same classes and functions are added to two units in different orders
+- **THEN** both expose their members in the same order
+
+#### Scenario: A class contributes to the fingerprint
+
+- **WHEN** a method body is changed
+- **THEN** the unit's fingerprint differs from its previous value
+
+#### Scenario: A unit without classes fingerprints unchanged
+
+- **WHEN** a unit containing only functions is fingerprinted
+- **THEN** the value is what it was before classes existed, so existing caches stay valid
+
+#### Scenario: Attribute order follows declaration
+
+- **WHEN** a class declaring three attributes is represented in the IR
+- **THEN** they appear in the order declared
+
+### Requirement: Instance types
+
+The type model SHALL gain an instance type naming a class. It SHALL be usable wherever a type is,
+including as a collection's parameter, and SHALL be distinct from every scalar and from every other
+class's instance type.
+
+An instance type SHALL NOT be usable as a mapping key or set element: the type model restricts
+those to what can be compared and hashed, and an instance has no defined ordering or hash here.
+
+#### Scenario: A class name is a type
+
+- **WHEN** a value is declared with a class's name as its annotation
+- **THEN** its IR type is that class's instance type
+
+#### Scenario: Two classes are distinct types
+
+- **WHEN** the instance types of two different classes are compared
+- **THEN** they are different types
+
+#### Scenario: Instances nest in collections
+
+- **WHEN** a value is declared as a sequence of a class
+- **THEN** its IR type is a sequence whose element type is that instance type
+
+#### Scenario: An instance cannot be a key
+
+- **WHEN** a mapping keyed by an instance type is considered
+- **THEN** the type model provides no IR type for it
+
+#### Scenario: An instance is not trivially copyable
+
+- **WHEN** the copyability of an instance type is considered
+- **THEN** it is treated as a type that must be cloned where consumed, like a collection
+
+### Requirement: Attribute and construction forms
+
+The IR SHALL support reading an attribute, assigning an attribute, and constructing an instance.
+Construction SHALL carry the class name and its arguments, distinct from a call to a function.
+
+#### Scenario: Attribute read
+
+- **WHEN** an attribute is read
+- **THEN** the IR carries the object expression and the attribute name
+
+#### Scenario: Attribute assignment
+
+- **WHEN** an attribute is assigned
+- **THEN** the IR carries the object expression, the attribute name, and the value
+
+#### Scenario: Construction is distinct from a call
+
+- **WHEN** a class is constructed
+- **THEN** the IR represents it as a construction carrying the class name, not as a function call
+
+#### Scenario: The new forms survive the artifact
+
+- **WHEN** a unit containing a class, attribute access, attribute assignment, and construction is
+  round-tripped
+- **THEN** the result compares structurally equal to the original
+
+#### Scenario: The artifact stays target-neutral
+
+- **WHEN** an artifact describing a class is inspected
+- **THEN** it names IR forms only, containing no target-language struct or trait syntax

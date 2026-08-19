@@ -15,6 +15,12 @@ classifiers = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11", "maturin>=1.9,<2.0"]
 
+[project.scripts]
+# The Python entry point. The Rust binary keeps its `--emit` surface and is reached through
+# `cargo run` during compiler development -- see the README, because this changes what the name
+# refers to for anyone who was invoking the binary directly.
+compylr = "compylr._precompile:main"
+
 [tool.maturin]
 # Mixed layout: the Python package lives in `python/compylr`, and the compiled half of it is
 # `compylr._core`. `python/fixtures` sits alongside but is not a package, so it is not packaged.

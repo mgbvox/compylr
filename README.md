@@ -64,7 +64,8 @@ a single one-line function produced 238 lines and the translation was lines 200�
 | `native-bridge` | `compylr._core`, exposing the compiler to Python and its diagnostics as exceptions |
 | `build-pipeline` | The shared crate, the artifacts on disk, and the fingerprint-keyed rebuild decision |
 | `python-api` | `initialize`, the decorator's two forms, settings resolution, and swapping in |
-| `cli` | The command line: what it compiles, what it emits, and how it reports rejections |
+| `cli` | The command line: precompiling a project, what it emits, and how it reports rejections |
+| `demo` | The worked example: what it must contain, that it compiles, and that this repo verifies it |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
@@ -108,6 +109,59 @@ Artifacts live in `.compylr/`, found by searching upward from the working direct
 reuses what it already built. *If you built with an earlier version, the first run after upgrading
 may rebuild once as the directory moves to the project root — that is the move, not a cache bug.*
 
+## The worked example
+
+[`demo/`](demo/) is a complete uv project, not a snippet: three nth-prime implementations —
+recursive, iterative, and memoized — that each compile, and that are asserted to agree with a plain
+interpreted reference and with each other.
+
+```bash
+cd demo && uv sync
+uv run compylr compyle src
+uv run python -m nth_prime 25
+```
+
+It is verified by this repository's own suite, so it cannot rot unnoticed, and its README records
+the gaps it found — including that marked names are shared across a project and that there is no
+`not`.
+
+## Precompiling
+
+The first call to a marked function builds the project, which makes that call slow. For anything
+starting under a request — a container image, a serverless handler — that cost lands in the wrong
+place. Move it to build time:
+
+```bash
+compylr compyle ./my-project
+```
+
+```
+compylr: /path/to/my-project
+  imported 3 module(s); found 4 function(s) and 1 class(es)
+  built
+```
+
+Measured on a one-function project: **7.36s** to precompile cold, **0.009s** for a later run that
+reuses it. The first call after precompiling does no work at all.
+
+> **`compylr` is the Python command**, installed with the wheel. The Rust binary keeps its `--emit`
+> surface and is reached through `cargo run` during compiler development — if you were invoking the
+> binary as `compylr`, that is what changed.
+
+Discovery **imports** every module beneath the root, so module-level code runs. That is inherent: a
+decorator only registers when it runs, and anything reading source text instead would need its own
+notion of what `@c.compyle` looks like — one that drifts from the runtime's the moment someone
+aliases the import or decorates conditionally. A precompiler that silently misses a function is
+worse than none, because the symptom is a slow first call rather than an error.
+
+The cost is bounded rather than hidden: never installed packages, and never `.venv`, `__pycache__`,
+`.git`, `.compylr`, or build output. A module that raises on import is reported and skipped, so one
+broken file does not stop the rest.
+
+Three outcomes are distinguishable from the exit status alone: built or reused (`0`), nothing marked
+(`3`), and failure (`1`, or `2` for a bad root). Nothing-marked is deliberately not success — an
+image that precompiles nothing has failed at what it was there for.
+
 ## Supported subset
 
 Functions at top level only, with mandatory parameter and return annotations.
@@ -127,9 +181,10 @@ Functions at top level only, with mandatory parameter and return annotations.
 Operators: `+` `-` `*` `/` `//` `%` and the comparisons `==` `!=` `<` `<=` `>` `>=`, plus unary
 negation and calls to functions in the same unit.
 
-Statements: `return`, `pass`, and local bindings.
+Statements: `return`, `pass`, local bindings, reassignment, `if`/`elif`/`else`, `while`, `for`,
+`break`, and `continue`.
 
-Collections support literals, subscripting, and `len`, read-only:
+Collections support literals, subscripting, `len`, membership, and mutation of **locals**:
 
 ```python
 @c.compyle
@@ -148,8 +203,56 @@ Sequences and tuples keep their order.
 Keys and set elements are restricted to `int`, `str`, and `bool`: a float key can never be
 retrieved once it is `nan`, and most targets cannot hash a float at all.
 
-Not supported: mutation (`append`, `xs[0] = v`), iteration, comprehensions, slicing, and
-membership.
+```python
+@c.compyle
+def evens_below(limit: int) -> list[int]:
+    found: list[int] = []
+    for n in range(limit):
+        if n % 2 == 0:
+            found.append(n)     # the shape loops exist for
+    return found
+
+@c.compyle
+def counts(words: list[str]) -> dict[str, int]:
+    seen: dict[str, int] = {}
+    for word in words:
+        if word in seen:        # `in` tests a mapping's keys, as Python does
+            seen[word] = seen[word] + 1
+        else:
+            seen[word] = 1      # assignment creates a key; reading a missing one still raises
+    return seen
+```
+
+**Mutating a parameter is rejected**, and this is the one rule most likely to surprise:
+
+```python
+@c.compyle
+def f(xs: list[int]) -> None:
+    xs.append(1)                # rejected: a collection parameter is a copy
+```
+
+Collections cross the boundary by value. If that compiled, the caller's list would be silently
+unchanged where the interpreted original would have modified it — a wrong answer with no error.
+Rejecting it makes the program not exist rather than making the divergence documented.
+
+**Aliasing does not get around it.** `copied = xs` binds a second name to the same object in Python
+and copies in compylr, so mutating `copied` is the same hazard one line further out and is rejected
+the same way, transitively. Build a *fresh* collection and fill it:
+
+```python
+@c.compyle
+def doubled(xs: list[int]) -> list[int]:
+    out: list[int] = []
+    for x in xs:
+        out.append(x * 2)     # the workaround, and the shape you wanted anyway
+    return out
+```
+
+`append` is the only supported method; any other is rejected with a diagnostic naming it. `in` and
+`not in` work over a list, dict, set, and str — a **dict tests its keys** and a **str tests
+substrings** (`"ab" in "cab"` is true), both matching Python.
+
+Not supported: comprehensions, slicing, deletion, and every method except `append`.
 
 A **docstring** is permitted in first position and carries no runtime meaning, so ordinary
 documented code compiles:
@@ -206,10 +309,103 @@ module is invisible at that moment; rejecting it would make whether your code co
 which function you happened to decorate first. Such a call is still checked — once every source is
 assembled into one unit.
 
-A function that declares a return type must return one: `def f() -> int: pass` is rejected with
-its location.
+### Control flow
 
-Not supported yet: control flow, loops, classes, imports, generics, and reassignment.
+Branches, both loop forms, and `break`/`continue`:
+
+```python
+@c.compyle
+def nth_prime(n: int) -> int:
+    found = 0
+    candidate = 1
+    while found < n:
+        candidate = candidate + 1
+        if is_prime(candidate):
+            found = found + 1
+    return candidate
+
+@c.compyle
+def fib(n: int) -> int:
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)     # recursion works: signatures are collected first
+```
+
+Three rules are **stricter than Python**, each to keep a runtime surprise from becoming a compiled
+one:
+
+* **A test must be a `bool`.** `if n:` is rejected. A subset that demands annotations everywhere
+  should not then infer that an integer means a condition.
+* **A block is a scope.** A name bound inside a branch or loop is gone when it ends, so reading it
+  afterwards is rejected — Python leaks such a name into the function and fails at runtime if the
+  branch did not run.
+* **A name keeps the type it was first bound at.** `i = 0` then `i = "x"` is rejected; `i = i + 1`
+  is fine, and updates the binding rather than shadowing it. An annotation on a rebinding is a
+  re-declaration and is also rejected.
+
+`for` iterates a range or a collection. A mapping yields its **keys**, as Python does:
+
+```python
+for i in range(10, 0, -2):    # 10, 8, 6, 4, 2 — a negative step, which Rust's `..` cannot express
+    ...
+for key in mapping:           # keys, not values or pairs
+    ...
+```
+
+`range` takes one, two, or three integers and is only valid as what a `for` iterates — there is no
+range value in the subset. A zero step raises `ValueError` before the loop starts rather than
+spinning forever. `range` and `len` are both reserved names.
+
+A function that declares a return type must return one **on every path**: a conditional counts only
+when it has an `else` and both branches return, and a loop never counts, because its body may run
+zero times.
+
+```python
+def f(a: int) -> int:
+    if a > 0:
+        return 1     # rejected: the path where the test is false produces no value
+```
+
+### Classes
+
+A class gives state somewhere to live that outlives a call — which is what a memoized function
+needs, and what free functions over values cannot provide:
+
+```python
+@c.compyle
+class PrimeCache:
+    def __init__(self) -> None:
+        self.known: dict[int, bool] = {}     # every attribute declared here, annotated
+
+    def is_prime(self, n: int) -> bool:
+        if n in self.known:
+            return self.known[n]
+        ...
+        self.known[n] = answer                # persists to the next call
+        return answer
+```
+
+**Every attribute is declared in `__init__`, with an annotation, or not at all.** Python lets one
+appear anywhere; without this rule the compiled struct's fields would depend on which methods
+happened to run.
+
+The contrast worth holding onto, because it is the thing people get wrong:
+
+| | crosses as | so a compiled function… |
+| --- | --- | --- |
+| a collection **parameter** | a copy | cannot mutate it — mutation is rejected |
+| an **instance** | itself | can mutate it, and the caller sees it next call |
+
+An instance is not converted at the boundary at all: the Python object holds the Rust value, and a
+method borrows it from there. That asymmetry is exactly why an attribute can be a cache.
+
+A method taking a mutable receiver is derived, including through calls — a method whose body is only
+`self.bump()` mutates too.
+
+Not supported: inheritance, `@property`, class attributes, `@dataclass`, and any dunder but
+`__init__`.
+
+Not supported yet: imports, generics, `try`, `with`, and `for`/`else`.
 
 ## Getting started
 

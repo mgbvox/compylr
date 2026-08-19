@@ -1,0 +1,31 @@
+---
+source: tests/emit_quality.rs
+assertion_line: 121
+expression: functions.trim()
+---
+//! Translated from Python by compylr.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
+    py_truediv,
+};
+
+/// Return the sum of two integers.
+pub fn add(a: i64, b: i64) -> Result<i64, RuntimeError> {
+    Ok(PyAdd::py_add(&(a), &(b))?)
+}
+
+/// Scale a value.
+///
+///     A longer explanation, spanning several lines, with a blank line above.
+///     
+pub fn described(n: i64) -> Result<i64, RuntimeError> {
+    let doubled: i64 = PyNum::py_mul(&(n), &(2i64))?;
+    Ok(doubled)
+}
+
+pub fn undocumented(n: i64) -> Result<i64, RuntimeError> {
+    Ok(n)
+}

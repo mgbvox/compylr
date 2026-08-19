@@ -53,7 +53,7 @@ mod signature_collection {
             "def b(x: float, y: str) -> bool:\n    return True\n",
         ))
         .unwrap();
-        let sigs = collect_signatures(&parsed);
+        let sigs = collect_signatures(&parsed, &Default::default());
 
         assert_eq!(sigs["a"].params, vec![Ty::Int]);
         assert_eq!(sigs["a"].ret, Ty::Int);
@@ -68,14 +68,17 @@ mod signature_collection {
         let parsed =
             parse_source("def a(x: int) -> int:\n    while x:\n        pass\n    return x\n")
                 .unwrap();
-        assert_eq!(collect_signatures(&parsed)["a"].ret, Ty::Int);
+        assert_eq!(
+            collect_signatures(&parsed, &Default::default())["a"].ret,
+            Ty::Int
+        );
     }
 
     #[test]
     fn a_function_without_annotations_contributes_nothing() {
         // It cannot be typed, and `lower_function` reports it properly in source order.
         let parsed = parse_source("def a(x):\n    return x\n").unwrap();
-        assert!(collect_signatures(&parsed).is_empty());
+        assert!(collect_signatures(&parsed, &Default::default()).is_empty());
     }
 }
 

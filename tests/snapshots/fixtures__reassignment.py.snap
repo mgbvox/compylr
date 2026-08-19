@@ -1,0 +1,162 @@
+---
+source: tests/fixtures.rs
+assertion_line: 52
+expression: functions
+---
+[
+    Function {
+        name: "increment",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Assign {
+                name: "n",
+                ty: Int,
+                value: Binary {
+                    op: Add,
+                    left: Name(
+                        "n",
+                    ),
+                    right: Literal(
+                        Int(
+                            1,
+                        ),
+                    ),
+                },
+            },
+            Return(
+                Name(
+                    "n",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 0,
+            end: 56,
+        },
+    },
+    Function {
+        name: "accumulate",
+        params: [
+            Param {
+                name: "limit",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Bind {
+                name: "i",
+                ty: Int,
+                value: Literal(
+                    Int(
+                        0,
+                    ),
+                ),
+            },
+            Bind {
+                name: "total",
+                ty: Int,
+                value: Literal(
+                    Int(
+                        0,
+                    ),
+                ),
+            },
+            While {
+                test: Binary {
+                    op: Lt,
+                    left: Name(
+                        "i",
+                    ),
+                    right: Name(
+                        "limit",
+                    ),
+                },
+                body: [
+                    Assign {
+                        name: "total",
+                        ty: Int,
+                        value: Binary {
+                            op: Add,
+                            left: Name(
+                                "total",
+                            ),
+                            right: Name(
+                                "i",
+                            ),
+                        },
+                    },
+                    Assign {
+                        name: "i",
+                        ty: Int,
+                        value: Binary {
+                            op: Add,
+                            left: Name(
+                                "i",
+                            ),
+                            right: Literal(
+                                Int(
+                                    1,
+                                ),
+                            ),
+                        },
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "total",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 59,
+            end: 199,
+        },
+    },
+    Function {
+        name: "widened",
+        params: [],
+        ret: Float,
+        body: [
+            Bind {
+                name: "x",
+                ty: Float,
+                value: Literal(
+                    Float(
+                        4607182418800017408,
+                    ),
+                ),
+            },
+            Assign {
+                name: "x",
+                ty: Float,
+                value: ToFloat(
+                    Literal(
+                        Int(
+                            2,
+                        ),
+                    ),
+                ),
+            },
+            Return(
+                Name(
+                    "x",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 202,
+            end: 267,
+        },
+    },
+]

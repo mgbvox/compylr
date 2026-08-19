@@ -1,0 +1,38 @@
+---
+source: tests/emit_quality.rs
+assertion_line: 121
+expression: functions.trim()
+---
+//! Translated from Python by compylr.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
+    py_truediv,
+};
+
+pub fn f(a: i64) -> Result<i64, RuntimeError> {
+    let b: i64 = helper(a)?;
+    Ok(b)
+}
+
+pub fn forward(a: i64) -> Result<i64, RuntimeError> {
+    Ok(later(a)?)
+}
+
+pub fn helper(n: i64) -> Result<i64, RuntimeError> {
+    Ok(n)
+}
+
+pub fn later(a: i64) -> Result<i64, RuntimeError> {
+    Ok(PyAdd::py_add(&(a), &(1i64))?)
+}
+
+pub fn promoted(a: i64) -> Result<f64, RuntimeError> {
+    Ok(scale(((a) as f64))?)
+}
+
+pub fn scale(x: f64) -> Result<f64, RuntimeError> {
+    Ok(PyNum::py_mul(&(x), &(2.0f64))?)
+}

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use compylr::error::LowerErrorKind;
 use compylr::frontend::parse_file;
 use compylr::ir::{Function, Unit};
-use compylr::lower::lower_source;
+use compylr::lower::lower_source_members;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/fixtures")
@@ -18,7 +18,7 @@ fn fixtures_dir() -> PathBuf {
 
 fn lower_fixture(path: &Path) -> Result<Vec<Function>, compylr::error::LowerError> {
     let parsed = parse_file(path).expect("fixture must parse as valid Python");
-    lower_source(&parsed)
+    lower_source_members(&parsed).map(|(functions, _)| functions)
 }
 
 fn accepted(name: &str) -> Vec<Function> {
@@ -36,19 +36,19 @@ fn rejected(name: &str) -> LowerErrorKind {
 
 #[test]
 fn accepted_fixtures_lower_to_stable_ir() {
-    for name in [
-        "arithmetic.py",
-        "comparisons.py",
-        "aliases.py",
-        "calls.py",
-        "inference.py",
-        "floats.py",
-        "division.py",
-        "documented.py",
-        "call_inference.py",
-        "collections.py",
-    ] {
-        let functions = accepted(name);
+    // Read from the directory rather than listed, so a fixture added later is snapshotted rather
+    // than quietly uncovered.
+    let mut names: Vec<String> = std::fs::read_dir(fixtures_dir().join("accepted"))
+        .expect("accepted fixtures directory must exist")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".py") && !name.starts_with("cross_source_"))
+        .collect();
+    names.sort();
+    assert!(!names.is_empty(), "there must be accepted fixtures");
+
+    for name in names {
+        let functions = accepted(&name);
         insta::assert_debug_snapshot!(name, functions);
     }
 }
@@ -77,8 +77,8 @@ fn every_rejected_fixture_fails_with_the_expected_kind() {
         ("kwargs.py", LowerErrorKind::UnsupportedConstruct),
         ("default_value.py", LowerErrorKind::UnsupportedConstruct),
         ("keyword_only.py", LowerErrorKind::UnsupportedConstruct),
-        ("if_statement.py", LowerErrorKind::UnsupportedConstruct),
-        ("while_loop.py", LowerErrorKind::UnsupportedConstruct),
+        ("non_boolean_test.py", LowerErrorKind::TypeMismatch),
+        ("non_boolean_loop_test.py", LowerErrorKind::TypeMismatch),
         ("import_statement.py", LowerErrorKind::UnsupportedConstruct),
         ("class_definition.py", LowerErrorKind::UnsupportedConstruct),
         ("exponentiation.py", LowerErrorKind::UnsupportedConstruct),
@@ -93,7 +93,7 @@ fn every_rejected_fixture_fails_with_the_expected_kind() {
         ("big_integer.py", LowerErrorKind::LiteralOutOfRange),
         ("unbound_name.py", LowerErrorKind::Unresolved),
         ("alias_of_unbound.py", LowerErrorKind::Unresolved),
-        ("rebind_local.py", LowerErrorKind::Reassignment),
+        ("redeclare_local.py", LowerErrorKind::Reassignment),
         ("conflicting_annotation.py", LowerErrorKind::TypeMismatch),
         ("bare_expression.py", LowerErrorKind::UnsupportedConstruct),
         ("trailing_string.py", LowerErrorKind::UnsupportedConstruct),
@@ -109,6 +109,17 @@ fn every_rejected_fixture_fails_with_the_expected_kind() {
         ),
         ("slicing.py", LowerErrorKind::UnsupportedConstruct),
         ("reserved_len.py", LowerErrorKind::UnsupportedConstruct),
+        ("reserved_range.py", LowerErrorKind::UnsupportedConstruct),
+        (
+            "range_outside_loop.py",
+            LowerErrorKind::UnsupportedConstruct,
+        ),
+        (
+            "break_outside_loop.py",
+            LowerErrorKind::LoopControlOutsideLoop,
+        ),
+        ("branch_bound_name.py", LowerErrorKind::Unresolved),
+        ("one_branch_returns.py", LowerErrorKind::MissingReturn),
     ];
 
     for (name, expected) in cases {
@@ -130,7 +141,7 @@ fn every_rejected_fixture_is_covered_by_the_table() {
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "py"))
         .count();
-    assert_eq!(count, 41, "update the rejection table when adding fixtures");
+    assert_eq!(count, 58, "update the rejection table when adding fixtures");
 }
 
 #[test]
@@ -175,7 +186,7 @@ fn formatting_differences_do_not_change_fingerprints() {
 
     let lower_text = |source: &str| {
         let parsed = compylr::frontend::parse_source(source).unwrap();
-        lower_source(&parsed).unwrap()
+        lower_source_members(&parsed).unwrap().0
     };
 
     let a = lower_text(plain);

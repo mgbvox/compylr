@@ -1,12 +1,16 @@
 ---
 source: tests/emit_quality.rs
+assertion_line: 107
 expression: functions.trim()
 ---
 //! Translated from Python by compylr.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::compat::{PyAdd, PyLen, PyNum, RuntimeError, py_subscript, py_truediv};
+use crate::compat::{
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
+    py_truediv,
+};
 
 pub fn alias_chain(a: bool) -> Result<bool, RuntimeError> {
     let b: bool = a;

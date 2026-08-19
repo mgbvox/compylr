@@ -32,12 +32,12 @@ def capture_source(function: Callable[..., Any]) -> str:
 def _strip_decorators(source: str) -> str:
     """Remove decorator lines preceding the definition.
 
-    The `@c.compyle` line is not part of the function being compiled, and leaving it in would make
+    The `@c.compyle` line is not part of the member being compiled, and leaving it in would make
     the source fail lowering on a construct the user did not write for the compiler.
 
-    Parsing rather than scanning for `def`: a decorator can span several lines and can contain a
-    string holding the word `def`, so the AST is the only thing that knows where the decorators
-    actually end.
+    Parsing rather than scanning for `def` or `class`: a decorator can span several lines and can
+    contain a string holding either word, so the AST is the only thing that knows where the
+    decorators actually end.
     """
     try:
         tree = ast.parse(source)
@@ -48,9 +48,13 @@ def _strip_decorators(source: str) -> str:
     if not tree.body:
         return source
     node = tree.body[0]
-    if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) or not node.decorator_list:
+    if (
+        not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        or not node.decorator_list
+    ):
         return source
 
     lines = source.splitlines(keepends=True)
-    # `node.lineno` is the `def` line even when decorators precede it, and it is 1-based.
+    # `node.lineno` is the `def` or `class` line even when decorators precede it, and it is
+    # 1-based.
     return "".join(lines[node.lineno - 1 :])

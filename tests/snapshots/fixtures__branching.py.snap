@@ -1,0 +1,205 @@
+---
+source: tests/fixtures.rs
+assertion_line: 52
+expression: functions
+---
+[
+    Function {
+        name: "sign",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            If {
+                test: Binary {
+                    op: Gt,
+                    left: Name(
+                        "n",
+                    ),
+                    right: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                },
+                then: [
+                    Return(
+                        Literal(
+                            Int(
+                                1,
+                            ),
+                        ),
+                    ),
+                ],
+                otherwise: [
+                    If {
+                        test: Binary {
+                            op: Lt,
+                            left: Name(
+                                "n",
+                            ),
+                            right: Literal(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                        },
+                        then: [
+                            Return(
+                                Neg(
+                                    Literal(
+                                        Int(
+                                            1,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ],
+                        otherwise: [
+                            Return(
+                                Literal(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                            ),
+                        ],
+                    },
+                ],
+            },
+        ],
+        doc: None,
+        span: Span {
+            start: 0,
+            end: 116,
+        },
+    },
+    Function {
+        name: "clamp",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+            Param {
+                name: "low",
+                ty: Int,
+            },
+            Param {
+                name: "high",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            If {
+                test: Binary {
+                    op: Lt,
+                    left: Name(
+                        "n",
+                    ),
+                    right: Name(
+                        "low",
+                    ),
+                },
+                then: [
+                    Return(
+                        Name(
+                            "low",
+                        ),
+                    ),
+                ],
+                otherwise: [],
+            },
+            If {
+                test: Binary {
+                    op: Gt,
+                    left: Name(
+                        "n",
+                    ),
+                    right: Name(
+                        "high",
+                    ),
+                },
+                then: [
+                    Return(
+                        Name(
+                            "high",
+                        ),
+                    ),
+                ],
+                otherwise: [],
+            },
+            Return(
+                Name(
+                    "n",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 119,
+            end: 250,
+        },
+    },
+    Function {
+        name: "describe",
+        params: [
+            Param {
+                name: "n",
+                ty: Int,
+            },
+        ],
+        ret: Str,
+        body: [
+            Bind {
+                name: "label",
+                ty: Str,
+                value: Literal(
+                    Str(
+                        "small",
+                    ),
+                ),
+            },
+            If {
+                test: Binary {
+                    op: Gt,
+                    left: Name(
+                        "n",
+                    ),
+                    right: Literal(
+                        Int(
+                            100,
+                        ),
+                    ),
+                },
+                then: [
+                    Assign {
+                        name: "label",
+                        ty: Str,
+                        value: Literal(
+                            Str(
+                                "large",
+                            ),
+                        ),
+                    },
+                ],
+                otherwise: [],
+            },
+            Return(
+                Name(
+                    "label",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 253,
+            end: 358,
+        },
+    },
+]

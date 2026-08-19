@@ -1,0 +1,86 @@
+---
+source: tests/emit_quality.rs
+assertion_line: 126
+expression: functions.trim()
+---
+//! Translated from Python by compylr.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
+    py_truediv,
+};
+
+#[derive(Clone)]
+pub struct Cache {
+    pub entries: HashMap<i64, i64>,
+    pub log: Vec<i64>,
+}
+
+impl Cache {
+    pub fn __compylr_new() -> Result<Self, RuntimeError> {
+        let entries: HashMap<i64, i64> = HashMap::from([]);
+        let log: Vec<i64> = vec![];
+        Ok(Self { entries, log })
+    }
+
+    pub fn has(&self, k: i64) -> Result<bool, RuntimeError> {
+        Ok(PyContains::py_contains(&((self).entries.clone()), &(k)))
+    }
+
+    pub fn put(&mut self, k: i64, v: i64) -> Result<(), RuntimeError> {
+        {
+            let __compylr_value = v.clone();
+            let __compylr_index = k.clone();
+            PySetItem::py_set(&mut ((self).entries), &__compylr_index, __compylr_value)?;
+        }
+        {
+            let __compylr_value = k.clone();
+            ((self).log).push(__compylr_value);
+        }
+        Ok(())
+    }
+
+    pub fn size(&self) -> Result<i64, RuntimeError> {
+        Ok(PyLen::py_len(&((self).entries.clone())))
+    }
+}
+
+/// Mutable state scoped to an object, which a free function cannot hold.
+#[derive(Clone)]
+pub struct Counter {
+    pub count: i64,
+}
+
+impl Counter {
+    pub fn __compylr_new(start: i64) -> Result<Self, RuntimeError> {
+        let count: i64 = start;
+        Ok(Self { count })
+    }
+
+    pub fn bump(&mut self, by: i64) -> Result<(), RuntimeError> {
+        (self).count = PyAdd::py_add(&((self).count.clone()), &(by))?;
+        Ok(())
+    }
+
+    pub fn bump_twice(&mut self, by: i64) -> Result<(), RuntimeError> {
+        (self).bump(by)?;
+        (self).bump(by)?;
+        Ok(())
+    }
+
+    pub fn get(&self) -> Result<i64, RuntimeError> {
+        Ok((self).count.clone())
+    }
+}
+
+pub fn build(start: i64) -> Result<Counter, RuntimeError> {
+    let mut c: Counter = Counter::__compylr_new(start)?;
+    (c).bump(1i64)?;
+    Ok(c.clone())
+}
+
+pub fn read(c: Counter) -> Result<i64, RuntimeError> {
+    Ok((c).count.clone())
+}

@@ -1,5 +1,6 @@
 ---
 source: tests/fixtures.rs
+assertion_line: 52
 expression: functions
 ---
 [
@@ -147,9 +148,7 @@ expression: functions
         name: "nothing",
         params: [],
         ret: Unit,
-        body: [
-            ReturnUnit,
-        ],
+        body: [],
         doc: None,
         span: Span {
             start: 251,
