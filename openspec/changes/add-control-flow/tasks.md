@@ -85,8 +85,8 @@
 
 ## 12. Verification
 
-- [ ] 12.1 Run `cargo fmt`, `cargo clippy -p compylr --all-targets -- -D warnings`, and `cargo test` twice, confirming the suite is stable across runs
-- [ ] 12.2 Run `pytest`, `ruff check python/`, and `mypy python/compylr`; run coverage with the venv deactivated
-- [ ] 12.3 Confirm Rust coverage over `src/` still exceeds 80%
-- [ ] 12.4 Update the README's supported-subset section and `CLAUDE.md`'s current state
-- [ ] 12.5 Run `openspec validate add-control-flow --strict` and confirm every scenario in all three delta specs has a passing test
+- [x] 12.1 Run `cargo fmt`, `cargo clippy -p compylr --all-targets -- -D warnings`, and `cargo test` twice, confirming the suite is stable across runs
+- [x] 12.2 Run `pytest`, `ruff check python/`, and `mypy python/compylr`; run coverage with the venv deactivated
+- [x] 12.3 Confirm Rust coverage over `src/` still exceeds 80%
+- [x] 12.4 Update the README's supported-subset section and `CLAUDE.md`'s current state
+- [x] 12.5 Run `openspec validate add-control-flow --strict` and confirm every scenario in all three delta specs has a passing test

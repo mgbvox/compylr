@@ -41,8 +41,10 @@ validating it immediately and compiling the whole project on the first call. Bot
 (the IR as JSON, the generated Rust) are written under `.compylr/` on every build.
 
 Supported Python subset: top-level `def`s only, fully annotated (`int`/`float`/`bool`/`str`, the
-collections `list[T]`/`dict[K,V]`/`set[T]`/`tuple[...]`, plus `None` as a return type); bodies of `return`, `pass`, and assignment, optionally preceded by a
-docstring; expressions of literals, names, unary minus, `+ - * / // %`, comparisons, and calls.
+collections `list[T]`/`dict[K,V]`/`set[T]`/`tuple[...]`, plus `None` as a return type); bodies of
+`return`, `pass`, assignment, reassignment, `if`/`elif`/`else`, `while`, `for`, `break`, and
+`continue`, optionally preceded by a docstring; expressions of literals, names, unary minus,
+`+ - * / // %`, comparisons, and calls. **Recursion works**, including mutual recursion.
 Local bindings infer their type whenever the initializer determines it, **including calls to
 functions in the same source**: signatures are collected in a first pass, so a function may call
 one defined below it. A call to a function in another module stays undetermined and needs an
@@ -50,8 +52,33 @@ annotation — the decorator validates one function at a time, so rejecting an u
 make acceptance depend on decoration order. `Unit::validate` still catches a callee that exists
 nowhere.
 
-A function declaring a return type must return one; `def f() -> int: pass` is a located lowering
-error rather than a backend failure.
+A function declaring a return type must return one **on every path**; `def f() -> int: pass` is a
+located lowering error rather than a backend failure. Reachability lives in `ir::returns_on_all_paths`
+and is shared by lowering and the backend deliberately — two implementations disagreeing would mean
+either rejecting a valid program or emitting code that does not compile, and the second surfaces as
+a complaint about Rust rather than about the user's function.
+
+Three control-flow rules are **stricter than Python**, and each will look like a bug until you know
+why:
+
+* **A test must be a `bool`.** `if n:` is rejected. Annotations are mandatory everywhere else, so
+  inferring that an integer means a condition would be the one place the subset guesses.
+* **A block is a scope for names.** A name bound in a branch or loop does not survive it. The names
+  that go out of scope are remembered anyway, purely so the diagnostic can say the binding may not
+  have happened rather than that the name is unknown — it is right there a few lines up, so "not
+  defined" reads as a compiler bug.
+* **A name keeps the type it was first bound at.** Reassignment writes to the frame that *owns* the
+  name, which is what makes `i = i + 1` inside a loop update the counter outside it. An annotation
+  on a rebinding is a re-declaration and is rejected.
+
+`pass` lowers to **no statement at all**. It used to lower to a unit return, which was harmless
+when a body could not contain a loop and would now make `for i in range(n): pass` exit the function.
+
+`range` is a reserved name like `len`, valid only as what a `for` iterates — there is no range value
+in the IR. It is not emitted as Rust's `..`: that counts up by one, `step_by` takes an unsigned step,
+and neither composes with a computed or negative step, so the loop is written out against a cursor
+the body cannot disturb. A zero step is rejected *before* the loop, because the condition would never
+change and a hang leaves nothing to diagnose from.
 
 A **docstring** is accepted in first position and carries no runtime meaning; it is kept on the IR
 function, emitted as a `///` comment, and deliberately **excluded from the fingerprint**, so
@@ -63,11 +90,20 @@ Known gaps worth knowing before you trip on them:
 
 * **Collections are read-only and cross by value**, and a returned `dict` has no guaranteed key
   order — it varies between runs. Chosen deliberately; `add-collection-types` design D7 records
-  what reversing it costs.
+  what reversing it costs. Iteration is where a user meets this: `for k in d` yields keys, in
+  whatever order the map gives, so **never assert on mapping or set iteration order** — the suite
+  would become flaky rather than the compiler being wrong.
+* **A `for` snapshots what it iterates.** Python's `for` holds the object, so rebinding the name in
+  the body must not change what is iterated; the emitted code clones, which says that directly and
+  keeps a loop-long borrow out of the borrow checker's way.
 * **Compiling needs `cargo` and `maturin` at runtime.** Installing compylr gets the compiler,
   not the ability to build what it generates.
 * **`llm_assist` is accepted but refused when enabled**, and `typescript`/`go`/`cpp` are reserved
   backend names that fail with a message saying they are planned.
+* **Both fixture lists are read from the directory, not hardcoded.** `tests/emit_quality.rs` and
+  `tests/fixtures.rs` enumerate `python/fixtures/accepted/`. They were once lists, drifted, and
+  hid a real defect: tuple indexing emitted a `py_subscript` call with no tuple impl, so
+  `collections.py` had been producing code that did not compile. Keep them derived.
 
 # Two PyO3 roles
 

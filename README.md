@@ -127,7 +127,8 @@ Functions at top level only, with mandatory parameter and return annotations.
 Operators: `+` `-` `*` `/` `//` `%` and the comparisons `==` `!=` `<` `<=` `>` `>=`, plus unary
 negation and calls to functions in the same unit.
 
-Statements: `return`, `pass`, and local bindings.
+Statements: `return`, `pass`, local bindings, reassignment, `if`/`elif`/`else`, `while`, `for`,
+`break`, and `continue`.
 
 Collections support literals, subscripting, and `len`, read-only:
 
@@ -148,8 +149,7 @@ Sequences and tuples keep their order.
 Keys and set elements are restricted to `int`, `str`, and `bool`: a float key can never be
 retrieved once it is `nan`, and most targets cannot hash a float at all.
 
-Not supported: mutation (`append`, `xs[0] = v`), iteration, comprehensions, slicing, and
-membership.
+Not supported: mutation (`append`, `xs[0] = v`), comprehensions, slicing, and membership.
 
 A **docstring** is permitted in first position and carries no runtime meaning, so ordinary
 documented code compiles:
@@ -206,10 +206,64 @@ module is invisible at that moment; rejecting it would make whether your code co
 which function you happened to decorate first. Such a call is still checked — once every source is
 assembled into one unit.
 
-A function that declares a return type must return one: `def f() -> int: pass` is rejected with
-its location.
+### Control flow
 
-Not supported yet: control flow, loops, classes, imports, generics, and reassignment.
+Branches, both loop forms, and `break`/`continue`:
+
+```python
+@c.compyle
+def nth_prime(n: int) -> int:
+    found = 0
+    candidate = 1
+    while found < n:
+        candidate = candidate + 1
+        if is_prime(candidate):
+            found = found + 1
+    return candidate
+
+@c.compyle
+def fib(n: int) -> int:
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)     # recursion works: signatures are collected first
+```
+
+Three rules are **stricter than Python**, each to keep a runtime surprise from becoming a compiled
+one:
+
+* **A test must be a `bool`.** `if n:` is rejected. A subset that demands annotations everywhere
+  should not then infer that an integer means a condition.
+* **A block is a scope.** A name bound inside a branch or loop is gone when it ends, so reading it
+  afterwards is rejected — Python leaks such a name into the function and fails at runtime if the
+  branch did not run.
+* **A name keeps the type it was first bound at.** `i = 0` then `i = "x"` is rejected; `i = i + 1`
+  is fine, and updates the binding rather than shadowing it. An annotation on a rebinding is a
+  re-declaration and is also rejected.
+
+`for` iterates a range or a collection. A mapping yields its **keys**, as Python does:
+
+```python
+for i in range(10, 0, -2):    # 10, 8, 6, 4, 2 — a negative step, which Rust's `..` cannot express
+    ...
+for key in mapping:           # keys, not values or pairs
+    ...
+```
+
+`range` takes one, two, or three integers and is only valid as what a `for` iterates — there is no
+range value in the subset. A zero step raises `ValueError` before the loop starts rather than
+spinning forever. `range` and `len` are both reserved names.
+
+A function that declares a return type must return one **on every path**: a conditional counts only
+when it has an `else` and both branches return, and a loop never counts, because its body may run
+zero times.
+
+```python
+def f(a: int) -> int:
+    if a > 0:
+        return 1     # rejected: the path where the test is false produces no value
+```
+
+Not supported yet: classes, imports, generics, `try`, `with`, and `for`/`else`.
 
 ## Getting started
 
