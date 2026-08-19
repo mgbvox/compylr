@@ -269,7 +269,7 @@ fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendErro
         .params
         .iter()
         .map(|p| {
-            let mutable = if is_assigned(&function.body, &p.name) {
+            let mutable = if is_assigned(&function.body, &p.name, unit) {
                 "mut "
             } else {
                 ""
@@ -300,6 +300,9 @@ fn emit_class(class: &Class, unit: &Unit) -> Result<String, BackendError> {
         out.push_str(&doc_comment(doc));
     }
     let name = rust_ident(&class.name);
+    // `Clone` so an instance can be passed to a free function without being consumed, on the same
+    // terms as every other non-copyable value here.
+    out.push_str("#[derive(Clone)]\n");
     let _ = writeln!(out, "pub struct {name} {{");
     for attribute in &class.attributes {
         let _ = writeln!(
@@ -402,7 +405,7 @@ fn emit_method(
         .params
         .iter()
         .map(|p| {
-            let mutable = if is_assigned(&method.body, &p.name) {
+            let mutable = if is_assigned(&method.body, &p.name, unit) {
                 "mut "
             } else {
                 ""
@@ -449,7 +452,7 @@ fn indent(block: &str) -> String {
 /// So this is a fixpoint: mark the directly-mutating methods, then repeatedly mark any method
 /// calling a marked one until nothing changes. A class has few methods, so it converges in a
 /// handful of passes over a small set.
-fn mutating_methods(class: &Class) -> BTreeSet<String> {
+pub(super) fn mutating_methods(class: &Class) -> BTreeSet<String> {
     let mut mutating: BTreeSet<String> = class
         .methods
         .values()
@@ -543,6 +546,7 @@ fn expr_calls_any_of(expr: &Expr, named: &BTreeSet<String>) -> bool {
             receiver,
             method,
             args,
+            ..
         } => {
             if matches!(receiver.as_ref(), Expr::Name(name) if name == "self")
                 && named.contains(method.as_str())
@@ -646,7 +650,11 @@ impl Emitter<'_> {
                     // avoidable warning. Scanning the enclosing block rather than the whole
                     // function: lowering scopes a binding to the block that introduced it, so
                     // nothing outside it can assign to the name.
-                    let mutable = if is_assigned(stmts, name) { "mut " } else { "" };
+                    let mutable = if is_assigned(stmts, name, self.unit) {
+                        "mut "
+                    } else {
+                        ""
+                    };
                     let _ = writeln!(
                         self.out,
                         "{pad}let {mutable}{}: {} = {value};",
@@ -772,7 +780,11 @@ impl Emitter<'_> {
     ) -> Result<(), BackendError> {
         let pad = "    ".repeat(depth);
         let bound = rust_ident(name);
-        let mutable = if is_assigned(body, name) { "mut " } else { "" };
+        let mutable = if is_assigned(body, name, self.unit) {
+            "mut "
+        } else {
+            ""
+        };
         let start = emit_expr(start, self.unit, &Ty::Int)?;
         let stop = emit_expr(stop, self.unit, &Ty::Int)?;
         let step = emit_expr(step, self.unit, &Ty::Int)?;
@@ -821,7 +833,11 @@ impl Emitter<'_> {
     ) -> Result<(), BackendError> {
         let pad = "    ".repeat(depth);
         let bound = rust_ident(name);
-        let mutable = if is_assigned(body, name) { "mut " } else { "" };
+        let mutable = if is_assigned(body, name, self.unit) {
+            "mut "
+        } else {
+            ""
+        };
         // A snapshot, not a borrow. Python's `for` holds the object itself, so rebinding the name
         // inside the body must not change what is iterated; an owned copy says that directly, and
         // also keeps a loop-long borrow from colliding with what the body does to the original.
@@ -894,18 +910,112 @@ fn emit_owned_operand(expr: &Expr, unit: &Unit) -> Result<String, BackendError> 
 ///
 /// Only a bare name is a target. `f(xs)[0] = v` is not something the subset can express, so there
 /// is no case where the collection being written is anything but a name.
-fn is_assigned(stmts: &[Stmt], name: &str) -> bool {
+fn is_assigned(stmts: &[Stmt], name: &str, unit: &Unit) -> bool {
     let names_it = |expr: &Expr| matches!(expr, Expr::Name(target) if target == name);
     stmts.iter().any(|stmt| match stmt {
         Stmt::Assign { name: target, .. } => target == name,
         Stmt::SetItem { collection, .. } => names_it(collection),
         Stmt::Append { sequence, .. } => names_it(sequence),
+        Stmt::SetAttr { object, .. } => names_it(object),
+        Stmt::Effect(expr) => mutating_call_on(expr, name, unit),
         Stmt::If {
-            then, otherwise, ..
-        } => is_assigned(then, name) || is_assigned(otherwise, name),
-        Stmt::While { body, .. } | Stmt::For { body, .. } => is_assigned(body, name),
+            test,
+            then,
+            otherwise,
+        } => {
+            mutating_call_on(test, name, unit)
+                || is_assigned(then, name, unit)
+                || is_assigned(otherwise, name, unit)
+        }
+        Stmt::While { test, body } => {
+            mutating_call_on(test, name, unit) || is_assigned(body, name, unit)
+        }
+        Stmt::For { iter, body, .. } => {
+            mutating_call_on(iter, name, unit) || is_assigned(body, name, unit)
+        }
+        Stmt::Return(expr) => mutating_call_on(expr, name, unit),
+        Stmt::Bind { value, .. } => mutating_call_on(value, name, unit),
         _ => false,
     })
+}
+
+/// Whether an expression calls a mutating method on the local named `name`.
+///
+/// A local instance needs `mut` for the same reason a reassigned one does — the `let` comes before
+/// the call that requires it. The method name alone does not settle whether it mutates, since two
+/// classes may both define `get`, so the receiver's class is carried on the node. When lowering
+/// could not determine it the call is assumed to mutate: a spurious `mut` is a warning, and a
+/// missing one is code that does not compile.
+fn mutating_call_on(expr: &Expr, name: &str, unit: &Unit) -> bool {
+    let mut found = false;
+    visit_exprs(expr, &mut |node| {
+        if let Expr::MethodCall {
+            receiver,
+            class,
+            method,
+            ..
+        } = node
+            && matches!(receiver.as_ref(), Expr::Name(target) if target == name)
+        {
+            found |= match class.as_deref().and_then(|c| unit.class(c)) {
+                Some(class) => mutating_methods(class).contains(method),
+                None => true,
+            };
+        }
+    });
+    found
+}
+
+/// Visit an expression and every expression nested in it.
+fn visit_exprs(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
+    visit(expr);
+    match expr {
+        Expr::Literal(_) | Expr::Name(_) => {}
+        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) | Expr::Len(inner) => {
+            visit_exprs(inner, visit)
+        }
+        Expr::Attribute { object, .. } => visit_exprs(object, visit),
+        Expr::TupleIndex { base, .. } => visit_exprs(base, visit),
+        Expr::Binary { left, right, .. } => {
+            visit_exprs(left, visit);
+            visit_exprs(right, visit);
+        }
+        Expr::Subscript { base, index } => {
+            visit_exprs(base, visit);
+            visit_exprs(index, visit);
+        }
+        Expr::Contains { value, container } => {
+            visit_exprs(value, visit);
+            visit_exprs(container, visit);
+        }
+        Expr::Range { start, stop, step } => {
+            visit_exprs(start, visit);
+            visit_exprs(stop, visit);
+            visit_exprs(step, visit);
+        }
+        Expr::ListLit(items) | Expr::SetLit(items) | Expr::TupleLit(items) => {
+            for item in items {
+                visit_exprs(item, visit);
+            }
+        }
+        Expr::DictLit(pairs) => {
+            for (key, value) in pairs {
+                visit_exprs(key, visit);
+                visit_exprs(value, visit);
+            }
+        }
+        Expr::Call { args, .. } | Expr::Construct { args, .. } => {
+            for arg in args {
+                visit_exprs(arg, visit);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            visit_exprs(receiver, visit);
+            for arg in args {
+                visit_exprs(arg, visit);
+            }
+        }
+    }
 }
 
 /// Emit an expression, fully parenthesized.
@@ -1016,8 +1126,11 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             receiver,
             method,
             args,
+            ..
         } => {
-            let receiver = emit_expr(receiver, unit, &Ty::Unit)?;
+            // A place, not a value: a mutating method needs the receiver itself, and calling one
+            // on a clone would compile and lose the mutation.
+            let receiver = emit_place(receiver, unit)?;
             let rendered = render_all(args, unit, &Ty::Unit)?;
             format!(
                 "({receiver}).{}({})?",

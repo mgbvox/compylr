@@ -1970,8 +1970,13 @@ fn lower_method_call(
         arg_types.push(ty);
     }
 
+    let class_of = match &object_ty {
+        Some(Ty::Instance(class)) => Some(class.clone()),
+        _ => None,
+    };
     let node = |args| Expr::MethodCall {
         receiver: Box::new(object.clone()),
+        class: class_of.clone(),
         method: method.to_string(),
         args,
     };

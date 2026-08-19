@@ -15,7 +15,7 @@ use std::fmt::Write as _;
 use super::rust::{BINDINGS_PATH, LIB_PATH, RustBackend, rust_ident, rust_ty};
 use super::{BackendError, GeneratedFiles};
 use crate::backend::Backend;
-use crate::ir::{Ty, Unit};
+use crate::ir::{Class, Ty, Unit};
 
 /// Prefix for the extension module a unit compiles to.
 const MODULE_PREFIX: &str = "compylr_generated_";
@@ -76,6 +76,10 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
     let mut out = String::new();
     out.push_str(PREAMBLE);
 
+    for (index, class) in unit.classes().enumerate() {
+        out.push_str(&emit_class_binding(index, class));
+    }
+
     for (index, function) in unit.functions().enumerate() {
         let params = function
             .params
@@ -116,6 +120,9 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
          /// wrappers locally, and so the root stays the same size for any number of functions.\n\
          pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {{"
     );
+    for index in 0..unit.classes().count() {
+        let _ = writeln!(out, "    m.add_class::<__compylr_class_{index}>()?;");
+    }
     for index in 0..unit.len() {
         let _ = writeln!(
             out,
@@ -130,6 +137,105 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
             .all(|f| f.params.iter().all(|p| p.ty != Ty::Unit))
     );
     Ok(out)
+}
+
+/// Expose one class to Python.
+///
+/// The wrapper holds the translated struct rather than being it, so `generated.rs` stays free of
+/// PyO3 and could feed a non-Python consumer unchanged.
+///
+/// This is what makes instance state work, and it is worth contrasting with collections. A
+/// collection **argument** is converted by value at the boundary, so a compiled function cannot
+/// mutate its caller's list. An instance is not converted at all — the Python object *holds* the
+/// Rust value, and a method borrows it from there — so a mutated attribute is exactly what the
+/// caller sees on the next call. That asymmetry is why an attribute can be a cache while a
+/// parameter cannot be mutated.
+fn emit_class_binding(index: usize, class: &Class) -> String {
+    let mut out = String::new();
+    let wrapper = format!("__compylr_class_{index}");
+    let translated = rust_ident(&class.name);
+    let mutating = super::rust::mutating_methods(class);
+
+    if let Some(doc) = &class.doc {
+        for line in doc.lines() {
+            let _ = writeln!(out, "/// {line}");
+        }
+    }
+    // Named positionally for the same reason the function wrappers are: a Python class name can be
+    // a Rust keyword, and `#[pyclass(name = ...)]` is what restores the name Python sees.
+    let _ = writeln!(out, "#[pyclass(name = {:?})]", class.name);
+    let _ = writeln!(out, "pub struct {wrapper} {{");
+    let _ = writeln!(out, "    inner: generated::{translated},");
+    out.push_str("}\n\n");
+
+    let _ = writeln!(out, "#[pymethods]");
+    let _ = writeln!(out, "impl {wrapper} {{");
+
+    let params = class
+        .init
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(&p.ty)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let args = class
+        .init
+        .params
+        .iter()
+        .map(|p| rust_ident(&p.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(out, "    #[new]");
+    let _ = writeln!(out, "    fn __compylr_init({params}) -> PyResult<Self> {{");
+    let _ = writeln!(
+        out,
+        "        Ok(Self {{ inner: generated::{translated}::__compylr_new({args})\
+         .map_err(__compylr_to_py_err)? }})"
+    );
+    out.push_str("    }\n");
+
+    for (position, method) in class.methods.values().enumerate() {
+        let receiver = if mutating.contains(&method.name) {
+            "&mut self"
+        } else {
+            "&self"
+        };
+        let params = method
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(&p.ty)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let separator = if params.is_empty() { "" } else { ", " };
+        let args = method
+            .params
+            .iter()
+            .map(|p| rust_ident(&p.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        out.push('\n');
+        if let Some(doc) = &method.doc {
+            for line in doc.lines() {
+                let _ = writeln!(out, "    /// {line}");
+            }
+        }
+        let _ = writeln!(out, "    #[pyo3(name = {:?})]", method.name);
+        let _ = writeln!(
+            out,
+            "    fn __compylr_method_{index}_{position}({receiver}{separator}{params}) \
+             -> PyResult<{}> {{",
+            rust_ty(&method.ret)
+        );
+        let _ = writeln!(
+            out,
+            "        self.inner.{}({args}).map_err(__compylr_to_py_err)",
+            rust_ident(&method.name)
+        );
+        out.push_str("    }\n");
+    }
+    out.push_str("}\n\n");
+    out
 }
 
 /// Imports and the error mapping shared by every wrapper.

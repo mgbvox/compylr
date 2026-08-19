@@ -310,6 +310,7 @@ fn calls_in_the_new_forms_are_found() {
                 ty: Ty::Int,
                 value: Expr::MethodCall {
                     receiver: Box::new(call("receiver")),
+                    class: Some("Counter".into()),
                     method: "get".into(),
                     args: vec![call("method_argument")],
                 },
@@ -346,6 +347,7 @@ fn a_method_is_not_reported_as_a_free_call() {
             ty: Ty::Int,
             value: Expr::MethodCall {
                 receiver: Box::new(Expr::name("self")),
+                class: Some("C".into()),
                 method: "get".into(),
                 args: Vec::new(),
             },

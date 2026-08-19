@@ -10,7 +10,7 @@ use std::process::Command;
 use compylr::backend::{format_source, lookup};
 use compylr::frontend::parse_file;
 use compylr::ir::Unit;
-use compylr::lower::lower_source;
+use compylr::lower::lower_source_members;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/fixtures/accepted")
@@ -25,8 +25,12 @@ fn unit_from_fixtures(names: &[impl AsRef<str> + std::fmt::Display]) -> Unit {
     for name in names {
         let path = fixtures_dir().join(name.as_ref());
         let parsed = parse_file(&path).expect("fixture must parse");
-        for function in lower_source(&parsed).unwrap_or_else(|e| panic!("{name} should lower: {e}"))
-        {
+        let (functions, classes) =
+            lower_source_members(&parsed).unwrap_or_else(|e| panic!("{name} should lower: {e}"));
+        for class in classes {
+            unit.add_class(class).expect("unique names");
+        }
+        for function in functions {
             unit.add_function(function).expect("unique names");
         }
     }

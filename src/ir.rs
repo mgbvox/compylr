@@ -317,6 +317,13 @@ pub enum Expr {
     MethodCall {
         /// The object the method is called on.
         receiver: Box<Expr>,
+        /// The receiver's class, when lowering could determine it.
+        ///
+        /// Carried because a backend has to know whether the call mutates the receiver, and the
+        /// method name alone does not say: two classes may both define `get`, one mutating and one
+        /// not. `None` means the receiver's class was in another source, which lowering resolves at
+        /// the unit; a backend must then assume the call mutates rather than guess.
+        class: Option<String>,
         /// Which method.
         method: String,
         /// Arguments, already checked against the method's signature.

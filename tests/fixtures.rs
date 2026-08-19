@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use compylr::error::LowerErrorKind;
 use compylr::frontend::parse_file;
 use compylr::ir::{Function, Unit};
-use compylr::lower::lower_source;
+use compylr::lower::lower_source_members;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/fixtures")
@@ -18,7 +18,7 @@ fn fixtures_dir() -> PathBuf {
 
 fn lower_fixture(path: &Path) -> Result<Vec<Function>, compylr::error::LowerError> {
     let parsed = parse_file(path).expect("fixture must parse as valid Python");
-    lower_source(&parsed)
+    lower_source_members(&parsed).map(|(functions, _)| functions)
 }
 
 fn accepted(name: &str) -> Vec<Function> {
@@ -141,7 +141,7 @@ fn every_rejected_fixture_is_covered_by_the_table() {
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "py"))
         .count();
-    assert_eq!(count, 53, "update the rejection table when adding fixtures");
+    assert_eq!(count, 58, "update the rejection table when adding fixtures");
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn formatting_differences_do_not_change_fingerprints() {
 
     let lower_text = |source: &str| {
         let parsed = compylr::frontend::parse_source(source).unwrap();
-        lower_source(&parsed).unwrap()
+        lower_source_members(&parsed).unwrap().0
     };
 
     let a = lower_text(plain);

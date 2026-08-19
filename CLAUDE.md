@@ -80,6 +80,24 @@ parameter could not be observed by the caller. The diagnostic names the copy rat
 refusing — a rule without its reason leaves the user no workaround. `append` is the only method;
 `in`/`not in` work over list, dict (keys), set, and str (substrings).
 
+**Classes** hold state that outlives a call. Attributes are declared in `__init__` with mandatory
+annotations and nowhere else, or the struct's fields would depend on which methods ran. A method's
+receiver is derived by fixpoint: it is mutable when the method assigns an attribute, mutates a
+collection attribute, **or calls a method that does** — the transitive case is the likeliest bug,
+and its failure mode is a borrow-checker error about generated code rather than a diagnostic.
+
+The contrast that matters, and that people get wrong: a collection **parameter** crosses by value
+and may not be mutated; an **instance** is not converted at all — the Python object holds the Rust
+value via `#[pyclass]`, and a method borrows it from there — so a mutated attribute is what the
+caller sees next call. That is why an attribute can be a cache.
+
+`self` is the Rust receiver: never escaped by `rust_ident`, never cloned. Lowering reserves the name
+outside a method so nothing else reaches that branch.
+
+Mutation targets emit as **places**, not values. The ordinary rule clones a collection wherever it
+is consumed, and that reaches through attributes: `self.entries[k] = v` once mutated a copy of the
+field and silently lost every write. Assert on values after mutation, never on emitted text.
+
 `range` is a reserved name like `len`, valid only as what a `for` iterates — there is no range value
 in the IR. It is not emitted as Rust's `..`: that counts up by one, `step_by` takes an unsigned step,
 and neither composes with a computed or negative step, so the loop is written out against a cursor

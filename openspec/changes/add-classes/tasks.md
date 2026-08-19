@@ -4,7 +4,7 @@
 - [x] 1.2 Write a test asserting a unit containing **no** classes fingerprints exactly as it did before — every cached build depends on it, per design.md D5
 - [x] 1.3 Write a test asserting changing a method body moves the unit fingerprint
 - [x] 1.4 Add a `Class` type and a second map on `Unit`, extending ordering, fingerprint, and validation over both
-- [ ] 1.5 Update every consumer that iterates a unit's functions
+- [x] 1.5 Update every consumer that iterates a unit's functions
 
 ## 2. Instance types
 
@@ -62,30 +62,30 @@
 
 ## 9. Bindings
 
-- [ ] 9.1 Write tests asserting the type is exposed, constructible, and its methods callable
-- [ ] 9.2 Write tests asserting arguments convert as they do for functions, wrong types raise `TypeError`, and failures raise the same exceptions
-- [ ] 9.3 Write tests asserting instance state persists across calls, two instances are independent, and a cache hits on the second call
-- [ ] 9.4 Write a test asserting an instance stored by the caller keeps its state
-- [ ] 9.5 Emit `#[pyclass]` and `#[pymethods]` per design.md D4
+- [x] 9.1 Write tests asserting the type is exposed, constructible, and its methods callable
+- [x] 9.2 Write tests asserting arguments convert as they do for functions, wrong types raise `TypeError`, and failures raise the same exceptions
+- [x] 9.3 Write tests asserting instance state persists across calls, two instances are independent, and a cache hits on the second call
+- [x] 9.4 Write a test asserting an instance stored by the caller keeps its state
+- [x] 9.5 Emit `#[pyclass]` and `#[pymethods]` per design.md D4
 
 ## 10. The decorator
 
-- [ ] 10.1 Write tests asserting the decorator accepts a class in both forms and validates it when marked
-- [ ] 10.2 Write tests asserting identity attributes are preserved and the original class is reachable
-- [ ] 10.3 Write a test asserting instantiating a marked class builds the project, and that classes and functions share one build
-- [ ] 10.4 Implement class support in the manager
+- [x] 10.1 Write tests asserting the decorator accepts a class in both forms and validates it when marked
+- [x] 10.2 Write tests asserting identity attributes are preserved and the original class is reachable
+- [x] 10.3 Write a test asserting instantiating a marked class builds the project, and that classes and functions share one build
+- [x] 10.4 Implement class support in the manager
 
 ## 11. Fixtures and end to end
 
-- [ ] 11.1 Add accepted fixtures for a counter class, a class holding a collection attribute, and a method calling another method
-- [ ] 11.2 Add rejected fixtures for inheritance, a missing `__init__`, an undeclared attribute, an unannotated attribute, and a method without `self`
-- [ ] 11.3 Update the rejection table and fixture-count guard
-- [ ] 11.4 Write a pytest building a memoized class end to end and asserting the second call hits the cache — the demo's third variant, proven before the demo depends on it
+- [x] 11.1 Add accepted fixtures for a counter class, a class holding a collection attribute, and a method calling another method
+- [x] 11.2 Add rejected fixtures for inheritance, a missing `__init__`, an undeclared attribute, an unannotated attribute, and a method without `self`
+- [x] 11.3 Update the rejection table and fixture-count guard
+- [x] 11.4 Write a pytest building a memoized class end to end and asserting the second call hits the cache — the demo's third variant, proven before the demo depends on it
 
 ## 12. Verification
 
-- [ ] 12.1 Run `cargo fmt`, `cargo clippy -p compylr --all-targets -- -D warnings`, and `cargo test` twice
-- [ ] 12.2 Run `pytest`, `ruff check python/`, and `mypy python/compylr`; coverage with the venv deactivated
-- [ ] 12.3 Confirm Rust coverage over `src/` still exceeds 80%
-- [ ] 12.4 Update the README and `CLAUDE.md`, including that instance state persists while collection parameters are copies — the contrast is the thing people will get wrong
-- [ ] 12.5 Run `openspec validate add-classes --strict` and confirm every scenario in all five delta specs has a passing test
+- [x] 12.1 Run `cargo fmt`, `cargo clippy -p compylr --all-targets -- -D warnings`, and `cargo test` twice
+- [x] 12.2 Run `pytest`, `ruff check python/`, and `mypy python/compylr`; coverage with the venv deactivated
+- [x] 12.3 Confirm Rust coverage over `src/` still exceeds 80%
+- [x] 12.4 Update the README and `CLAUDE.md`, including that instance state persists while collection parameters are copies — the contrast is the thing people will get wrong
+- [x] 12.5 Run `openspec validate add-classes --strict` and confirm every scenario in all five delta specs has a passing test

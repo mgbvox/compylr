@@ -312,7 +312,46 @@ def f(a: int) -> int:
         return 1     # rejected: the path where the test is false produces no value
 ```
 
-Not supported yet: classes, imports, generics, `try`, `with`, and `for`/`else`.
+### Classes
+
+A class gives state somewhere to live that outlives a call — which is what a memoized function
+needs, and what free functions over values cannot provide:
+
+```python
+@c.compyle
+class PrimeCache:
+    def __init__(self) -> None:
+        self.known: dict[int, bool] = {}     # every attribute declared here, annotated
+
+    def is_prime(self, n: int) -> bool:
+        if n in self.known:
+            return self.known[n]
+        ...
+        self.known[n] = answer                # persists to the next call
+        return answer
+```
+
+**Every attribute is declared in `__init__`, with an annotation, or not at all.** Python lets one
+appear anywhere; without this rule the compiled struct's fields would depend on which methods
+happened to run.
+
+The contrast worth holding onto, because it is the thing people get wrong:
+
+| | crosses as | so a compiled function… |
+| --- | --- | --- |
+| a collection **parameter** | a copy | cannot mutate it — mutation is rejected |
+| an **instance** | itself | can mutate it, and the caller sees it next call |
+
+An instance is not converted at the boundary at all: the Python object holds the Rust value, and a
+method borrows it from there. That asymmetry is exactly why an attribute can be a cache.
+
+A method taking a mutable receiver is derived, including through calls — a method whose body is only
+`self.bump()` mutates too.
+
+Not supported: inheritance, `@property`, class attributes, `@dataclass`, and any dunder but
+`__init__`.
+
+Not supported yet: imports, generics, `try`, `with`, and `for`/`else`.
 
 ## Getting started
 
