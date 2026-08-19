@@ -21,6 +21,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ._config import DISABLE_ENV
 from ._errors import ConfigurationError
 
 #: Directories never descended into.
@@ -55,6 +56,8 @@ class Report:
     classes: list[str] = field(default_factory=list)
     failures: list[ImportFailure] = field(default_factory=list)
     built: bool = False
+    #: Whether the project turned compylr off, via `initialize(enabled=False)` or the environment.
+    disabled: bool = False
 
     @property
     def marked(self) -> int:
@@ -145,6 +148,12 @@ def precompile(root: Path | str) -> Report:
     if manager is None:
         return report
 
+    # Precompiling with compylr disabled would find nothing and report it as an empty project,
+    # sending the user to look for a missing decorator that is right where they left it.
+    if not manager.enabled:
+        report.disabled = True
+        return report
+
     for name, wrapper in sorted(manager._functions.items()):
         if isinstance(wrapper, CompiledClass):
             report.classes.append(name)
@@ -176,7 +185,11 @@ def _describe(report: Report) -> str:
         lines.append(f"  {len(report.failures)} module(s) failed to import:")
         for failure in report.failures:
             lines.append(f"    {failure.module}: {failure.reason}")
-    if report.found_nothing:
+    if report.disabled:
+        lines.append(
+            f"  compylr is disabled for this project (see {DISABLE_ENV}); nothing was compiled"
+        )
+    elif report.found_nothing:
         lines.append("  nothing marked for compilation")
     elif report.built:
         lines.append("  built")
@@ -217,7 +230,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"compylr: {error}", file=sys.stderr)
         return 1
 
-    stream = sys.stderr if report.found_nothing else sys.stdout
+    quiet = report.found_nothing or report.disabled
+    stream = sys.stderr if quiet else sys.stdout
     print(_describe(report), file=stream)
-    # Three distinguishable outcomes: built or reused, nothing found, and failure.
-    return 3 if report.found_nothing else 0
+    # Distinguishable outcomes: built or reused, nothing compiled, and failure.
+    return 3 if quiet else 0

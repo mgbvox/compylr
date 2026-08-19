@@ -1,6 +1,6 @@
 ---
 source: tests/emit_quality.rs
-assertion_line: 121
+assertion_line: 125
 expression: functions.trim()
 ---
 //! Translated from Python by compylr.
@@ -15,8 +15,8 @@ use crate::compat::{
 pub fn counts(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeError> {
     let mut seen: HashMap<String, i64> = HashMap::from([]);
     {
-        let __compylr_iter = words.clone();
-        for __compylr_item in PyIterate::py_iter(&__compylr_iter) {
+        let __compylr_iter = &words;
+        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let word: String = __compylr_item;
             if PyContains::py_contains(&(seen), &(word)) {
                 {

@@ -74,6 +74,45 @@ a recoverable error — no traceback, no exception, nothing to catch. Measured h
 The tests stay well below that. This is the first place the project meets a limit that is not a
 subset restriction: the subset permits the program, and the machine does not.
 
+## Benchmarking
+
+```bash
+uv run python -m nth_prime.benchmark --n 500
+```
+
+```
+nth prime, n=500, per call, best of 5 batches
+
+variant                          compiled    interpreted   speedup
+------------------------------------------------------------------
+reference (never compiled)      1008.49us      1059.79us      1.1x
+recursive                         31.31us      1204.05us     38.5x
+iterative                         16.90us       626.14us     37.1x
+memoized (cold cache)             33.03us      1088.51us     33.0x
+memoized (warm cache)              0.11us         0.08us      0.7x
+```
+
+Three things about how this is measured, because a benchmark nobody can trust is worse than none:
+
+**The two modes run in separate processes.** Timing both in one would be dishonest: a marked
+function calls other marked functions through module globals, so an "interpreted" outer call would
+still reach compiled inner ones. `COMPYLR_DISABLE=1` makes an interpreted run interpreted all the
+way down — that is what the switch is for.
+
+**The reference row is the control.** It is never compiled, so its ratio is what "no difference"
+looks like on this machine. Read every other row against that, not against 1.0.
+
+**Timings are the best of several batches, per call.** Noise only adds, so the minimum is the
+closest estimate of the work; and a warm cache hit takes hundreds of nanoseconds, which timing once
+would report as zero.
+
+### The row worth staring at
+
+**A warm cache hit is *slower* compiled** — 0.11 µs against 0.08 µs. Crossing the Python/Rust
+boundary costs more than a dictionary lookup saves. Compiling is not free, and for work this small
+the call overhead is the whole cost. That is not a defect; it is the shape of the tradeoff, and a
+benchmark that only ever showed wins would be hiding it.
+
 ## Gaps this demo found
 
 This is the first program here written to be *useful* rather than to exercise a rule, so what it
@@ -94,6 +133,11 @@ returning the negation. Every linter will suggest the version that does not comp
 **A loop cannot be a function's only exit.** compylr does not assume a loop body runs, so
 `while True: ... return x` is rejected as having a path that produces no value. `next_prime` carries
 its answer out in a variable instead — correct, and one line longer than the obvious version.
+
+**Iterating a collection used to copy it.** `for p in found:` inside a `while` loop cloned the whole
+list on every pass, which is quadratic. Every correctness test passed; the benchmark above is what
+found it. Fixed — the iterative variant went from 240 µs to 17 µs, and from 2.6× to 37× — and the
+emitted loop now borrows unless the body could disturb what it walks.
 
 ## Checks
 

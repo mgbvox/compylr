@@ -39,6 +39,33 @@ __all__ = ["BuildPaths", "BuildPipeline"]
 _STATE_VERSION = 2
 
 
+def _compiler_version() -> str:
+    """The installed compylr version, recorded alongside every build.
+
+    The rebuild key is a fingerprint of the **IR**, which is what makes reformatting free. It also
+    means a new compylr emitting different code from the same IR would reuse the old artifact
+    forever, so the compiler's own identity has to be part of the key.
+
+    During development on this repository the version does not move between edits, so a backend
+    change still needs `rm -rf .compylr` to be picked up. That is a working note, not a user-facing
+    gap: an installed compylr only ever changes version by being upgraded.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("compylr")
+    except PackageNotFoundError:  # pragma: no cover - only when running from a source tree
+        return "unknown"
+
+
+def _state_is_current(state: dict[str, object]) -> bool:
+    """Whether recorded build state was written by this layout and this compiler."""
+    return (
+        state.get("version") == _STATE_VERSION
+        and state.get("compylr") == _compiler_version()
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class BuildPaths:
     """Where a project's build artifacts live."""
@@ -149,7 +176,7 @@ class BuildPipeline:
             state = json.loads(self.paths.state.read_text())
         except (OSError, json.JSONDecodeError):
             return None
-        if state.get("version") != _STATE_VERSION:
+        if not _state_is_current(state):
             return None
         name = state.get("module_name")
         return name if isinstance(name, str) else None
@@ -160,7 +187,7 @@ class BuildPipeline:
             state = json.loads(self.paths.state.read_text())
         except (OSError, json.JSONDecodeError):
             return None
-        if state.get("version") != _STATE_VERSION:
+        if not _state_is_current(state):
             return None
         value = state.get("fingerprint")
         return value if isinstance(value, str) else None
@@ -172,6 +199,7 @@ class BuildPipeline:
             json.dumps(
                 {
                     "version": _STATE_VERSION,
+                    "compylr": _compiler_version(),
                     "fingerprint": compiled.fingerprint,
                     "module_name": compiled.module_name,
                     "functions": compiled.function_names,

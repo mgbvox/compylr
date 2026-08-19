@@ -125,6 +125,25 @@ It is verified by this repository's own suite, so it cannot rot unnoticed, and i
 the gaps it found — including that marked names are shared across a project and that there is no
 `not`.
 
+## Turning it off
+
+```bash
+COMPYLR_DISABLE=1 python your_program.py
+```
+
+Every `@c.compyle` then hands back exactly what it was given: nothing is validated, nothing is
+registered, no build is attempted, and the project runs as ordinary Python. The original comes back
+rather than a pass-through wrapper, so compylr stays out of your tracebacks and profiles entirely.
+
+Two jobs. The first is answering "is this compylr, or is it my code?" without editing anything — and
+it works even when the reason for asking is that compylr *rejects* the code, since a disabled
+decorator does not validate. The second is measurement: a marked function calls other marked
+functions through module globals, so timing an "interpreted" call in a compiled process would still
+reach compiled code. Only a whole process running interpreted gives an honest number.
+
+`compylr.initialize(enabled=False)` does the same from inside the project. Switching mid-process is
+refused — the members marked before the change would be in a different mode from the ones after.
+
 ## Precompiling
 
 The first call to a marked function builds the project, which makes that call slow. For anything

@@ -838,16 +838,32 @@ impl Emitter<'_> {
         } else {
             ""
         };
-        // A snapshot, not a borrow. Python's `for` holds the object itself, so rebinding the name
-        // inside the body must not change what is iterated; an owned copy says that directly, and
-        // also keeps a loop-long borrow from colliding with what the body does to the original.
-        let iterable = emit_owned_operand(iterable, self.unit)?;
+        // A snapshot only when the body could disturb what is being iterated. Python's `for` holds
+        // the object, so rebinding or mutating the name inside the body must not change what the
+        // loop walks — an owned copy says that directly, and keeps a loop-long borrow from
+        // colliding with the write.
+        //
+        // Copying unconditionally is what the first version did, and it is quadratic: a `for` over
+        // a collection that grows in an enclosing loop copies the whole thing every pass. That is
+        // invisible in a correctness test and showed up immediately in the demo's benchmark, which
+        // is exactly what a benchmark is for.
+        let disturbed = match iterable {
+            Expr::Name(target) => is_assigned(body, target, self.unit),
+            // Anything else is already a temporary, so there is nothing to alias.
+            _ => false,
+        };
 
         let _ = writeln!(self.out, "{pad}{{");
-        let _ = writeln!(self.out, "{pad}    let __compylr_iter = {iterable};");
+        if disturbed {
+            let owned = emit_owned_operand(iterable, self.unit)?;
+            let _ = writeln!(self.out, "{pad}    let __compylr_iter = {owned};");
+        } else {
+            let place = emit_place(iterable, self.unit)?;
+            let _ = writeln!(self.out, "{pad}    let __compylr_iter = &{place};");
+        }
         let _ = writeln!(
             self.out,
-            "{pad}    for __compylr_item in PyIterate::py_iter(&__compylr_iter) {{"
+            "{pad}    for __compylr_item in PyIterate::py_iter(__compylr_iter) {{"
         );
         // The loop variable is bound inside rather than in the pattern, so it carries the element
         // type lowering derived — a disagreement between the two then fails to compile here,

@@ -141,6 +141,19 @@ class TestToolchainChecks:
             pipeline.build(object())  # type: ignore[arg-type]
 
 
+def _state(**overrides: object) -> dict[str, object]:
+    """Recorded build state that this compylr would accept."""
+    from compylr._build import _STATE_VERSION, _compiler_version
+
+    return {
+        "version": _STATE_VERSION,
+        "compylr": _compiler_version(),
+        "fingerprint": "abc123",
+        "module_name": "compylr_generated_abc123",
+        "functions": ["f"],
+    } | overrides
+
+
 class TestCache:
     def test_no_state_means_no_cached_build(self, pipeline: BuildPipeline) -> None:
         assert pipeline.cached_fingerprint() is None
@@ -162,15 +175,15 @@ class TestCache:
 
     def test_a_recorded_build_is_reported(self, pipeline: BuildPipeline) -> None:
         pipeline.paths.root.mkdir(parents=True, exist_ok=True)
-        pipeline.paths.state.write_text(
-            json.dumps(
-                {
-                    "version": 2,
-                    "fingerprint": "abc123",
-                    "module_name": "compylr_generated_abc123",
-                    "functions": ["f"],
-                }
-            )
-        )
+        pipeline.paths.state.write_text(json.dumps(_state()))
         assert pipeline.cached_fingerprint() == "abc123"
         assert pipeline.cached_module_name() == "compylr_generated_abc123"
+
+    def test_state_from_another_compylr_is_not_reused(self, pipeline: BuildPipeline) -> None:
+        # The rebuild key is a fingerprint of the IR, which is what makes reformatting free. A new
+        # compylr emitting different code from the same IR would otherwise reuse the old artifact
+        # forever, and the user would see last version's generated code with no way to know.
+        pipeline.paths.root.mkdir(parents=True, exist_ok=True)
+        pipeline.paths.state.write_text(json.dumps(_state(compylr="0.0.0-not-this-one")))
+        assert pipeline.cached_fingerprint() is None
+        assert pipeline.cached_module_name() is None

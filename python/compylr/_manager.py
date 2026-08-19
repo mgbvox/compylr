@@ -24,7 +24,7 @@ from typing import Any, Generic, ParamSpec, TypeVar, overload
 
 from . import _core
 from ._build import BuildPipeline
-from ._config import INHERIT, Settings
+from ._config import INHERIT, Settings, disabled_by_environment
 from ._errors import ConfigurationError
 from ._source import capture_source
 
@@ -126,8 +126,11 @@ class CompiledClass:
 class Manager:
     """A project's compylr configuration and the functions marked under it."""
 
-    def __init__(self, settings: Settings, root: Path | None = None) -> None:
+    def __init__(
+        self, settings: Settings, root: Path | None = None, *, enabled: bool = True
+    ) -> None:
         self._settings = settings
+        self._enabled = enabled
         self._pipeline = BuildPipeline(root)
         self._sources: dict[str, str] = {}
         self._functions: dict[str, CompiledFunction[Any, Any]] = {}
@@ -141,6 +144,15 @@ class Manager:
     def settings(self) -> Settings:
         """The project-wide defaults."""
         return self._settings
+
+    @property
+    def enabled(self) -> bool:
+        """Whether marking a function compiles it.
+
+        When false, `@c.compyle` hands back exactly what it was given: nothing is validated, nothing
+        is registered, and no build is attempted. The project runs as ordinary Python.
+        """
+        return self._enabled
 
     @property
     def paths(self) -> Any:
@@ -176,7 +188,16 @@ class Manager:
 
         Usable bare (`@c.compyle`) or called (`@c.compyle(backend=...)`). Settings not named are
         inherited from the manager, so naming one does not silently reset the others.
+
+        When the manager is disabled — `initialize(enabled=False)`, or `COMPYLR_DISABLE=1` in the
+        environment — this returns the target untouched and the project runs interpreted.
         """
+        # Disabled: hand back exactly what was given, before touching settings at all. Returning
+        # the original rather than a pass-through wrapper matters — a wrapper would keep compylr in
+        # every traceback and every profile, which is the opposite of what turning it off is for.
+        if not self._enabled:
+            return (lambda target: target) if function is None else function
+
         settings = self._settings.override(backend=backend, llm_assist=llm_assist)
 
         def mark(target: Callable[P, R]) -> Any:
@@ -309,6 +330,7 @@ def initialize(
     llm_assist: bool = False,
     *,
     root: Path | None = None,
+    enabled: bool | None = None,
 ) -> Manager:
     """Configure compylr for this project and return its manager.
 
@@ -316,13 +338,25 @@ def initialize(
     decorated function in one shared artifact. Calling it with *different* settings is refused
     rather than silently re-pointing a project that is already partly configured — the functions
     marked before the change would otherwise compile under settings their author never chose.
+
+    `enabled=False` turns compilation off: every `@c.compyle` hands back what it was given and the
+    project runs as ordinary Python. Left unset it follows `COMPYLR_DISABLE` in the environment, so
+    a project can be switched to interpreted from the outside without editing it.
     """
     global _MANAGER
     settings = Settings(backend=backend, llm_assist=llm_assist)
+    resolved = not disabled_by_environment() if enabled is None else enabled
 
     if _MANAGER is None:
-        _MANAGER = Manager(settings, root)
+        _MANAGER = Manager(settings, root, enabled=resolved)
         return _MANAGER
+
+    if _MANAGER.enabled != resolved:
+        state = "enabled" if _MANAGER.enabled else "disabled"
+        raise ConfigurationError(
+            f"compylr is already initialized and {state}; re-initializing with the opposite would "
+            f"leave the members marked so far in a different mode than the ones marked after"
+        )
 
     if _MANAGER.settings != settings:
         raise ConfigurationError(

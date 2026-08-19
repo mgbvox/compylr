@@ -125,6 +125,15 @@ Known gaps worth knowing before you trip on them:
   keeps a loop-long borrow out of the borrow checker's way.
 * **Compiling needs `cargo` and `maturin` at runtime.** Installing compylr gets the compiler,
   not the ability to build what it generates.
+* **The rebuild key is the IR fingerprint, so editing the *backend* does not invalidate a cached
+  build.** The state file now records the installed compylr version, which covers a user upgrading
+  the package — but during development here the version does not move, so after changing emission
+  you must `rm -rf .compylr` (and `demo/.compylr`) or you will benchmark last build's code. This
+  cost real time once already.
+* **`COMPYLR_DISABLE=1` turns compilation off for a process**, returning every marked member
+  untouched without validating it. That is what makes an interpreted measurement honest: a marked
+  function reaches other marked functions through module globals, so `python_function` alone gives
+  an interpreted outer call into compiled inner ones.
 * **`compylr` is now the Python console script**, not the Rust binary. The binary keeps `--emit`
   and is reached through `cargo run`. Precompiling **imports** the project, because a decorator only
   registers when it runs; discovery is bounded to the root and skips environments, caches, and build
@@ -189,6 +198,12 @@ uv venv && source .venv/bin/activate
 uv pip install maturin pytest pytest-cov ruff mypy && maturin develop --release
 pytest                    # includes slow tests that compile Rust; -m "not slow" to skip
 ruff check python/ && mypy python/compylr
+
+# Run any project interpreted, with compylr out of the way entirely
+COMPYLR_DISABLE=1 python your_program.py
+
+# Compare compiled against interpreted (runs both modes in separate processes)
+cd demo && PYTHONPATH=src python -m nth_prime.benchmark --n 500
 
 # The demo project (its own uv project; verified by python/tests/test_demo.py)
 cd demo && uv sync && uv run compylr compyle src && uv run python -m nth_prime 25
