@@ -56,15 +56,15 @@
 - [x] 8.1 Add accepted fixtures covering building a sequence in a loop, mapping insertion, and membership over each container
 - [x] 8.2 Add rejected fixtures for mutating a parameter, appending to a mapping, an unsupported method, and membership with a mismatched type
 - [x] 8.3 Update the rejection table and fixture-count guard
-- [ ] 8.4 Write a pytest asserting a caller's list is unchanged after being passed to a compiled function
-- [ ] 8.5 Write a pytest asserting a compiled function that builds a collection returns its contents correctly
-- [ ] 8.6 Write a pytest exercising a cache-shaped function: membership, read, and insert over a local mapping — the shape the memoized demo needs
+- [x] 8.4 Write a pytest asserting a caller's list is unchanged after being passed to a compiled function
+- [x] 8.5 Write a pytest asserting a compiled function that builds a collection returns its contents correctly
+- [x] 8.6 Write a pytest exercising a cache-shaped function: membership, read, and insert over a local mapping — the shape the memoized demo needs
 
 ## 9. Verification
 
-- [ ] 9.1 Run `cargo fmt`, `cargo clippy -p compylr --all-targets -- -D warnings`, and `cargo test` twice
-- [ ] 9.2 Run `pytest`, `ruff check python/`, and `mypy python/compylr`; coverage with the venv deactivated
-- [ ] 9.3 Confirm Rust coverage over `src/` still exceeds 80%
-- [ ] 9.4 Update the README's supported-subset section, stating the parameter rule and why it exists
-- [ ] 9.5 Update `CLAUDE.md`'s current state and known gaps, recording that mutating while iterating is not yet rejected
-- [ ] 9.6 Run `openspec validate add-collection-mutation --strict` and confirm every scenario in all four delta specs has a passing test
+- [x] 9.1 Run `cargo fmt`, `cargo clippy -p compylr --all-targets -- -D warnings`, and `cargo test` twice
+- [x] 9.2 Run `pytest`, `ruff check python/`, and `mypy python/compylr`; coverage with the venv deactivated
+- [x] 9.3 Confirm Rust coverage over `src/` still exceeds 80%
+- [x] 9.4 Update the README's supported-subset section, stating the parameter rule and why it exists
+- [x] 9.5 Update `CLAUDE.md`'s current state and known gaps, recording that mutating while iterating is not yet rejected
+- [x] 9.6 Run `openspec validate add-collection-mutation --strict` and confirm every scenario in all four delta specs has a passing test

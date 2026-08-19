@@ -74,6 +74,12 @@ why:
 `pass` lowers to **no statement at all**. It used to lower to a unit return, which was harmless
 when a body could not contain a loop and would now make `for i in range(n): pass` exit the function.
 
+**Mutation is confined to locals.** `xs.append(v)` and `xs[i] = v` are accepted on a local and
+rejected on a **parameter**, because collections cross the boundary by value and a mutated
+parameter could not be observed by the caller. The diagnostic names the copy rather than merely
+refusing — a rule without its reason leaves the user no workaround. `append` is the only method;
+`in`/`not in` work over list, dict (keys), set, and str (substrings).
+
 `range` is a reserved name like `len`, valid only as what a `for` iterates — there is no range value
 in the IR. It is not emitted as Rust's `..`: that counts up by one, `step_by` takes an unsigned step,
 and neither composes with a computed or negative step, so the loop is written out against a cursor
@@ -93,6 +99,16 @@ Known gaps worth knowing before you trip on them:
   what reversing it costs. Iteration is where a user meets this: `for k in d` yields keys, in
   whatever order the map gives, so **never assert on mapping or set iteration order** — the suite
   would become flaky rather than the compiler being wrong.
+* **Aliasing a parameter defeats the mutation rule.** `copied = xs; copied.append(1)` is accepted
+  — the spec sanctions it, on the reasoning that the local is the function's own value. That
+  reasoning holds under compylr's value semantics and *not* under Python's: in Python `copied = xs`
+  is an alias, so the interpreted function modifies the caller's list and the compiled one does
+  not. `python/tests/test_mutation.py` documents the divergence rather than hiding it. Closing it
+  means tainting locals bound from a parameter, transitively; see the note in
+  `add-collection-mutation`.
+* **Mutating a collection while iterating it is not rejected.** Rust's borrow checker will refuse
+  it, so the failure is a rustc error rather than a located diagnostic. The honest fix is a
+  lowering rule, and it belongs with whatever change first makes it reachable.
 * **A `for` snapshots what it iterates.** Python's `for` holds the object, so rebinding the name in
   the body must not change what is iterated; the emitted code clones, which says that directly and
   keeps a loop-long borrow out of the borrow checker's way.

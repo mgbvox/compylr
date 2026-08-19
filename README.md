@@ -130,7 +130,7 @@ negation and calls to functions in the same unit.
 Statements: `return`, `pass`, local bindings, reassignment, `if`/`elif`/`else`, `while`, `for`,
 `break`, and `continue`.
 
-Collections support literals, subscripting, and `len`, read-only:
+Collections support literals, subscripting, `len`, membership, and mutation of **locals**:
 
 ```python
 @c.compyle
@@ -149,7 +149,44 @@ Sequences and tuples keep their order.
 Keys and set elements are restricted to `int`, `str`, and `bool`: a float key can never be
 retrieved once it is `nan`, and most targets cannot hash a float at all.
 
-Not supported: mutation (`append`, `xs[0] = v`), comprehensions, slicing, and membership.
+```python
+@c.compyle
+def evens_below(limit: int) -> list[int]:
+    found: list[int] = []
+    for n in range(limit):
+        if n % 2 == 0:
+            found.append(n)     # the shape loops exist for
+    return found
+
+@c.compyle
+def counts(words: list[str]) -> dict[str, int]:
+    seen: dict[str, int] = {}
+    for word in words:
+        if word in seen:        # `in` tests a mapping's keys, as Python does
+            seen[word] = seen[word] + 1
+        else:
+            seen[word] = 1      # assignment creates a key; reading a missing one still raises
+    return seen
+```
+
+**Mutating a parameter is rejected**, and this is the one rule most likely to surprise:
+
+```python
+@c.compyle
+def f(xs: list[int]) -> None:
+    xs.append(1)                # rejected: a collection parameter is a copy
+```
+
+Collections cross the boundary by value. If that compiled, the caller's list would be silently
+unchanged where the interpreted original would have modified it — a wrong answer with no error.
+Rejecting it makes the program not exist rather than making the divergence documented. Build a local
+and return it instead.
+
+`append` is the only supported method; any other is rejected with a diagnostic naming it. `in` and
+`not in` work over a list, dict, set, and str — a **dict tests its keys** and a **str tests
+substrings** (`"ab" in "cab"` is true), both matching Python.
+
+Not supported: comprehensions, slicing, deletion, and every method except `append`.
 
 A **docstring** is permitted in first position and carries no runtime meaning, so ordinary
 documented code compiles:
