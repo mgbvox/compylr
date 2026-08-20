@@ -688,3 +688,31 @@ fn ir_variants() -> Vec<IrVariant> {
     );
     found
 }
+
+/// The pieces a caller reaches that nothing else exercises.
+///
+/// `pairs()` on each registry answers "what can compylr do?", which is a question a CLI or a
+/// diagnostic asks and no other test does.
+#[test]
+fn every_registry_can_enumerate_itself() {
+    let backends = compylr::backend::names();
+    let frontends = compylr::frontend::names();
+    let bridges = compylr::bridge_registry::pairs();
+    let directed = compylr_registry::passes::pairs();
+
+    assert!(backends.contains(&"rust"));
+    assert!(frontends.contains(&"python"));
+    assert!(bridges.contains(&("python".to_string(), "rust".to_string())));
+    // Empty, and asserted as such: a directed pass registered without anyone noticing would
+    // change what runs for a pair, and this is the only place that would say so.
+    assert!(
+        directed.is_empty(),
+        "a pair-directed pass appeared without a test: {directed:?}"
+    );
+
+    // Every bridged pair must name languages both registries know, or the bridge is unreachable.
+    for (source, target) in &bridges {
+        assert!(frontends.contains(&source.as_str()), "{source}");
+        assert!(backends.contains(&target.as_str()), "{target}");
+    }
+}

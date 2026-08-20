@@ -493,6 +493,233 @@ mod tests {
         assert_eq!(*returned(&body), original);
     }
 
+    fn float_lit(value: f64) -> Expr {
+        Expr::Literal(Literal::float(value))
+    }
+
+    /// Floating-point arithmetic folds under every operator, including the modes with two
+    /// readings.
+    ///
+    /// Worth covering separately from the integer paths: the corrections differ — flooring a
+    /// float quotient is `floor()`, not a quotient adjustment — so a shared test would prove
+    /// neither.
+    #[test]
+    fn float_arithmetic_folds_under_every_mode() {
+        let cases: [(BinOp, f64, f64, f64); 7] = [
+            (BinOp::Add, 1.5, 2.25, 3.75),
+            (BinOp::Sub, 1.5, 2.25, -0.75),
+            (BinOp::Mul, 1.5, 2.0, 3.0),
+            (
+                BinOp::Div {
+                    mode: DivMode::Exact,
+                },
+                7.0,
+                2.0,
+                3.5,
+            ),
+            (
+                BinOp::Div {
+                    mode: DivMode::Integer(Rounding::TowardNegInf),
+                },
+                -7.0,
+                2.0,
+                -4.0,
+            ),
+            (
+                BinOp::Div {
+                    mode: DivMode::Integer(Rounding::TowardZero),
+                },
+                -7.0,
+                2.0,
+                -3.0,
+            ),
+            (
+                BinOp::Rem {
+                    sign: RemSign::Divisor,
+                },
+                -7.0,
+                2.0,
+                1.0,
+            ),
+        ];
+
+        for (op, a, b, expected) in cases {
+            let body = folded(vec![Stmt::Return(binop(op, float_lit(a), float_lit(b)))]);
+            assert_eq!(*returned(&body), float_lit(expected), "{op} on {a} and {b}");
+        }
+
+        let dividend = folded(vec![Stmt::Return(binop(
+            BinOp::Rem {
+                sign: RemSign::Dividend,
+            },
+            float_lit(-7.0),
+            float_lit(2.0),
+        ))]);
+        assert_eq!(*returned(&dividend), float_lit(-1.0));
+    }
+
+    #[test]
+    fn dividing_a_float_by_zero_is_not_folded_away() {
+        for op in [
+            BinOp::Div {
+                mode: DivMode::Exact,
+            },
+            BinOp::Div {
+                mode: DivMode::Integer(Rounding::TowardNegInf),
+            },
+            BinOp::Rem {
+                sign: RemSign::Divisor,
+            },
+        ] {
+            let original = binop(op, float_lit(1.0), float_lit(0.0));
+            let body = folded(vec![Stmt::Return(original.clone())]);
+            assert_eq!(*returned(&body), original, "{op} by zero");
+        }
+    }
+
+    /// A promotion of a value that is already floating point is still a promotion.
+    #[test]
+    fn promoting_a_float_folds_to_the_same_value() {
+        let body = folded(vec![Stmt::Return(Expr::ToFloat(Box::new(float_lit(2.5))))]);
+        assert_eq!(*returned(&body), float_lit(2.5));
+    }
+
+    #[test]
+    fn negation_and_logical_not_fold() {
+        let negated = folded(vec![Stmt::Return(Expr::Neg(Box::new(int(3))))]);
+        assert_eq!(*returned(&negated), int(-3));
+
+        let float_negated = folded(vec![Stmt::Return(Expr::Neg(Box::new(float_lit(1.5))))]);
+        assert_eq!(*returned(&float_negated), float_lit(-1.5));
+
+        let flipped = folded(vec![Stmt::Return(Expr::Not(Box::new(Expr::Literal(
+            Literal::Bool(true),
+        ))))]);
+        assert_eq!(*returned(&flipped), Expr::Literal(Literal::Bool(false)));
+    }
+
+    #[test]
+    fn booleans_and_strings_compare() {
+        let equal = folded(vec![Stmt::Return(binop(
+            BinOp::Eq,
+            Expr::Literal(Literal::Bool(true)),
+            Expr::Literal(Literal::Bool(true)),
+        ))]);
+        assert_eq!(*returned(&equal), Expr::Literal(Literal::Bool(true)));
+
+        let ordered = folded(vec![Stmt::Return(binop(
+            BinOp::Lt,
+            Expr::Literal(Literal::Str("a".into())),
+            Expr::Literal(Literal::Str("b".into())),
+        ))]);
+        assert_eq!(*returned(&ordered), Expr::Literal(Literal::Bool(true)));
+    }
+
+    /// An operator with no meaning for a pair of operands must be left alone, not guessed at.
+    #[test]
+    fn an_operation_with_no_defined_result_is_left_in_place() {
+        // Subtraction of two booleans, and arithmetic across kinds. Neither can arise from an
+        // accepted program; leaving them alone keeps that an invariant rather than a coercion.
+        for (left, right) in [
+            (
+                Expr::Literal(Literal::Bool(true)),
+                Expr::Literal(Literal::Bool(false)),
+            ),
+            (int(1), float_lit(1.0)),
+        ] {
+            let original = binop(BinOp::Sub, left, right);
+            let body = folded(vec![Stmt::Return(original.clone())]);
+            assert_eq!(*returned(&body), original);
+        }
+    }
+
+    /// Folding must descend through every expression form, not only the ones it can fold.
+    ///
+    /// A form missed in the traversal is a constant that silently survives inside it — invisible,
+    /// because the surrounding expression still emits correctly.
+    #[test]
+    fn folding_descends_through_every_container_form() {
+        let sum = || binop(BinOp::Add, int(1), int(2));
+        let body = folded(vec![
+            Stmt::Bind {
+                name: "xs".to_string(),
+                ty: Ty::List(Box::new(Ty::Int)),
+                value: Expr::ListLit(vec![sum()]),
+            },
+            Stmt::Bind {
+                name: "d".to_string(),
+                ty: Ty::Dict(Box::new(Ty::Int), Box::new(Ty::Int)),
+                value: Expr::DictLit(vec![(sum(), sum())]),
+            },
+            Stmt::Bind {
+                name: "st".to_string(),
+                ty: Ty::Set(Box::new(Ty::Int)),
+                value: Expr::SetLit(vec![sum()]),
+            },
+            Stmt::Bind {
+                name: "t".to_string(),
+                ty: Ty::Tuple(vec![Ty::Int]),
+                value: Expr::TupleLit(vec![sum()]),
+            },
+            Stmt::Bind {
+                name: "n".to_string(),
+                ty: Ty::Int,
+                value: Expr::Subscript {
+                    base: Box::new(Expr::name("xs")),
+                    index: Box::new(sum()),
+                },
+            },
+            Stmt::Bind {
+                name: "len".to_string(),
+                ty: Ty::Int,
+                value: Expr::Len(Box::new(Expr::name("xs"))),
+            },
+            Stmt::Bind {
+                name: "has".to_string(),
+                ty: Ty::Bool,
+                value: Expr::Contains {
+                    value: Box::new(sum()),
+                    container: Box::new(Expr::name("xs")),
+                },
+            },
+            Stmt::For {
+                name: "i".to_string(),
+                ty: Ty::Int,
+                iter: Expr::Range {
+                    start: Box::new(sum()),
+                    stop: Box::new(sum()),
+                    step: Box::new(sum()),
+                },
+                body: vec![Stmt::Effect(Expr::Call {
+                    callee: "f".to_string(),
+                    args: vec![sum()],
+                })],
+            },
+            Stmt::While {
+                test: binop(BinOp::Lt, int(0), int(1)),
+                body: vec![Stmt::Append {
+                    sequence: Expr::name("xs"),
+                    value: sum(),
+                }],
+            },
+            Stmt::SetItem {
+                collection: Expr::name("d"),
+                index: sum(),
+                value: sum(),
+            },
+            Stmt::Return(Expr::TupleIndex {
+                base: Box::new(Expr::name("t")),
+                position: 0,
+            }),
+        ]);
+
+        let rendered = format!("{body:?}");
+        assert!(
+            !rendered.contains("Add"),
+            "a foldable constant survived the traversal:\n{rendered}"
+        );
+    }
+
     #[test]
     fn comparisons_and_concatenation_fold() {
         let less = folded(vec![Stmt::Return(binop(BinOp::Lt, int(1), int(2)))]);

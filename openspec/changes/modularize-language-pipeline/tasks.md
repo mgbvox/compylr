@@ -141,15 +141,18 @@
 
 ## 10. Documentation and close-out
 
-- [ ] 10.1 Update `README.md`'s module-layout table, capability list, and every referenced path for
+- [x] 10.1 Update `README.md`'s module-layout table, capability list, and every referenced path for
       the workspace, until `tests/readme.rs` passes
-- [ ] 10.2 Update the README prose for the frontend/backend/bridge model, the pass pipeline, and the
+- [x] 10.2 Update the README prose for the frontend/backend/bridge model, the pass pipeline, and the
       operator-semantics change
-- [ ] 10.3 Update `CLAUDE.md`: the workspace commands (`cargo test`, `cargo clippy --workspace`,
+- [x] 10.3 Update `CLAUDE.md`: the workspace commands (`cargo test`, `cargo clippy --workspace`,
       the `cargo llvm-cov` ignore regex, `maturin develop`), the two-PyO3-roles section, and the
       conventions describing where semantics live
-- [ ] 10.4 Hand-edit the Purpose sections of `openspec/specs/rust-backend/spec.md` and
+- [x] 10.4 Hand-edit the Purpose sections of `openspec/specs/rust-backend/spec.md` and
       `openspec/specs/python-frontend/spec.md`, which name Python and parsing respectively and are
       not reachable through a delta
-- [ ] 10.5 Run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test`,
-      and `cargo llvm-cov` with the venv deactivated; confirm coverage has not dropped
+- [x] 10.5 Run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test`,
+      and `cargo llvm-cov` with the venv deactivated; confirm coverage has not dropped. 87.25% ->
+      87.40% regions, 86.32% -> 87.03% lines, measured against a worktree at `main`. The first
+      reading was *below* baseline because the split revealed `runtime.rs` had never been compiled
+      into compylr at all; giving it the native tests its doc claimed is what recovered it

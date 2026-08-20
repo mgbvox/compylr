@@ -34,9 +34,26 @@ of the source text, so comments and reformatting cost nothing.
 The pipeline is complete end to end for the supported subset.
 
 ```
-source text ──frontend──> ruff AST ──lower──> IR ──backend──> Rust ──maturin──> extension
-     ✓                       ✓            ✓          ✓             ✓
+source text ──frontend──> tree ──lower──> IR ──verify──> passes ──backend──> Rust ──bridge──> extension
+     ✓                      ✓          ✓        ✓          ✓          ✓                ✓
 ```
+
+Each stage is a separate crate, and each end of the pipeline is a *named component* rather than
+the only implementation present:
+
+* a **frontend** turns source text into IR (`python`; `typescript`, `go`, and `cpp` reserved),
+* a **backend** turns IR into target source (`rust`; the same three reserved),
+* a **host bridge** makes the result callable, and belongs to the `(source, target)` **pair** —
+  `(python, rust)` today.
+
+The third one is where compylr stops resembling LLVM. LLVM's frontends and backends compose
+N + M because it emits object code and never calls back into the source language. compylr's whole
+purpose is that the source language calls the result, and a calling convention is a negotiation
+between two runtimes — who owns the memory, how errors signal, how strings encode. Python→Rust is
+PyO3; Python→Go would be cgo and a C array someone has to free; nothing carries over. So bridges
+cost N × M, and the design's job is to keep that visible rather than pretend otherwise: a pair
+with a backend and no bridge is a specific answer — *compylr can generate Go, and cannot yet call
+it from Python* — not a missing method.
 
 Both intermediates are written to disk on every build, so nothing between your Python and the
 compiled artifact is a black box:
@@ -45,7 +62,7 @@ compiled artifact is a black box:
 .compylr/
   ir/unit.json            the IR, as JSON
   crate/src/generated.rs  your functions, translated — the file worth reading
-  crate/src/compat.rs     Python semantics in Rust; identical in every project
+  crate/src/compat.rs     the semantics the IR declared, in Rust; identical in every project
   crate/src/bindings.rs   the PyO3 boundary
   crate/src/lib.rs        module declarations and the module registration
   state.json              fingerprint of the last successful build
@@ -540,8 +557,17 @@ Planning goes through [OpenSpec](https://github.com/Fission-AI/OpenSpec) before 
 /opsx:archive    # sync deltas into openspec/specs/ and archive the change
 ```
 
-Conventions: tests before implementation; `cargo fmt`, `cargo clippy -- -D warnings`, and
-`cargo test` green before committing; commit at each checkpoint.
+Conventions: tests before implementation; `cargo fmt`, `cargo clippy --workspace --all-targets --
+-D warnings`, and `cargo test --workspace` green before committing; commit at each checkpoint.
 
-`tests/readme.rs` checks this file against the code, so the type table, operator list, and
-referenced paths cannot drift silently.
+Three tests exist to stop documentation and structure drifting apart, and they are worth knowing
+about before a change surprises you:
+
+* `tests/readme.rs` checks this file against the code, so the type table, operator list, crate
+  layout, and referenced paths cannot drift silently.
+* `tests/crate_boundaries.rs` reads the manifests, so an edge that would let a backend name Python
+  or the IR reach a parser fails the suite rather than passing review.
+* `tests/conformance.rs` renders a corpus of hand-built IR through every backend the registry
+  reports as implemented, and fails if any IR node form has no entry. It is authored as IR rather
+  than as Python on purpose: a tree Python cannot express is a tree the fixtures can never
+  contain, and that is exactly where a backend can be silently wrong.

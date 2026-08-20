@@ -1,9 +1,9 @@
 ## Purpose
 
 Translates compylr IR into Rust source text. This is where the IR's deliberately abstract type
-model meets concrete spellings, and where Python's arithmetic semantics must be reproduced
-rather than delegated to Rust's same-named operators, which disagree on negative and integer
-operands.
+model meets concrete spellings, and where the arithmetic semantics each node declares must be
+reproduced rather than delegated to Rust's same-named operators, which are one choice among
+several and disagree with the others on negative and integer operands.
 
 ## Requirements
 

@@ -1,8 +1,9 @@
 ## Purpose
 
-Turns a Python source file on disk into a parsed syntax tree, and turns any failure to do so
-into a structured, inspectable error that the rest of the compiler can report instead of
-crashing on.
+The source language component for Python: turns Python source text into IR, declares what Python
+means by each operator and what it needs a target to preserve, and owns how a type or operator is
+spelled back to the programmer in a diagnostic. Any failure along the way becomes a structured,
+located error the rest of the compiler can report instead of crashing on.
 
 ## Requirements
 
