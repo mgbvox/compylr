@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "fingerprint": "cfd1e60aa377d578",
+  "version": 2,
+  "fingerprint": "6b1fc4a74dfb4334",
   "functions": [
     {
       "name": "iterative_not_divisible",
@@ -222,7 +222,11 @@
                             "op": "Eq",
                             "left": {
                               "Binary": {
-                                "op": "Mod",
+                                "op": {
+                                  "Rem": {
+                                    "sign": "Divisor"
+                                  }
+                                },
                                 "left": {
                                   "Name": "candidate"
                                 },
@@ -392,7 +396,11 @@
                       "op": "Eq",
                       "left": {
                         "Binary": {
-                          "op": "Mod",
+                          "op": {
+                            "Rem": {
+                              "sign": "Divisor"
+                            }
+                          },
                           "left": {
                             "Name": "n"
                           },
@@ -848,7 +856,11 @@
                           "op": "Eq",
                           "left": {
                             "Binary": {
-                              "op": "Mod",
+                              "op": {
+                                "Rem": {
+                                  "sign": "Divisor"
+                                }
+                              },
                               "left": {
                                 "Name": "n"
                               },
@@ -1157,5 +1169,13 @@
       },
       "doc": "An nth-prime that remembers what it has already computed."
     }
-  ]
+  ],
+  "origin": {
+    "frontend": "python",
+    "requires": [
+      "IntegerOverflowReported",
+      "DivisionByZeroReported",
+      "FloatOrderPreserved"
+    ]
+  }
 }

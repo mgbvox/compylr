@@ -1,6 +1,5 @@
 ---
 source: tests/fixtures.rs
-assertion_line: 52
 expression: functions
 ---
 [
@@ -48,7 +47,9 @@ expression: functions
                         test: Binary {
                             op: Eq,
                             left: Binary {
-                                op: Mod,
+                                op: Rem {
+                                    sign: Divisor,
+                                },
                                 left: Name(
                                     "n",
                                 ),

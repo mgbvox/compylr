@@ -59,13 +59,15 @@ a single one-line function produced 238 lines and the translation was lines 200�
 | `python-frontend` | Parsing Python source text into a syntax tree, with structured I/O and syntax errors |
 | `ir-lowering` | Translating the syntax tree into IR, enforcing the subset and type rules |
 | `ir` | The program model and type system every backend consumes, and its on-disk artifact |
-| `rust-backend` | IR to Rust source: concrete type spellings, and Python's operator semantics |
+| `rust-backend` | IR to Rust source: concrete type spellings, and the semantics each node declares |
 | `python-bindings` | The PyO3 layer generated onto compiled functions, and how failures become exceptions |
 | `native-bridge` | `compylr._core`, exposing the compiler to Python and its diagnostics as exceptions |
 | `build-pipeline` | The shared crate, the artifacts on disk, and the fingerprint-keyed rebuild decision |
 | `python-api` | `initialize`, the decorator's two forms, settings resolution, and swapping in |
 | `cli` | The command line: precompiling a project, what it emits, and how it reports rejections |
 | `demo` | The worked example: what it must contain, that it compiles, and that this repo verifies it |
+| `pipeline-architecture` | What a frontend, a backend, and a host bridge are, and how each is resolved |
+| `ir-optimization` | Verification and the pass pipeline between lowering and emission |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
@@ -505,16 +507,28 @@ Three rules that are easy to break and expensive to discover later:
 `String` — belong to a backend, never to the IR. Rust is the first backend, but Go, C++, and
 TypeScript backends should consume the same tree unchanged.
 
-**Operators carry Python semantics, not the target's.** Floor division rounds toward negative
-infinity and remainder takes the sign of the divisor, where most targets truncate toward zero.
-True division always yields a float, where `/` between two integers is integer division in Rust,
-Go, and C++. Lowering inserts an explicit widening node so a backend never has to re-derive a
-conversion. A backend that maps these operators to same-named native ones is wrong on negative
-and integer operands.
+**Operators carry the semantics a frontend declared, not a language's by default.** `BinOp::Div`
+carries a mode — exact, or integer with a rounding direction — and `BinOp::Rem` carries which
+operand's sign the result takes. The Python frontend sets `//` to round toward negative infinity,
+`%` to take the sign of the divisor, and `/` to divide exactly; a Go frontend would set the first
+two the other way. The backend reads the mode off the node and never the operator's name, which
+is what lets one backend serve both. Lowering inserts an explicit widening node for exact
+division, so a backend never re-derives a conversion.
+
+The IR's own rendering says the mode rather than a symbol — `//` is Python's way of writing one
+particular rounding, not the rounding itself — so quoting a programmer's syntax back at them
+belongs to the frontend that read it.
 
 **Rebuild decisions key off the IR, not the source text.** `Unit::fingerprint` hashes structure,
 so comments and reformatting do not trigger a recompile, and it is order-independent so
-decoration order does not either.
+decoration order does not either. It also hashes the unit's origin — which frontend produced it
+and what that language requires preserved — because two units with identical bodies and different
+requirements can legitimately emit different code, and a cache that could not tell them apart
+would hand back the wrong build.
+
+> **Upgrading past this release rebuilds every project once.** Operators changed shape, so the
+> artifact format went to version 2 and every fingerprint moved. The build state records the
+> compiler version, so this happens automatically rather than as a stale-artifact bug.
 
 ## Development
 

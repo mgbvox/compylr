@@ -1,4 +1,4 @@
-//! Python arithmetic semantics, in Rust.
+//! The semantics the IR declares, in Rust.
 //!
 //! This file has two lives. It is compiled as part of compylr, so its behavior is unit-tested
 //! natively; and it is embedded verbatim into every generated crate via `include_str!`, so
@@ -6,15 +6,26 @@
 //! why it must stay **self-contained**: no `use crate::...`, no external crates, nothing that
 //! would fail to compile once pasted into somebody else's project.
 //!
-//! Everything here exists because Rust's native operators disagree with Python's:
+//! Everything here exists because Rust's native operators are one choice among several, and the
+//! IR says which choice the source language made:
 //!
-//! | Expression | Python | Rust native |
+//! | Declared on the node | Result for `-7 ? 2` | Rust's native operator |
 //! | --- | --- | --- |
-//! | `-7 // 2` | `-4` (floors) | `-3` (truncates) |
-//! | `-7 % 2` | `1` (sign of divisor) | `-1` (sign of dividend) |
-//! | `7 / 2` | `3.5` (always float) | `3` (integer division) |
-//! | `1 / 0` | `ZeroDivisionError` | panics, or `inf` for floats |
-//! | overflow | promotes to big int | wraps silently in release |
+//! | division rounding toward negative infinity | `-4` | `-3` (truncates) |
+//! | division rounding toward zero | `-3` | `-3` |
+//! | remainder taking the sign of the divisor | `1` | `-1` (sign of dividend) |
+//! | remainder taking the sign of the dividend | `-1` | `-1` |
+//! | exact division | `-3.5` | `-3` (integer division) |
+//!
+//! Two failures are reported rather than trapped, in every mode: division by zero, which Rust
+//! panics on and which yields infinity for floats, and an integer result outside `i64`. Both are
+//! guarantees a frontend declares and this backend preserves — see `compylr_ir::Guarantee`.
+//!
+//! Not everything here is neutral yet. The container helpers below still encode **Python's**
+//! semantics with no way to say otherwise: a negative index counts from the end, `len` counts
+//! code points rather than bytes, and `in` over a string tests substrings. They keep their `Py`
+//! prefix precisely because that is still true of them, and renaming them without giving them a
+//! mode would hide it.
 //!
 //! The operations are exposed as traits rather than free functions so a backend can emit
 //! `PyNum::py_sub(&a, &b)?` without knowing whether `a` is an integer or a float — Rust picks the
@@ -73,10 +84,19 @@ pub trait PyNum: Sized {
     fn py_sub(&self, rhs: &Self) -> Result<Self, RuntimeError>;
     /// Multiply.
     fn py_mul(&self, rhs: &Self) -> Result<Self, RuntimeError>;
-    /// Floor-divide, rounding toward negative infinity.
-    fn py_floordiv(&self, rhs: &Self) -> Result<Self, RuntimeError>;
-    /// Remainder, taking the sign of the divisor.
-    fn py_mod(&self, rhs: &Self) -> Result<Self, RuntimeError>;
+    /// Divide, rounding toward negative infinity: `-7 / 2` is `-4`.
+    fn div_floor(&self, rhs: &Self) -> Result<Self, RuntimeError>;
+    /// Divide, rounding toward zero: `-7 / 2` is `-3`.
+    fn div_trunc(&self, rhs: &Self) -> Result<Self, RuntimeError>;
+    /// Remainder taking the sign of the divisor: `-7 % 2` is `1`.
+    ///
+    /// The companion of [`Self::div_floor`]: `(a / b) * b + (a % b) == a` holds within a pair
+    /// and fails across one.
+    fn rem_floor(&self, rhs: &Self) -> Result<Self, RuntimeError>;
+    /// Remainder taking the sign of the dividend: `-7 % 2` is `-1`.
+    ///
+    /// The companion of [`Self::div_trunc`].
+    fn rem_trunc(&self, rhs: &Self) -> Result<Self, RuntimeError>;
     /// Negate.
     fn py_neg(&self) -> Result<Self, RuntimeError>;
 }
@@ -111,17 +131,12 @@ impl PyNum for i64 {
         self.checked_mul(*rhs).ok_or(RuntimeError::Overflow)
     }
 
-    /// Python floors; Rust truncates toward zero. They agree only when the division is exact or
-    /// both operands share a sign, so the quotient is corrected whenever the remainder is
-    /// non-zero and its sign disagrees with the divisor's.
-    fn py_floordiv(&self, rhs: &Self) -> Result<Self, RuntimeError> {
+    /// Rust's `/` truncates. Flooring agrees with it only when the division is exact or both
+    /// operands share a sign, so the quotient is corrected whenever the remainder is non-zero and
+    /// its sign disagrees with the divisor's.
+    fn div_floor(&self, rhs: &Self) -> Result<Self, RuntimeError> {
         let (a, b) = (*self, *rhs);
-        if b == 0 {
-            return Err(RuntimeError::DivisionByZero);
-        }
-        // `i64::MIN / -1` is the one division that overflows: the true quotient is one past
-        // `i64::MAX`. Python would widen to a big integer; the honest answer here is overflow.
-        let quotient = a.checked_div(b).ok_or(RuntimeError::Overflow)?;
+        let quotient = self.div_trunc(rhs)?;
         let remainder = a % b;
         if remainder != 0 && ((remainder < 0) != (b < 0)) {
             // Cannot overflow: a non-zero remainder means the quotient is strictly inside range.
@@ -131,25 +146,41 @@ impl PyNum for i64 {
         }
     }
 
-    /// Python's remainder takes the sign of the divisor; Rust's takes the sign of the dividend.
-    fn py_mod(&self, rhs: &Self) -> Result<Self, RuntimeError> {
+    /// This is Rust's own `/`, with the two failures reported rather than trapped.
+    fn div_trunc(&self, rhs: &Self) -> Result<Self, RuntimeError> {
+        if *rhs == 0 {
+            return Err(RuntimeError::DivisionByZero);
+        }
+        // `i64::MIN / -1` is the one division that overflows: the true quotient is one past
+        // `i64::MAX`. A language with arbitrary-precision integers would widen; the honest answer
+        // for a 64-bit integer is overflow.
+        self.checked_div(*rhs).ok_or(RuntimeError::Overflow)
+    }
+
+    fn rem_floor(&self, rhs: &Self) -> Result<Self, RuntimeError> {
+        let (a, b) = (*self, *rhs);
+        let remainder = self.rem_trunc(rhs)?;
+        if remainder != 0 && ((remainder < 0) != (b < 0)) {
+            // Cannot overflow: `|remainder| < |b|`, so the sum moves toward zero.
+            let _ = a;
+            Ok(remainder + b)
+        } else {
+            Ok(remainder)
+        }
+    }
+
+    /// This is Rust's own `%`, with the two failures reported rather than trapped.
+    fn rem_trunc(&self, rhs: &Self) -> Result<Self, RuntimeError> {
         let (a, b) = (*self, *rhs);
         if b == 0 {
             return Err(RuntimeError::DivisionByZero);
         }
         // `i64::MIN % -1` overflows in Rust even though the answer, 0, is representable. Unlike
-        // floor division there is nothing out of range here, so returning the real answer is
-        // both correct and what Python gives.
+        // division there is nothing out of range here, so returning the real answer is correct.
         if b == -1 {
             return Ok(0);
         }
-        let remainder = a % b;
-        if remainder != 0 && ((remainder < 0) != (b < 0)) {
-            // Cannot overflow: `|remainder| < |b|`, so the sum moves toward zero.
-            Ok(remainder + b)
-        } else {
-            Ok(remainder)
-        }
+        Ok(a % b)
     }
 
     fn py_neg(&self) -> Result<Self, RuntimeError> {
@@ -166,18 +197,22 @@ impl PyNum for f64 {
         Ok(self * rhs)
     }
 
-    fn py_floordiv(&self, rhs: &Self) -> Result<Self, RuntimeError> {
+    fn div_floor(&self, rhs: &Self) -> Result<Self, RuntimeError> {
         if *rhs == 0.0 {
             return Err(RuntimeError::DivisionByZero);
         }
         Ok((self / rhs).floor())
     }
 
-    fn py_mod(&self, rhs: &Self) -> Result<Self, RuntimeError> {
+    fn div_trunc(&self, rhs: &Self) -> Result<Self, RuntimeError> {
         if *rhs == 0.0 {
             return Err(RuntimeError::DivisionByZero);
         }
-        let remainder = self % rhs;
+        Ok((self / rhs).trunc())
+    }
+
+    fn rem_floor(&self, rhs: &Self) -> Result<Self, RuntimeError> {
+        let remainder = self.rem_trunc(rhs)?;
         if remainder != 0.0 && ((remainder < 0.0) != (*rhs < 0.0)) {
             Ok(remainder + rhs)
         } else {
@@ -185,19 +220,27 @@ impl PyNum for f64 {
         }
     }
 
+    fn rem_trunc(&self, rhs: &Self) -> Result<Self, RuntimeError> {
+        if *rhs == 0.0 {
+            return Err(RuntimeError::DivisionByZero);
+        }
+        Ok(self % rhs)
+    }
+
     fn py_neg(&self) -> Result<Self, RuntimeError> {
         Ok(-self)
     }
 }
 
-/// True division, which always yields a float.
+/// Exact division, which always yields a float.
 ///
 /// Both operands are already `f64`: lowering wraps integer operands in an explicit promotion
 /// node, so the backend never has to widen them itself.
 ///
-/// Python raises `ZeroDivisionError` for `1.0 / 0.0` where IEEE-754 would hand back infinity, so
-/// the zero check applies to floats too — this is not an integer-only concern.
-pub fn py_truediv(lhs: &f64, rhs: &f64) -> Result<f64, RuntimeError> {
+/// The zero check applies to floats too, where IEEE-754 would hand back infinity. Reporting it
+/// is what the [`RuntimeError::DivisionByZero`] guarantee means, and a frontend whose language
+/// wants infinity would declare a different mode rather than reach this function.
+pub fn div_exact(lhs: &f64, rhs: &f64) -> Result<f64, RuntimeError> {
     if *rhs == 0.0 {
         return Err(RuntimeError::DivisionByZero);
     }

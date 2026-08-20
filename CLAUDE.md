@@ -130,6 +130,10 @@ Known gaps worth knowing before you trip on them:
   the package — but during development here the version does not move, so after changing emission
   you must `rm -rf .compylr` (and `demo/.compylr`) or you will benchmark last build's code. This
   cost real time once already.
+* **Operators changed shape, so every existing cache is invalid once.** The artifact format is at
+  version 2 and every fingerprint moved. `_state_is_current` compares the recorded compylr version,
+  so a user upgrading rebuilds automatically; there is nothing to do beyond knowing why the first
+  run after upgrading is slow.
 * **`COMPYLR_DISABLE=1` turns compilation off for a process**, returning every marked member
   untouched without validating it. That is what makes an interpreted measurement honest: a marked
   function reaches other marked functions through module globals, so `python_function` alone gives

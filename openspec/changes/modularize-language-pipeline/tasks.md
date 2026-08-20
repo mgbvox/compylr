@@ -56,22 +56,22 @@
 
 ## 4. Declared semantics on IR nodes (fingerprint-changing)
 
-- [ ] 4.1 Write tests that two integer-division nodes declaring different rounding modes are
+- [x] 4.1 Write tests that two integer-division nodes declaring different rounding modes are
       distinguishable, survive serialization, and produce different fingerprints
-- [ ] 4.2 Replace `BinOp::FloorDiv` with integer division carrying `Rounding::{TowardNegInf,
+- [x] 4.2 Replace `BinOp::FloorDiv` with integer division carrying `Rounding::{TowardNegInf,
       TowardZero}`, `Mod` with remainder carrying `RemSign::{Divisor, Dividend}`, and `TrueDiv` with
       division carrying an explicit promotion
-- [ ] 4.3 Update the Python frontend to declare Python's meanings on every operator it lowers, with
+- [x] 4.3 Update the Python frontend to declare Python's meanings on every operator it lowers, with
       tests asserting the declaration rather than the operator name
-- [ ] 4.4 Update the Rust backend to emit from the declared mode, with execution tests for both
+- [x] 4.4 Update the Rust backend to emit from the declared mode, with execution tests for both
       rounding modes and both remainder conventions, including the negative-operand cases
-- [ ] 4.5 Move `Ty::python_name` and `BinOp::python_symbol` out of `compylr-ir` into the Python
+- [x] 4.5 Move `Ty::python_name` and `BinOp::python_symbol` out of `compylr-ir` into the Python
       frontend; give the IR a neutral `Display`; confirm every diagnostic still quotes Python
       spellings unchanged
-- [ ] 4.6 Add `producing frontend` and `required guarantees` to `Unit`, serialized and round-tripped
-- [ ] 4.7 Rename `Expr::Range` documentation to state its own contract (start, stop, non-zero step,
+- [x] 4.6 Add `producing frontend` and `required guarantees` to `Unit`, serialized and round-tripped
+- [x] 4.7 Rename `Expr::Range` documentation to state its own contract (start, stop, non-zero step,
       half-open) with no reference to Python's defaulting rules
-- [ ] 4.8 Record in `CLAUDE.md` and the README that this release invalidates every cached build once,
+- [x] 4.8 Record in `CLAUDE.md` and the README that this release invalidates every cached build once,
       and confirm the existing compiler-version check in build state handles it
 
 ## 5. Verification and the pass pipeline

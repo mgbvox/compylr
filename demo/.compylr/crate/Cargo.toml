@@ -1,12 +1,12 @@
 [workspace]
 
 [package]
-name = "compylr_generated_cfd1e60aa377d578"
+name = "compylr_generated_6b1fc4a74dfb4334"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "compylr_generated_cfd1e60aa377d578"
+name = "compylr_generated_6b1fc4a74dfb4334"
 crate-type = ["cdylib"]
 
 [dependencies]

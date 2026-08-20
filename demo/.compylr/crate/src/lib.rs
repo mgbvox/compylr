@@ -8,6 +8,6 @@ pub mod compat;
 pub mod generated;
 
 #[pymodule]
-fn compylr_generated_cfd1e60aa377d578(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn compylr_generated_6b1fc4a74dfb4334(m: &Bound<'_, PyModule>) -> PyResult<()> {
     bindings::register(m)
 }

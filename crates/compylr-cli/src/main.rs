@@ -15,6 +15,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use compylr_core::backend::BackendError;
+// The summary quotes types back in the language of the file being inspected, so it uses the
+// frontend's spelling rather than the IR's neutral one.
+use compylr_frontend_python::PythonTypeName;
 use compylr_registry::{backends, bridges, frontends};
 
 /// The source language, until there is a second one to choose between.

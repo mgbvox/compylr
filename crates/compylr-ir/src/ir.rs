@@ -17,6 +17,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::hash_map::DefaultHasher;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
@@ -25,12 +26,13 @@ use compylr_diagnostics::error::{LowerError, LowerErrorKind};
 use compylr_diagnostics::span::Span;
 
 use crate::artifact::ArtifactError;
+use crate::guarantee::Guarantee;
 
 /// Format version of the on-disk artifact.
 ///
 /// Recorded in every artifact and checked on load, so a file written by a future build fails
 /// with an explanation rather than deserializing into a subtly wrong unit.
-const ARTIFACT_VERSION: u32 = 1;
+const ARTIFACT_VERSION: u32 = 2;
 
 /// The on-disk envelope around a unit.
 ///
@@ -46,6 +48,27 @@ struct UnitArtifact {
     // and still fingerprints the same.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     classes: Vec<Class>,
+    // Absent for a unit nobody claimed, which is what a hand-built one is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin: Option<Origin>,
+}
+
+/// Which frontend produced a unit, and what its source language needs preserved.
+///
+/// Recorded on the unit so that a pass selected by source/target pair, and a backend deciding
+/// whether an optimization is permitted, can both answer without re-deriving the source language
+/// from the shape of the tree. Guessing it back out of the IR is exactly the coupling the IR
+/// exists to prevent.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Origin {
+    /// Registry name of the frontend that lowered this unit.
+    pub frontend: String,
+    /// What that frontend requires a target to preserve.
+    ///
+    /// Held on the unit rather than looked up from the frontend at use time, because an artifact
+    /// read back from disk has no frontend to ask — and the requirements are a property of the
+    /// program's meaning, which is what the artifact is for.
+    pub requires: Vec<Guarantee>,
 }
 
 /// A type in the supported subset, described by meaning rather than by any target's spelling.
@@ -88,28 +111,34 @@ pub enum Ty {
     Instance(String),
 }
 
-impl Ty {
-    /// The Python annotation this type comes from, useful in diagnostics.
-    pub fn python_name(&self) -> String {
+impl fmt::Display for Ty {
+    /// A neutral rendering, in no source language and no target language.
+    ///
+    /// Deliberately not `int`/`str`: those are Python's spellings, and quoting a type back to a
+    /// programmer in the words they wrote is the frontend's job. The IR needs a rendering for
+    /// artifacts and debugging, and one that resembled a particular language would be borrowed by
+    /// every diagnostic that had no better option — which is how the spellings ended up here in
+    /// the first place.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Int => "int".to_string(),
-            Self::Float => "float".to_string(),
-            Self::Bool => "bool".to_string(),
-            Self::Str => "str".to_string(),
-            Self::Unit => "None".to_string(),
-            Self::List(element) => format!("list[{}]", element.python_name()),
-            Self::Dict(key, value) => {
-                format!("dict[{}, {}]", key.python_name(), value.python_name())
-            }
-            Self::Set(element) => format!("set[{}]", element.python_name()),
+            Self::Int => f.write_str("integer"),
+            Self::Float => f.write_str("float"),
+            Self::Bool => f.write_str("boolean"),
+            Self::Str => f.write_str("string"),
+            Self::Unit => f.write_str("unit"),
+            Self::List(element) => write!(f, "sequence of {element}"),
+            Self::Dict(key, value) => write!(f, "mapping from {key} to {value}"),
+            Self::Set(element) => write!(f, "set of {element}"),
             Self::Tuple(elements) => {
-                let inner: Vec<String> = elements.iter().map(Ty::python_name).collect();
-                format!("tuple[{}]", inner.join(", "))
+                let inner: Vec<String> = elements.iter().map(Ty::to_string).collect();
+                write!(f, "tuple of ({})", inner.join(", "))
             }
-            Self::Instance(class) => class.clone(),
+            Self::Instance(class) => write!(f, "instance of {class}"),
         }
     }
+}
 
+impl Ty {
     /// Whether this type may be a mapping key or a set element.
     ///
     /// Checked when a type is constructed rather than only when an annotation is parsed, so that
@@ -184,7 +213,51 @@ impl Literal {
     }
 }
 
-/// A binary operator, carrying Python's semantics.
+/// Which way an integer division rounds a result that is not exact.
+///
+/// Both members are here because both are somebody's `/`: Python's `//` floors, and C, C++, Go,
+/// Rust, and Java truncate. A node that did not say which it meant would be read as whichever
+/// the reader's language uses, and the two disagree on exactly the inputs nobody tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Rounding {
+    /// Round down: `-7 / 2` is `-4`.
+    TowardNegInf,
+    /// Round toward zero: `-7 / 2` is `-3`.
+    TowardZero,
+}
+
+/// What a division does with its operands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DivMode {
+    /// Operands are promoted to floating point and divided exactly.
+    ///
+    /// This is the trap `/` sets when a frontend does not say what it means: in Python `7 / 2` is
+    /// `3.5`, and in Rust, Go, and C++ the same spelling between two integers is integer division
+    /// yielding `3`. Saying `Exact` on the node is what stops a backend from guessing.
+    Exact,
+    /// Operands divide as integers, rounding as stated.
+    Integer(Rounding),
+}
+
+/// Which operand's sign a remainder takes.
+///
+/// Paired with [`Rounding`]: `Divisor` is the companion of [`Rounding::TowardNegInf`] and
+/// `Dividend` of [`Rounding::TowardZero`], in the sense that `(a / b) * b + (a % b) == a` holds
+/// within a pair and fails across one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RemSign {
+    /// The result takes the sign of the divisor: `-7 % 2` is `1`.
+    Divisor,
+    /// The result takes the sign of the dividend: `-7 % 2` is `-1`.
+    Dividend,
+}
+
+/// A binary operator, carrying the semantics a frontend declared for it.
+///
+/// The operators that admit more than one reasonable reading carry which one they mean. A
+/// frontend sets it to whatever its source language means; a backend reproduces exactly what the
+/// node says, without knowing which frontend produced it. Anything else makes the IR's meaning a
+/// property of the compiler rather than of the tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BinOp {
     /// Addition.
@@ -193,16 +266,16 @@ pub enum BinOp {
     Sub,
     /// Multiplication.
     Mul,
-    /// True division: always yields a floating-point result, even for two integer operands.
-    ///
-    /// This is the trap `/` sets for a backend. In Python `7 / 2` is `3.5`; in Rust, Go, and
-    /// C++ the same spelling between two integers is integer division yielding `3`. A backend
-    /// must convert its operands before dividing.
-    TrueDiv,
-    /// Floor division: rounds toward negative infinity, unlike most targets' `/`.
-    FloorDiv,
-    /// Remainder: takes the sign of the divisor, unlike most targets' `%`.
-    Mod,
+    /// Division, of the declared kind.
+    Div {
+        /// Whether this divides exactly or as integers, and how it rounds if it does.
+        mode: DivMode,
+    },
+    /// Remainder, taking the declared operand's sign.
+    Rem {
+        /// Which operand's sign the result takes.
+        sign: RemSign,
+    },
     /// Equality.
     Eq,
     /// Inequality.
@@ -225,22 +298,40 @@ impl BinOp {
             Self::Eq | Self::NotEq | Self::Lt | Self::LtE | Self::Gt | Self::GtE
         )
     }
+}
 
-    /// The Python spelling of this operator, for diagnostics.
-    pub fn python_symbol(self) -> &'static str {
+impl fmt::Display for BinOp {
+    /// A neutral rendering that states the declared semantics rather than a spelling.
+    ///
+    /// `//` is Python's way of writing one particular rounding mode; a Go frontend writes the
+    /// same mode as `/`. Naming the mode rather than a symbol is what lets one rendering serve
+    /// both, and quoting the programmer's own syntax back at them stays the frontend's job.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Add => "+",
-            Self::Sub => "-",
-            Self::Mul => "*",
-            Self::TrueDiv => "/",
-            Self::FloorDiv => "//",
-            Self::Mod => "%",
-            Self::Eq => "==",
-            Self::NotEq => "!=",
-            Self::Lt => "<",
-            Self::LtE => "<=",
-            Self::Gt => ">",
-            Self::GtE => ">=",
+            Self::Add => f.write_str("addition"),
+            Self::Sub => f.write_str("subtraction"),
+            Self::Mul => f.write_str("multiplication"),
+            Self::Div {
+                mode: DivMode::Exact,
+            } => f.write_str("exact division"),
+            Self::Div {
+                mode: DivMode::Integer(Rounding::TowardNegInf),
+            } => f.write_str("integer division rounding toward negative infinity"),
+            Self::Div {
+                mode: DivMode::Integer(Rounding::TowardZero),
+            } => f.write_str("integer division rounding toward zero"),
+            Self::Rem {
+                sign: RemSign::Divisor,
+            } => f.write_str("remainder taking the sign of the divisor"),
+            Self::Rem {
+                sign: RemSign::Dividend,
+            } => f.write_str("remainder taking the sign of the dividend"),
+            Self::Eq => f.write_str("equality"),
+            Self::NotEq => f.write_str("inequality"),
+            Self::Lt => f.write_str("less than"),
+            Self::LtE => f.write_str("less than or equal"),
+            Self::Gt => f.write_str("greater than"),
+            Self::GtE => f.write_str("greater than or equal"),
         }
     }
 }
@@ -360,12 +451,18 @@ pub enum Expr {
     /// so leaving `len` as one would make its meaning depend on whether someone had decorated a
     /// function of that name.
     Len(Box<Expr>),
-    /// A range of integers, as Python's `range` produces.
+    /// A counted sequence of integers: `start`, then `start + step`, and so on while the value
+    /// has not reached `stop`. Half-open — `stop` is excluded — and `step` may be negative but
+    /// may not be zero.
     ///
-    /// All three components are present even when the source omitted them, so a backend never has
-    /// to know Python's defaulting rules. A distinct form rather than a call, for the reason
-    /// [`Expr::Len`] is: a call is resolved against the unit, so leaving it as one would make its
-    /// meaning depend on what else was compiled.
+    /// Not a Python feature. Go's three-clause `for` and C++'s `iota` lower to it just as
+    /// naturally, and stating the contract here rather than citing one language's defaulting
+    /// rules is what makes that true. All three components are always present, so no backend has
+    /// to know what any frontend's source language leaves out.
+    ///
+    /// A distinct form rather than a call, for the reason [`Expr::Len`] is: a call is resolved
+    /// against the unit, so leaving it as one would make its meaning depend on what else was
+    /// compiled.
     Range {
         /// First value.
         start: Box<Expr>,
@@ -813,12 +910,41 @@ pub struct Unit {
     // Classes share the namespace with functions: they compile into one file and one module, so a
     // collision would surface as a Rust error rather than a diagnostic.
     classes: BTreeMap<String, Class>,
+    // `None` until a frontend claims the unit. A hand-built unit -- a test fixture, a conformance
+    // corpus entry -- genuinely has no source language, and pretending it has one would make the
+    // record useless for the case it exists to serve.
+    origin: Option<Origin>,
 }
 
 impl Unit {
     /// Create an empty unit.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Record which frontend produced this unit and what its language requires.
+    ///
+    /// Set by the frontend at the end of lowering rather than by the caller, so that a unit
+    /// cannot claim an origin it does not have.
+    pub fn set_origin(&mut self, frontend: impl Into<String>, requires: &[Guarantee]) {
+        self.origin = Some(Origin {
+            frontend: frontend.into(),
+            requires: requires.to_vec(),
+        });
+    }
+
+    /// The frontend that produced this unit, if one claimed it.
+    pub fn origin(&self) -> Option<&Origin> {
+        self.origin.as_ref()
+    }
+
+    /// What this unit's source language requires a target to preserve.
+    ///
+    /// Empty for an unclaimed unit: nothing is known about it, so nothing can be required. A
+    /// backend checking against this therefore accepts a hand-built unit, which is what makes a
+    /// conformance corpus runnable without inventing a source language for it.
+    pub fn requires(&self) -> &[Guarantee] {
+        self.origin.as_ref().map_or(&[], |origin| &origin.requires)
     }
 
     /// Add a function, failing if that name is already taken by a function or a class.
@@ -903,6 +1029,14 @@ impl Unit {
             class_prints.sort_unstable();
             class_prints.hash(&mut hasher);
         }
+
+        // The origin is part of the compilation input, not decoration: two units with identical
+        // bodies but different required guarantees can legitimately emit different code, and a
+        // cache that could not tell them apart would hand back the wrong build. Contributing only
+        // when present keeps a hand-built unit printing as it always did.
+        if let Some(origin) = &self.origin {
+            origin.hash(&mut hasher);
+        }
         hasher.finish()
     }
 
@@ -920,6 +1054,7 @@ impl Unit {
             fingerprint: format!("{:016x}", self.fingerprint()),
             functions: self.functions.values().cloned().collect(),
             classes: self.classes.values().cloned().collect(),
+            origin: self.origin.clone(),
         };
         Ok(serde_json::to_string_pretty(&artifact)?)
     }
@@ -939,6 +1074,7 @@ impl Unit {
         }
 
         let mut unit = Self::new();
+        unit.origin = artifact.origin;
         for function in artifact.functions {
             unit.add_function(function)
                 .map_err(|e| ArtifactError::DuplicateFunction(Box::new(e)))?;
@@ -1037,8 +1173,10 @@ mod tests {
     #[test]
     fn ty_covers_exactly_the_supported_set() {
         let all = [Ty::Int, Ty::Float, Ty::Bool, Ty::Str, Ty::Unit];
-        let names: Vec<String> = all.iter().map(|t| t.python_name()).collect();
-        assert_eq!(names, ["int", "float", "bool", "str", "None"]);
+        let names: Vec<String> = all.iter().map(Ty::to_string).collect();
+        // Neutral names, not `int`/`str`/`None`: those are Python's, and rendering them here is
+        // what let every diagnostic in the compiler borrow one language's vocabulary.
+        assert_eq!(names, ["integer", "float", "boolean", "string", "unit"]);
         assert_eq!(Ty::Int, Ty::Int);
         assert_ne!(Ty::Int, Ty::Bool);
     }
@@ -1094,11 +1232,52 @@ mod tests {
     }
 
     #[test]
-    fn true_division_is_distinct_from_floor_division() {
-        assert_ne!(BinOp::TrueDiv, BinOp::FloorDiv);
-        assert_eq!(BinOp::TrueDiv.python_symbol(), "/");
-        assert_eq!(BinOp::FloorDiv.python_symbol(), "//");
-        assert!(!BinOp::TrueDiv.is_comparison());
+    fn a_division_carries_which_kind_it_is() {
+        let exact = BinOp::Div {
+            mode: DivMode::Exact,
+        };
+        let flooring = BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardNegInf),
+        };
+        let truncating = BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardZero),
+        };
+
+        // All three are `/` in some language. Distinguishable only because the node says which.
+        assert_ne!(exact, flooring);
+        assert_ne!(flooring, truncating);
+        assert!(!exact.is_comparison());
+    }
+
+    #[test]
+    fn a_remainder_carries_whose_sign_it_takes() {
+        let divisor = BinOp::Rem {
+            sign: RemSign::Divisor,
+        };
+        let dividend = BinOp::Rem {
+            sign: RemSign::Dividend,
+        };
+        assert_ne!(divisor, dividend);
+        assert!(!divisor.is_comparison());
+    }
+
+    /// The declared semantics must be readable from the node without any other context.
+    #[test]
+    fn an_operator_states_its_own_meaning() {
+        assert!(
+            BinOp::Div {
+                mode: DivMode::Integer(Rounding::TowardNegInf),
+            }
+            .to_string()
+            .contains("negative infinity")
+        );
+        assert!(
+            BinOp::Rem {
+                sign: RemSign::Divisor,
+            }
+            .to_string()
+            .contains("divisor")
+        );
     }
 
     #[test]
@@ -1141,23 +1320,46 @@ mod tests {
             BinOp::Add,
             BinOp::Sub,
             BinOp::Mul,
-            BinOp::TrueDiv,
-            BinOp::FloorDiv,
-            BinOp::Mod,
+            BinOp::Div {
+                mode: DivMode::Exact,
+            },
+            BinOp::Div {
+                mode: DivMode::Integer(Rounding::TowardNegInf),
+            },
+            BinOp::Rem {
+                sign: RemSign::Divisor,
+            },
         ] {
             assert!(!op.is_comparison(), "{op:?} should not be a comparison");
         }
     }
 
+    /// Two operators that render alike would be two operators a reader cannot tell apart.
+    ///
+    /// The list covers every division and remainder *mode*, not just every variant, because the
+    /// modes are the whole point: `//` and Go's `/` are the same variant with different meanings,
+    /// and a rendering that collapsed them would undo the change.
     #[test]
-    fn every_operator_has_a_distinct_python_spelling() {
+    fn every_operator_and_mode_renders_distinctly() {
         let ops = [
             BinOp::Add,
             BinOp::Sub,
             BinOp::Mul,
-            BinOp::TrueDiv,
-            BinOp::FloorDiv,
-            BinOp::Mod,
+            BinOp::Div {
+                mode: DivMode::Exact,
+            },
+            BinOp::Div {
+                mode: DivMode::Integer(Rounding::TowardNegInf),
+            },
+            BinOp::Div {
+                mode: DivMode::Integer(Rounding::TowardZero),
+            },
+            BinOp::Rem {
+                sign: RemSign::Divisor,
+            },
+            BinOp::Rem {
+                sign: RemSign::Dividend,
+            },
             BinOp::Eq,
             BinOp::NotEq,
             BinOp::Lt,
@@ -1165,12 +1367,11 @@ mod tests {
             BinOp::Gt,
             BinOp::GtE,
         ];
-        let mut symbols: Vec<&str> = ops.iter().map(|op| op.python_symbol()).collect();
-        assert_eq!(symbols.len(), 12);
-        symbols.sort_unstable();
-        symbols.dedup();
-        assert_eq!(symbols.len(), 12, "operator spellings must be distinct");
-        assert_eq!(BinOp::FloorDiv.python_symbol(), "//");
+        let mut rendered: Vec<String> = ops.iter().map(BinOp::to_string).collect();
+        assert_eq!(rendered.len(), 14);
+        rendered.sort();
+        rendered.dedup();
+        assert_eq!(rendered.len(), 14, "operator renderings must be distinct");
     }
 
     #[test]

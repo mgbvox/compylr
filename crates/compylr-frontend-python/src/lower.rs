@@ -34,9 +34,37 @@ use ruff_python_parser::Parsed;
 use ruff_text_size::Ranged;
 
 use crate::span_of;
+use crate::spelling::{PythonOperator, PythonTypeName};
+
+/// Python's `/`: both operands become floating point, so `7 / 2` is `3.5`.
+///
+/// Declared here rather than left for a backend to infer. Rust, Go, and C++ all spell integer
+/// division `/` too, and a backend reading the operator's name instead of its mode would emit
+/// `3`.
+const PY_TRUE_DIV: BinOp = BinOp::Div {
+    mode: DivMode::Exact,
+};
+
+/// Python's `//`: integer division rounding toward negative infinity, so `-7 // 2` is `-4`.
+///
+/// Most targets' `/` truncates toward zero and would give `-3`. The mode on the node is what
+/// makes the difference something a backend reproduces rather than something it guesses.
+const PY_FLOOR_DIV: BinOp = BinOp::Div {
+    mode: DivMode::Integer(Rounding::TowardNegInf),
+};
+
+/// Python's `%`: the result takes the sign of the divisor, so `-7 % 2` is `1`.
+///
+/// Rust's `%` takes the sign of the dividend and would give `-1`. Paired with [`PY_FLOOR_DIV`]:
+/// `(a // b) * b + (a % b) == a` holds for Python's pair and fails if either half is swapped for
+/// the truncating one.
+const PY_MOD: BinOp = BinOp::Rem {
+    sign: RemSign::Divisor,
+};
 use compylr_diagnostics::error::{LowerError, LowerErrorKind};
 use compylr_ir::{
-    Attribute, BinOp, Class, Expr, Function, Literal, Param, Stmt, Ty, returns_on_all_paths,
+    Attribute, BinOp, Class, DivMode, Expr, Function, Literal, Param, RemSign, Rounding, Stmt, Ty,
+    returns_on_all_paths,
 };
 
 /// Names visible inside a function body, with the type each was bound at.
@@ -2259,9 +2287,10 @@ fn arithmetic_result(op: BinOp, left: &Ty, right: &Ty) -> Option<Ty> {
     if !left.is_numeric() || !right.is_numeric() {
         return None;
     }
-    // True division always yields a float, even for two integers. This is the single most
-    // likely place for a backend to be accidentally wrong, which is why it is explicit here.
-    if op == BinOp::TrueDiv {
+    // Exact division always yields a float, even for two integers. This is the single most
+    // likely place for a backend to be accidentally wrong, which is why the node says so rather
+    // than leaving a backend to infer it from the operator's name.
+    if op == PY_TRUE_DIV {
         return Some(Ty::Float);
     }
     if *left == Ty::Float || *right == Ty::Float {
@@ -2414,9 +2443,9 @@ fn lower_expr(
                 Operator::Add => BinOp::Add,
                 Operator::Sub => BinOp::Sub,
                 Operator::Mult => BinOp::Mul,
-                Operator::Div => BinOp::TrueDiv,
-                Operator::FloorDiv => BinOp::FloorDiv,
-                Operator::Mod => BinOp::Mod,
+                Operator::Div => PY_TRUE_DIV,
+                Operator::FloorDiv => PY_FLOOR_DIV,
+                Operator::Mod => PY_MOD,
                 other => {
                     return Err(err(
                         LowerErrorKind::UnsupportedConstruct,
@@ -2864,8 +2893,8 @@ mod tests {
             ("+", BinOp::Add),
             ("-", BinOp::Sub),
             ("*", BinOp::Mul),
-            ("//", BinOp::FloorDiv),
-            ("%", BinOp::Mod),
+            ("//", PY_FLOOR_DIV),
+            ("%", PY_MOD),
         ] {
             let f = lower_one(&format!(
                 "def f(a: int, b: int) -> int:\n    return a {symbol} b\n"
@@ -3242,7 +3271,7 @@ mod tests {
                 value: Expr::Binary { op, left, right },
                 ..
             } => {
-                assert_eq!(*op, BinOp::TrueDiv);
+                assert_eq!(*op, PY_TRUE_DIV);
                 assert!(matches!(**left, Expr::ToFloat(_)));
                 assert!(matches!(**right, Expr::ToFloat(_)));
             }

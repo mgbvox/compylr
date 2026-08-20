@@ -7,10 +7,12 @@ pub mod component;
 pub mod error;
 pub mod frontend;
 pub mod lower;
+pub mod spelling;
 
 pub use component::PythonFrontend;
 pub use error::SourceError;
 pub use frontend::{parse_file, parse_source};
+pub use spelling::{PythonOperator, PythonTypeName};
 
 use compylr_diagnostics::span::Span;
 use ruff_text_size::TextRange;

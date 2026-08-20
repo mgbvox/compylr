@@ -146,3 +146,69 @@ fn the_python_frontend_declares_what_it_requires() {
         );
     }
 }
+
+/// The Python frontend declares Python's meanings on every operator it lowers.
+///
+/// Asserted on the *declaration*, not on the variant name. A test that checked for a variant
+/// called `FloorDiv` would pass whatever that variant happened to mean, which is the failure
+/// mode the change exists to remove.
+mod declared_meanings {
+    use super::*;
+    use compylr::ir::{BinOp, DivMode, Expr, RemSign, Rounding, Stmt};
+
+    fn operator_of(source: &str) -> BinOp {
+        let frontend = frontend::lookup("python").unwrap();
+        let unit = frontend.lower(&[source.to_string()]).expect("must lower");
+        match &unit.get("op").expect("the fixture defines op").body[0] {
+            Stmt::Return(Expr::Binary { op, .. }) => *op,
+            other => panic!("unexpected body: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn floor_division_declares_rounding_toward_negative_infinity() {
+        assert_eq!(
+            operator_of("def op(a: int, b: int) -> int:\n    return a // b\n"),
+            BinOp::Div {
+                mode: DivMode::Integer(Rounding::TowardNegInf),
+            }
+        );
+    }
+
+    #[test]
+    fn remainder_declares_the_sign_of_the_divisor() {
+        assert_eq!(
+            operator_of("def op(a: int, b: int) -> int:\n    return a % b\n"),
+            BinOp::Rem {
+                sign: RemSign::Divisor,
+            }
+        );
+    }
+
+    #[test]
+    fn true_division_declares_exact_division() {
+        assert_eq!(
+            operator_of("def op(a: int, b: int) -> float:\n    return a / b\n"),
+            BinOp::Div {
+                mode: DivMode::Exact,
+            }
+        );
+    }
+
+    /// A lowered unit says which frontend produced it and what that language needs preserved.
+    #[test]
+    fn a_lowered_unit_records_its_origin() {
+        use compylr::Guarantee;
+        let frontend = frontend::lookup("python").unwrap();
+        let unit = frontend
+            .lower(&["def op(a: int, b: int) -> int:\n    return a + b\n".to_string()])
+            .unwrap();
+
+        let origin = unit.origin().expect("a lowered unit is claimed");
+        assert_eq!(origin.frontend, "python");
+        assert!(
+            unit.requires()
+                .contains(&Guarantee::IntegerOverflowReported)
+        );
+    }
+}

@@ -25,7 +25,10 @@ use std::fmt::Write as _;
 use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
 use std::collections::BTreeSet;
 
-use compylr_ir::{BinOp, Class, Expr, Function, Literal, Stmt, Ty, Unit, returns_on_all_paths};
+use compylr_ir::{
+    BinOp, Class, DivMode, Expr, Function, Literal, RemSign, Rounding, Stmt, Ty, Unit,
+    returns_on_all_paths,
+};
 
 /// The runtime helpers, embedded verbatim into generated crates.
 ///
@@ -198,13 +201,13 @@ fn emit_crate_root(_unit: &Unit) -> String {
 /// The translated functions, with the imports they need and nothing else.
 fn emit_generated(functions: &str) -> String {
     format!(
-        "//! Translated from Python by compylr.\n\
+        "//! Translated by compylr.\n\
          \n\
          use std::collections::{{HashMap, HashSet}};\n\
          \n\
          use crate::compat::{{\n\
-         {}PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,\n\
-         {}py_truediv,\n\
+         {}PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact,\n\
+         {}py_subscript,\n\
          }};\n\
          \n\
          {functions}",
@@ -598,8 +601,7 @@ fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
             return Err(BackendError::Unsupported {
                 detail: format!(
                     "function '{}' declares a return type of '{}' but does not return on every path",
-                    function.name,
-                    function.ret.python_name()
+                    function.name, function.ret
                 ),
             });
         }
@@ -1240,11 +1242,15 @@ fn emit_binary(
         return Ok(format!("((&({left})) {symbol} (&({right})))"));
     }
 
-    // True division's operands are always floats: lowering inserted the promotion nodes.
-    if op == BinOp::TrueDiv {
+    // Exact division's operands are always floats: lowering inserted the promotion nodes.
+    if op
+        == (BinOp::Div {
+            mode: DivMode::Exact,
+        })
+    {
         let left = emit_expr(left, unit, &Ty::Float)?;
         let right = emit_expr(right, unit, &Ty::Float)?;
-        return Ok(format!("py_truediv(&({left}), &({right}))?"));
+        return Ok(format!("div_exact(&({left}), &({right}))?"));
     }
 
     // Arithmetic operands share the expression's own type, except that a string operand must not
@@ -1256,13 +1262,26 @@ fn emit_binary(
     };
     let left = emit_expr(left, unit, &operand)?;
     let right = emit_expr(right, unit, &operand)?;
+    // Read off the node, not off the operator's name. The same `BinOp::Div` reaches here meaning
+    // either rounding, and a backend that assumed one of them would be silently wrong for any
+    // frontend that meant the other.
     let call = match op {
         BinOp::Add => "PyAdd::py_add",
         BinOp::Sub => "PyNum::py_sub",
         BinOp::Mul => "PyNum::py_mul",
-        BinOp::FloorDiv => "PyNum::py_floordiv",
-        BinOp::Mod => "PyNum::py_mod",
-        _ => unreachable!("comparisons and true division are handled above"),
+        BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardNegInf),
+        } => "PyNum::div_floor",
+        BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardZero),
+        } => "PyNum::div_trunc",
+        BinOp::Rem {
+            sign: RemSign::Divisor,
+        } => "PyNum::rem_floor",
+        BinOp::Rem {
+            sign: RemSign::Dividend,
+        } => "PyNum::rem_trunc",
+        _ => unreachable!("comparisons and exact division are handled above"),
     };
     Ok(format!("{call}(&({left}), &({right}))?"))
 }

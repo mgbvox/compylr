@@ -19,7 +19,9 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: TrueDiv,
+                    op: Div {
+                        mode: Exact,
+                    },
                     left: ToFloat(
                         Name(
                             "a",
@@ -51,7 +53,11 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: FloorDiv,
+                    op: Div {
+                        mode: Integer(
+                            TowardNegInf,
+                        ),
+                    },
                     left: Name(
                         "a",
                     ),
@@ -85,7 +91,9 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: Mod,
+                    op: Rem {
+                        sign: Divisor,
+                    },
                     left: Name(
                         "a",
                     ),

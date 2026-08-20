@@ -159,7 +159,9 @@ class TestArtifacts:
     def test_the_generated_rust_is_written(self, project: compylr.Manager) -> None:
         source = project.paths.target_source.read_text()
         assert "pub fn _floordiv" in source
-        assert "py_floordiv" in source, "the semantics-preserving helper must be called"
+        assert "div_floor" in source, (
+            "the helper named for the declared rounding must be called, not Rust's `/`"
+        )
 
     def test_the_crate_is_split_by_concern(self, project: compylr.Manager) -> None:
         src = project.paths.src

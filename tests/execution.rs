@@ -1,13 +1,17 @@
-//! Python semantics, verified by running the emitted code.
+//! Declared semantics, verified by running the emitted code.
 //!
-//! Reading emitted text cannot catch the failure that matters here. A floor-division helper that
-//! adjusts the quotient in the wrong direction still *looks* correct in a string comparison, and
-//! a snapshot of it would be just as wrong as the code. So every test in this file lowers Python,
-//! emits Rust, compiles it with `rustc`, runs the binary, and asserts on what it printed.
+//! Reading emitted text cannot catch the failure that matters here. A flooring-division helper
+//! that adjusts the quotient in the wrong direction still *looks* correct in a string comparison,
+//! and a snapshot of it would be just as wrong as the code. So every test in this file emits
+//! Rust, compiles it with `rustc`, runs the binary, and asserts on what it printed.
 //!
 //! That is slower than a string assertion, and it is the point: these are precisely the cases
-//! where Rust's native operators disagree with Python's, so the only convincing evidence is a
-//! number produced by executing the result.
+//! where Rust's native operators disagree with what the IR declared, so the only convincing
+//! evidence is a number produced by executing the result.
+//!
+//! Most tests start from Python source, because that is the path users take. The ones that do not
+//! build IR by hand, because Python has no syntax for truncating division or a dividend-signed
+//! remainder — and a mode no test can reach is a mode the backend can get wrong indefinitely.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -36,8 +40,14 @@ fn unit_from(source: &str) -> Unit {
 ///
 /// `label` only has to be unique across tests so parallel runs do not fight over a path.
 fn run(label: &str, source: &str, main_body: &str) -> String {
-    let unit = unit_from(source);
-    let emitted = lookup("rust").unwrap().emit(&unit).expect("must emit");
+    run_unit(label, &unit_from(source), main_body)
+}
+
+/// The same, starting from a unit rather than from source.
+///
+/// Separate so that a mode no source language in this repo can produce still gets executed.
+fn run_unit(label: &str, unit: &Unit, main_body: &str) -> String {
+    let emitted = lookup("rust").unwrap().emit(unit).expect("must emit");
 
     // The crate is written out and a `main.rs` added beside it, so the code under test is
     // compiled exactly as it ships rather than concatenated into a shape it never takes.
@@ -1079,4 +1089,165 @@ fn a_reading_method_takes_a_shared_receiver() {
         source.contains("fn set(&mut self"),
         "a mutating method takes a mutable receiver:\n{source}"
     );
+}
+
+/// The modes the Python frontend never produces, executed anyway.
+///
+/// Truncating division and a dividend-signed remainder are what C, Go, Rust, and Java mean by `/`
+/// and `%`. No Python program can reach them, so without hand-built IR the backend could emit
+/// flooring for both modes and every test in this repo would still pass — which is precisely the
+/// bug the change is meant to make impossible.
+mod modes_python_cannot_write {
+    use super::*;
+    use compylr::ir::{BinOp, DivMode, Expr, Function, Param, RemSign, Rounding, Stmt, Ty};
+    use compylr::span::Span;
+
+    /// A unit holding one function `op(a, b) -> int` applying `op` to its two parameters.
+    fn binary_unit(op: BinOp) -> Unit {
+        let mut unit = Unit::new();
+        unit.add_function(Function {
+            name: "op".to_string(),
+            params: vec![
+                Param {
+                    name: "a".to_string(),
+                    ty: Ty::Int,
+                },
+                Param {
+                    name: "b".to_string(),
+                    ty: Ty::Int,
+                },
+            ],
+            ret: Ty::Int,
+            body: vec![Stmt::Return(Expr::Binary {
+                op,
+                left: Box::new(Expr::name("a")),
+                right: Box::new(Expr::name("b")),
+            })],
+            doc: None,
+            span: Span::default(),
+        })
+        .unwrap();
+        unit
+    }
+
+    #[test]
+    fn division_rounding_toward_zero_truncates() {
+        let unit = binary_unit(BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardZero),
+        });
+        let out = run_unit(
+            "mode_div_trunc",
+            &unit,
+            "    println!(\"{}\", op(-7, 2).unwrap());\n\
+             \x20   println!(\"{}\", op(7, -2).unwrap());\n\
+             \x20   println!(\"{}\", op(-6, 2).unwrap());",
+        );
+        // Truncation, not flooring: -3 rather than -4 on the first two.
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["-3", "-3", "-3"]);
+    }
+
+    #[test]
+    fn division_rounding_toward_negative_infinity_floors() {
+        let unit = binary_unit(BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardNegInf),
+        });
+        let out = run_unit(
+            "mode_div_floor",
+            &unit,
+            "    println!(\"{}\", op(-7, 2).unwrap());\n\
+             \x20   println!(\"{}\", op(7, -2).unwrap());\n\
+             \x20   println!(\"{}\", op(-6, 2).unwrap());",
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["-4", "-4", "-3"]);
+    }
+
+    #[test]
+    fn remainder_taking_the_sign_of_the_dividend() {
+        let unit = binary_unit(BinOp::Rem {
+            sign: RemSign::Dividend,
+        });
+        let out = run_unit(
+            "mode_rem_trunc",
+            &unit,
+            "    println!(\"{}\", op(-7, 2).unwrap());\n\
+             \x20   println!(\"{}\", op(7, -2).unwrap());",
+        );
+        // The sign follows the dividend, so these are the mirror image of Python's.
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["-1", "1"]);
+    }
+
+    #[test]
+    fn remainder_taking_the_sign_of_the_divisor() {
+        let unit = binary_unit(BinOp::Rem {
+            sign: RemSign::Divisor,
+        });
+        let out = run_unit(
+            "mode_rem_floor",
+            &unit,
+            "    println!(\"{}\", op(-7, 2).unwrap());\n\
+             \x20   println!(\"{}\", op(7, -2).unwrap());",
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["1", "-1"]);
+    }
+
+    /// Each pair must satisfy `(a / b) * b + (a % b) == a`; mixing halves must not.
+    ///
+    /// This is the property that makes the pairing real rather than a naming convention. A
+    /// backend that emitted flooring division beside a dividend-signed remainder would pass every
+    /// single-operation test above and still compute nonsense.
+    #[test]
+    fn each_division_and_remainder_pair_reconstructs_the_dividend() {
+        for (label, rounding, sign) in [
+            ("pair_floor", Rounding::TowardNegInf, RemSign::Divisor),
+            ("pair_trunc", Rounding::TowardZero, RemSign::Dividend),
+        ] {
+            let mut unit = Unit::new();
+            for (name, op) in [
+                (
+                    "quotient",
+                    BinOp::Div {
+                        mode: DivMode::Integer(rounding),
+                    },
+                ),
+                ("remainder", BinOp::Rem { sign }),
+            ] {
+                unit.add_function(Function {
+                    name: name.to_string(),
+                    params: vec![
+                        Param {
+                            name: "a".to_string(),
+                            ty: Ty::Int,
+                        },
+                        Param {
+                            name: "b".to_string(),
+                            ty: Ty::Int,
+                        },
+                    ],
+                    ret: Ty::Int,
+                    body: vec![Stmt::Return(Expr::Binary {
+                        op,
+                        left: Box::new(Expr::name("a")),
+                        right: Box::new(Expr::name("b")),
+                    })],
+                    doc: None,
+                    span: Span::default(),
+                })
+                .unwrap();
+            }
+
+            let out = run_unit(
+                label,
+                &unit,
+                "    for a in [-7i64, -6, 7, 6, -1, 1] {\n\
+                 \x20       for b in [2i64, -2, 3, -3] {\n\
+                 \x20           let q = quotient(a, b).unwrap();\n\
+                 \x20           let r = remainder(a, b).unwrap();\n\
+                 \x20           assert_eq!(q * b + r, a, \"a={a} b={b} q={q} r={r}\");\n\
+                 \x20       }\n\
+                 \x20   }\n\
+                 \x20   println!(\"consistent\");",
+            );
+            assert_eq!(out.trim(), "consistent", "{label}");
+        }
+    }
 }

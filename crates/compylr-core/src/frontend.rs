@@ -13,9 +13,7 @@
 use std::error::Error;
 use std::fmt;
 
-use compylr_ir::Unit;
-
-use crate::guarantee::Guarantee;
+use compylr_ir::{Guarantee, Unit};
 
 /// A source language frontend.
 ///

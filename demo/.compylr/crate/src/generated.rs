@@ -1,10 +1,10 @@
-//! Translated from Python by compylr.
+//! Translated by compylr.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
-    py_truediv,
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact,
+    py_subscript,
 };
 
 /// An nth-prime that remembers what it has already computed.
@@ -32,7 +32,7 @@ impl PrimeCache {
         }
         let mut d: i64 = 2i64;
         while ((&(PyNum::py_mul(&(d), &(d))?)) <= (&(n))) {
-            if ((&(PyNum::py_mod(&(n), &(d))?)) == (&(0i64))) {
+            if ((&(PyNum::rem_floor(&(n), &(d))?)) == (&(0i64))) {
                 return Ok(false);
             }
             d = PyAdd::py_add(&(d), &(1i64))?;
@@ -105,7 +105,7 @@ pub fn iterative_primes_up_to_count(n: i64) -> Result<Vec<i64>, RuntimeError> {
                 if ((&(PyNum::py_mul(&(p), &(p))?)) > (&(candidate))) {
                     break;
                 }
-                if ((&(PyNum::py_mod(&(candidate), &(p))?)) == (&(0i64))) {
+                if ((&(PyNum::rem_floor(&(candidate), &(p))?)) == (&(0i64))) {
                     divisible = true;
                     break;
                 }
@@ -129,7 +129,7 @@ pub fn recursive_is_prime(n: i64) -> Result<bool, RuntimeError> {
     }
     let mut d: i64 = 2i64;
     while ((&(PyNum::py_mul(&(d), &(d))?)) <= (&(n))) {
-        if ((&(PyNum::py_mod(&(n), &(d))?)) == (&(0i64))) {
+        if ((&(PyNum::rem_floor(&(n), &(d))?)) == (&(0i64))) {
             return Ok(false);
         }
         d = PyAdd::py_add(&(d), &(1i64))?;

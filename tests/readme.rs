@@ -14,7 +14,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use compylr::ir::{BinOp, Ty};
+use compylr::ir::{BinOp, DivMode, RemSign, Rounding, Ty};
+use compylr_frontend_python::{PythonOperator, PythonTypeName};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -38,6 +39,11 @@ fn readme_documents_every_type() {
 }
 
 /// Every supported operator must appear in the README, spelled as inline code.
+///
+/// Spelled the way a Python programmer writes it, which since the operators started carrying
+/// their semantics is the frontend's rendering rather than the IR's — the IR now says "integer
+/// division rounding toward negative infinity", which is right for a diagnostic in no particular
+/// language and wrong for a README about Python.
 #[test]
 fn readme_documents_every_operator() {
     let text = readme();
@@ -45,9 +51,15 @@ fn readme_documents_every_operator() {
         BinOp::Add,
         BinOp::Sub,
         BinOp::Mul,
-        BinOp::TrueDiv,
-        BinOp::FloorDiv,
-        BinOp::Mod,
+        BinOp::Div {
+            mode: DivMode::Exact,
+        },
+        BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardNegInf),
+        },
+        BinOp::Rem {
+            sign: RemSign::Divisor,
+        },
         BinOp::Eq,
         BinOp::NotEq,
         BinOp::Lt,

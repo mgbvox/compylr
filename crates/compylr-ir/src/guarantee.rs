@@ -1,5 +1,9 @@
 //! Semantic guarantees a source language needs preserved on the way to a target.
 //!
+//! Lives with the IR rather than with the component model because a [`crate::Unit`] records what
+//! its frontend requires, and the IR cannot depend on the crate that consumes it. `compylr-core`
+//! re-exports this type, so a frontend or backend declaring guarantees still names one type.
+//!
 //! These exist because "compiled" is not the same as "means the same thing". A Python function
 //! that reports an overflow and a Rust one that wraps are both valid programs; only one of them
 //! is a translation of the other. A frontend states what must survive, a backend states what it
@@ -12,8 +16,10 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// One property that must hold of generated code for it to mean what the source meant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Guarantee {
     /// An arithmetic result outside the target's integer range is reported, not wrapped or
     /// truncated.

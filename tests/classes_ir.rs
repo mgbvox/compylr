@@ -7,6 +7,7 @@
 
 use compylr::ir::{Attribute, Class, Expr, Function, Param, Stmt, Ty, Unit};
 use compylr::span::Span;
+use compylr_frontend_python::PythonTypeName;
 
 fn func(name: &str, params: Vec<Param>, ret: Ty, body: Vec<Stmt>) -> Function {
     Function {

@@ -2,13 +2,13 @@
 source: tests/emit_quality.rs
 expression: functions.trim()
 ---
-//! Translated from Python by compylr.
+//! Translated by compylr.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
-    py_truediv,
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact,
+    py_subscript,
 };
 
 pub fn add(a: i64, b: i64) -> Result<i64, RuntimeError> {
@@ -20,7 +20,7 @@ pub fn difference(a: i64, b: i64) -> Result<i64, RuntimeError> {
 }
 
 pub fn halve(a: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::py_floordiv(&(a), &(2i64))?)
+    Ok(PyNum::div_floor(&(a), &(2i64))?)
 }
 
 pub fn negate(a: i64) -> Result<i64, RuntimeError> {
@@ -28,7 +28,7 @@ pub fn negate(a: i64) -> Result<i64, RuntimeError> {
 }
 
 pub fn remainder(a: i64, b: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::py_mod(&(a), &(b))?)
+    Ok(PyNum::rem_floor(&(a), &(b))?)
 }
 
 pub fn scale(a: i64, b: i64) -> Result<i64, RuntimeError> {

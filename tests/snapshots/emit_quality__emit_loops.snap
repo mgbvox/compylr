@@ -1,15 +1,14 @@
 ---
 source: tests/emit_quality.rs
-assertion_line: 125
 expression: functions.trim()
 ---
-//! Translated from Python by compylr.
+//! Translated by compylr.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
-    py_truediv,
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact,
+    py_subscript,
 };
 
 pub fn countdown(n: i64) -> Result<i64, RuntimeError> {
@@ -46,11 +45,11 @@ pub fn first_over(xs: Vec<i64>, limit: i64) -> Result<i64, RuntimeError> {
 }
 
 pub fn halve_until_odd(mut n: i64) -> Result<i64, RuntimeError> {
-    while ((&(PyNum::py_mod(&(n), &(2i64))?)) == (&(0i64))) {
+    while ((&(PyNum::rem_floor(&(n), &(2i64))?)) == (&(0i64))) {
         if ((&(n)) == (&(0i64))) {
             break;
         }
-        n = PyNum::py_floordiv(&(n), &(2i64))?;
+        n = PyNum::div_floor(&(n), &(2i64))?;
     }
     Ok(n)
 }

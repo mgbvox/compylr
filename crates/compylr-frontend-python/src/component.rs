@@ -81,6 +81,9 @@ impl Frontend for PythonFrontend {
                     .map_err(|error| unsupported(&error, source))?;
             }
         }
+
+        // Claimed last, so a unit that failed to lower never carries an origin it did not earn.
+        unit.set_origin(self.name(), self.requires());
         Ok(unit)
     }
 }
