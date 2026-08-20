@@ -115,11 +115,11 @@
 
 ## 8. Conformance corpus
 
-- [ ] 8.1 Build an IR corpus, authored as IR rather than as source, covering every statement form,
+- [x] 8.1 Build an IR corpus, authored as IR rather than as source, covering every statement form,
       expression form, and type
-- [ ] 8.2 Add a harness that runs every corpus entry through every backend the registry reports as
+- [x] 8.2 Add a harness that runs every corpus entry through every backend the registry reports as
       implemented, enumerated from the registry — never from a hand-maintained list
-- [ ] 8.3 Add a test that fails if an IR node form has no corpus entry, so the corpus cannot drift
+- [x] 8.3 Add a test that fails if an IR node form has no corpus entry, so the corpus cannot drift
       behind the IR
 
 ## 9. Build state and Python package

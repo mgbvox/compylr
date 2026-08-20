@@ -415,6 +415,12 @@ fn emit_constructor(class: &Class, unit: &Unit) -> Result<String, BackendError> 
                     rust_ty(ty)
                 );
             }
+            // A constructor's "return" is the struct literal below, so a bare unit return in the
+            // body has nothing to do. Emitting it produced `return Ok(())` inside a function
+            // whose return type is `Self`, which does not compile — a defect no Python program
+            // could reach, because lowering never appends one to `__init__`. A frontend that
+            // treats a constructor like any other unit-returning function would.
+            Stmt::ReturnUnit => {}
             other => emitter.stmts(std::slice::from_ref(other), 2)?,
         }
     }

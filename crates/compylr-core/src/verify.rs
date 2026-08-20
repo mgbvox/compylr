@@ -13,7 +13,7 @@
 use std::error::Error;
 use std::fmt;
 
-use compylr_ir::{Unit, returns_on_all_paths};
+use compylr_ir::{Stmt, Unit, returns_on_all_paths};
 
 /// A unit that cannot be rendered by any backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,9 +46,10 @@ impl Error for VerificationError {}
 
 /// Check that a unit is renderable.
 ///
-/// Two checks today, both chosen because failing them produces target source that does not build:
+/// Three checks today, each chosen because failing it produces target source that does not build:
 ///
 /// * every call resolves, with matching arity — an unresolved call has no name to emit;
+/// * no constructor returns a value — it already returns the instance it builds;
 /// * every function declaring a value returns one on every path — otherwise the emitted function
 ///   falls off its end.
 ///
@@ -60,6 +61,25 @@ pub fn verify(unit: &Unit) -> Result<(), VerificationError> {
         member: "unit".to_string(),
         detail: error.message().to_string(),
     })?;
+
+    for class in unit.classes() {
+        // A constructor produces the instance itself, so a value-returning statement in one is
+        // meaningless — and a backend that emitted it would produce a function returning two
+        // different types. Caught here rather than by the target's compiler.
+        if class
+            .init
+            .body
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::Return(_)))
+        {
+            return Err(VerificationError {
+                member: format!("the constructor of {}", class.name),
+                detail: "a constructor returns the instance it builds, so its body may not \
+                         return a value"
+                    .to_string(),
+            });
+        }
+    }
 
     for function in unit
         .functions()
@@ -136,6 +156,38 @@ mod tests {
         let error = verify(&unit).expect_err("nothing is returned");
         assert_eq!(error.member(), "silent");
         assert!(error.detail().contains("every path"), "{error}");
+    }
+
+    /// The defect the conformance corpus surfaced, kept as a regression.
+    #[test]
+    fn a_constructor_that_returns_a_value_is_rejected() {
+        use compylr_ir::{Attribute, Class};
+        use std::collections::BTreeMap;
+
+        let mut unit = Unit::new();
+        unit.add_class(Class {
+            name: "Counter".to_string(),
+            attributes: vec![Attribute {
+                name: "count".to_string(),
+                ty: Ty::Int,
+            }],
+            init: Function {
+                // The IR does not prescribe a constructor's name; a frontend picks its own.
+                name: "init".to_string(),
+                params: vec![],
+                ret: Ty::Unit,
+                body: vec![Stmt::Return(Expr::Literal(Literal::Int(0)))],
+                doc: None,
+                span: Span::default(),
+            },
+            methods: BTreeMap::new(),
+            doc: None,
+            span: Span::default(),
+        })
+        .unwrap();
+
+        let error = verify(&unit).expect_err("a constructor returns the instance");
+        assert_eq!(error.member(), "the constructor of Counter");
     }
 
     #[test]
