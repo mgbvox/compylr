@@ -11,7 +11,9 @@ several and disagree with the others on negative and integer operands.
 
 The backend SHALL map each IR type to a Rust type. The mapping SHALL live in the backend
 alone: no IR type carries a Rust spelling, so a second backend can choose different ones for
-the same IR. Collection spellings SHALL be derived from their parameters, recursively.
+the same IR. Collection spellings SHALL be derived from their parameters, recursively. The mapping
+SHALL be derived from the IR's semantic types only, so a unit produced by any frontend spells the
+same way.
 
 | IR type | Rust type |
 | --- | --- |
@@ -44,6 +46,11 @@ the same IR. Collection spellings SHALL be derived from their parameters, recurs
 
 - **WHEN** a unit is emitted twice
 - **THEN** the IR is identical before and after, carrying no Rust-specific information
+
+#### Scenario: Spelling does not depend on the producing frontend
+
+- **WHEN** two units with identical types record different producing frontends
+- **THEN** the emitted Rust type spellings are identical
 
 ### Requirement: Function emission
 
@@ -132,67 +139,26 @@ denotes exactly the characters in the IR literal.
 - **THEN** the emitted Rust evaluates it in the same grouping as the IR, regardless of Rust's
   operator precedence
 
-### Requirement: Floor division preserves Python semantics
-
-Python's `//` rounds toward negative infinity; Rust's `/` truncates toward zero. The backend
-SHALL emit code that floors, so that the two disagree on no input. This SHALL hold for
-integer and floating-point operands alike.
-
-#### Scenario: Negative dividend
-
-- **WHEN** `-7 // 2` is emitted and executed
-- **THEN** the result is `-4`, not the `-3` that Rust's `/` would produce
-
-#### Scenario: Negative divisor
-
-- **WHEN** `7 // -2` is emitted and executed
-- **THEN** the result is `-4`
-
-#### Scenario: Exact division is unaffected
-
-- **WHEN** `-6 // 2` is emitted and executed
-- **THEN** the result is `-3`
-
-#### Scenario: Floating-point floor division
-
-- **WHEN** `-7.0 // 2.0` is emitted and executed
-- **THEN** the result is `-4.0`
-
-### Requirement: Remainder preserves Python semantics
-
-Python's `%` takes the sign of the divisor; Rust's `%` takes the sign of the dividend. The
-backend SHALL emit code matching Python for every combination of operand signs.
-
-#### Scenario: Negative dividend
-
-- **WHEN** `-7 % 2` is emitted and executed
-- **THEN** the result is `1`, not the `-1` that Rust's `%` would produce
-
-#### Scenario: Negative divisor
-
-- **WHEN** `7 % -2` is emitted and executed
-- **THEN** the result is `-1`
-
-#### Scenario: Remainder and floor division stay consistent
-
-- **WHEN** any operand pair is evaluated for both `//` and `%`
-- **THEN** `(a // b) * b + (a % b)` equals `a`
-
 ### Requirement: True division always yields a float
 
-Python's `/` between two integers yields a float; Rust's `/` between two integers is integer
-division. The backend SHALL emit code that converts both operands to floating point before
-dividing.
+A division node declaring float promotion yields a floating-point result even for integer operands,
+whereas Rust's `/` between two integers is integer division. The backend SHALL emit code that
+converts both operands to floating point before dividing whenever the node declares promotion.
 
 #### Scenario: Integer operands
 
-- **WHEN** `7 / 2` is emitted and executed
+- **WHEN** a division of `7` by `2` declaring float promotion is emitted and executed
 - **THEN** the result is `3.5`, not the `3` that Rust's `/` would produce
 
 #### Scenario: Result type is float
 
-- **WHEN** a function returning the result of `/` on two integers is emitted
+- **WHEN** a function returning the result of a promoting division on two integers is emitted
 - **THEN** the emitted Rust function returns `f64`
+
+#### Scenario: Promotion is read from the node
+
+- **WHEN** an integer division node that does not declare promotion is emitted
+- **THEN** the emitted Rust does not convert its operands to floating point
 
 ### Requirement: Remaining operators
 
@@ -837,3 +803,156 @@ instance attribute SHALL be read without being moved out of the object.
 
 - **WHEN** a method mutates an attribute and is called twice
 - **THEN** the second call observes the first call's effect — which is what makes a cache possible
+
+### Requirement: Integer division honors the declared rounding mode
+
+The backend SHALL emit integer division that rounds the way the node declares, not the way Rust's
+`/` happens to round. A node declaring rounding toward negative infinity SHALL floor; a node
+declaring rounding toward zero SHALL truncate. This SHALL hold for integer and floating-point
+operands alike.
+
+#### Scenario: Negative dividend, flooring declared
+
+- **WHEN** a division of `-7` by `2` declaring rounding toward negative infinity is emitted and
+  executed
+- **THEN** the result is `-4`, not the `-3` that Rust's `/` would produce
+
+#### Scenario: Negative divisor, flooring declared
+
+- **WHEN** a division of `7` by `-2` declaring rounding toward negative infinity is emitted and
+  executed
+- **THEN** the result is `-4`
+
+#### Scenario: Negative dividend, truncation declared
+
+- **WHEN** a division of `-7` by `2` declaring rounding toward zero is emitted and executed
+- **THEN** the result is `-3`
+
+#### Scenario: Exact division is unaffected
+
+- **WHEN** a division of `-6` by `2` is emitted and executed under either rounding mode
+- **THEN** the result is `-3`
+
+#### Scenario: Floating-point division under flooring
+
+- **WHEN** a division of `-7.0` by `2.0` declaring rounding toward negative infinity is emitted and
+  executed
+- **THEN** the result is `-4.0`
+
+### Requirement: Remainder honors the declared sign convention
+
+The backend SHALL emit a remainder whose sign follows the convention the node declares. A node
+declaring the sign of the divisor SHALL NOT be emitted as Rust's `%`, which takes the sign of the
+dividend; a node declaring the sign of the dividend MAY be.
+
+#### Scenario: Negative dividend, sign of divisor declared
+
+- **WHEN** `-7 % 2` declaring the sign of the divisor is emitted and executed
+- **THEN** the result is `1`, not the `-1` that Rust's `%` would produce
+
+#### Scenario: Negative divisor, sign of divisor declared
+
+- **WHEN** `7 % -2` declaring the sign of the divisor is emitted and executed
+- **THEN** the result is `-1`
+
+#### Scenario: Negative dividend, sign of dividend declared
+
+- **WHEN** `-7 % 2` declaring the sign of the dividend is emitted and executed
+- **THEN** the result is `-1`
+
+#### Scenario: Remainder and division stay consistent
+
+- **WHEN** any operand pair is evaluated for a division and a remainder declaring matching
+  conventions
+- **THEN** `(a / b) * b + (a % b)` equals `a`
+
+### Requirement: The Rust backend declares what it preserves
+
+The Rust backend SHALL declare the semantic guarantees it preserves, and SHALL be usable only with
+frontends whose requirements its declaration covers. At minimum it SHALL declare that an arithmetic
+result outside the range of its integer type is reported rather than wrapped, that division by zero
+is reported, and that floating-point arithmetic is not reordered.
+
+#### Scenario: Declaration covers the Python frontend
+
+- **WHEN** the Python frontend's requirements are checked against the Rust backend's declaration
+- **THEN** every required guarantee is covered and compilation proceeds
+
+#### Scenario: The declaration is checked, not assumed
+
+- **WHEN** a frontend requires a guarantee the Rust backend does not declare
+- **THEN** compilation fails before emission, naming the guarantee
+
+### Requirement: Rust post-processing is limited to meaning-preserving transformations
+
+Transformations the backend applies to generated Rust after emission SHALL be limited to those that
+do not change what the code computes, unless configuration explicitly permits otherwise. Formatting
+generated source for readability SHALL be permitted unconditionally, SHALL happen outside emission,
+and SHALL be a no-op when the formatter is unavailable. Build settings that would violate a declared
+guarantee SHALL NOT be applied by default.
+
+#### Scenario: Formatting is applied when writing source out
+
+- **WHEN** generated Rust is written to disk for a human to read
+- **THEN** it is formatted, and the formatting is not part of emission
+
+#### Scenario: A missing formatter costs readability only
+
+- **WHEN** no formatter is available
+- **THEN** the unformatted source is written and the build succeeds
+
+#### Scenario: Guarantee-violating build settings are withheld
+
+- **WHEN** a build setting would allow arithmetic to wrap rather than report
+- **THEN** it is not applied, because the frontend requires overflow be reported
+
+### Requirement: Subscripting honors the declared index origin
+
+The backend SHALL emit a sequence read that resolves a negative index the way the node declares. A
+node declaring *from either end* SHALL count a negative index backwards from the end; a node
+declaring *from the start* SHALL treat a negative index as out of range. Reading outside the
+sequence SHALL be reported rather than panicking, under either origin.
+
+#### Scenario: Negative index, counting from either end
+
+- **WHEN** a sequence of three elements is read at index `-1` under an origin of *from either end*
+- **THEN** the result is the last element
+
+#### Scenario: Negative index, counting from the start
+
+- **WHEN** the same read is emitted under an origin of *from the start*
+- **THEN** the failure is reported as an index out of range
+
+#### Scenario: A non-negative index is unaffected by the origin
+
+- **WHEN** a sequence is read at index `1` under either origin
+- **THEN** both produce the second element
+
+#### Scenario: Reading past the end is reported under either origin
+
+- **WHEN** a sequence of three elements is read at index `3`
+- **THEN** the failure is reported rather than the process aborting
+
+### Requirement: Length honors the declared text units
+
+The backend SHALL emit a length that counts in the units the node declares. For a value that is not
+text the declaration SHALL make no difference, because the length of a collection is a count of its
+elements under every reading.
+
+#### Scenario: Each unit reading counts differently
+
+- **WHEN** the length of a string containing a two-byte character is emitted under each of code
+  points, UTF-8 bytes, and UTF-16 units
+- **THEN** the three results differ where the readings differ, and the byte count exceeds the code
+  point count
+
+#### Scenario: A character outside the basic plane distinguishes all three
+
+- **WHEN** the length of a string containing a character requiring a surrogate pair is emitted under
+  each reading
+- **THEN** code points, UTF-8 bytes, and UTF-16 units each report a different number
+
+#### Scenario: A collection's length ignores the declaration
+
+- **WHEN** the length of a sequence is emitted under any declared units
+- **THEN** the result is the number of elements

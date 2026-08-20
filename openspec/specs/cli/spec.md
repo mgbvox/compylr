@@ -205,6 +205,11 @@ discovery mechanism that cannot disagree with the runtime, because it *is* the r
 A separate static notion of what a decorator looks like would drift on aliases, re-exports, and
 conditional decoration.
 
+"Exactly as they do at runtime" includes packages. A module inside a package SHALL be imported such
+that its relative imports resolve, which means the package it belongs to, and every package above
+that, SHALL exist by the time it is imported. Discovery SHALL NOT depend on the order the filesystem
+happens to enumerate files in.
+
 Importing runs module-level code. The command SHALL say so in its help, because a user may
 reasonably expect a compiler not to execute what it compiles.
 
@@ -217,6 +222,21 @@ reasonably expect a compiler not to execute what it compiles.
 
 - **WHEN** a project marks a class
 - **THEN** it is included alongside marked functions
+
+#### Scenario: A package's own module imports
+
+- **WHEN** the root contains a package whose `__init__.py` imports its siblings relatively
+- **THEN** the package imports successfully and is not reported as a failure
+
+#### Scenario: A nested package imports
+
+- **WHEN** a marked function lives in a package inside another package
+- **THEN** it is found, and every package above it resolves
+
+#### Scenario: Enumeration order does not decide success
+
+- **WHEN** a subpackage's name sorts before its parent's own module file
+- **THEN** it imports successfully anyway
 
 #### Scenario: Only the given root is imported
 
