@@ -183,8 +183,8 @@ Measured on a one-function project: **7.36s** to precompile cold, **0.009s** for
 reuses it. The first call after precompiling does no work at all.
 
 > **`compylr` is the Python command**, installed with the wheel. The Rust binary keeps its `--emit`
-> surface and is reached through `cargo run` during compiler development — if you were invoking the
-> binary as `compylr`, that is what changed.
+> surface, lives in the `compylr-cli` crate, and is reached through `cargo run -p compylr-cli --`
+> during compiler development — if you were invoking the binary as `compylr`, that is what changed.
 
 Discovery **imports** every module beneath the root, so module-level code runs. That is inherent: a
 decorator only registers when it runs, and anything reading source text instead would need its own

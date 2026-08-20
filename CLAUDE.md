@@ -67,10 +67,13 @@ make acceptance depend on decoration order. `Unit::validate` still catches a cal
 nowhere.
 
 A function declaring a return type must return one **on every path**; `def f() -> int: pass` is a
-located lowering error rather than a backend failure. Reachability lives in `ir::returns_on_all_paths`
-and is shared by lowering and the backend deliberately — two implementations disagreeing would mean
-either rejecting a valid program or emitting code that does not compile, and the second surfaces as
-a complaint about Rust rather than about the user's function.
+located lowering error rather than a backend failure. Reachability lives in
+`compylr_ir::returns_on_all_paths` and is shared by lowering, the verifier, and the backend
+deliberately — two implementations disagreeing would mean either rejecting a valid program or
+emitting code that does not compile, and the second surfaces as a complaint about Rust rather than
+about the user's function. The verifier adds the neighbouring rule for frontends that have not
+re-derived it: a function declaring a value may not return *without* one anywhere in its body,
+which would be a function with two return types.
 
 Three control-flow rules are **stricter than Python**, and each will look like a bug until you know
 why:
@@ -108,6 +111,14 @@ caller sees next call. That is why an attribute can be a cache.
 `self` is the Rust receiver: never escaped by `rust_ident`, never cloned. Lowering reserves the name
 outside a method so nothing else reaches that branch.
 
+**A constructor has no `self`.** The instance does not exist inside `__init__`, so the backend
+rewrites the whole body — at every depth — so that `self.x` *is* the local `x`, and builds the
+struct from those locals at the end. Handling only the top level emitted `(self).count = i` for an
+assignment inside an `if` or a loop, which is ordinary Python and generated code that does not
+compile. For the same reason `__init__` **may not return early**: every attribute becomes a field,
+so a return before the end would leave part of the instance unassigned. A *trailing* bare `return`
+means nothing in Python either and is dropped rather than refused.
+
 Mutation targets emit as **places**, not values. The ordinary rule clones a collection wherever it
 is consumed, and that reaches through attributes: `self.entries[k] = v` once mutated a copy of the
 field and silently lost every write. Assert on values after mutation, never on emitted text.
@@ -115,8 +126,10 @@ field and silently lost every write. Assert on values after mutation, never on e
 `range` is a reserved name like `len`, valid only as what a `for` iterates — there is no range value
 in the IR. It is not emitted as Rust's `..`: that counts up by one, `step_by` takes an unsigned step,
 and neither composes with a computed or negative step, so the loop is written out against a cursor
-the body cannot disturb. A zero step is rejected *before* the loop, because the condition would never
-change and a hang leaves nothing to diagnose from.
+the body cannot disturb. **The cursor advances immediately after the loop variable is bound, before
+the body runs** — an increment below the body is one `continue` can skip, and skipping it is not a
+wrong answer but a hang. A zero step is rejected *before* the loop, for the same reason: the
+condition would never change and a hang leaves nothing to diagnose from.
 
 A **docstring** is accepted in first position and carries no runtime meaning; it is kept on the IR
 function, emitted as a `///` comment, and deliberately **excluded from the fingerprint**, so
@@ -158,10 +171,12 @@ Known gaps worth knowing before you trip on them:
   untouched without validating it. That is what makes an interpreted measurement honest: a marked
   function reaches other marked functions through module globals, so `python_function` alone gives
   an interpreted outer call into compiled inner ones.
-* **`compylr` is now the Python console script**, not the Rust binary. The binary keeps `--emit`
-  and is reached through `cargo run`. Precompiling **imports** the project, because a decorator only
-  registers when it runs; discovery is bounded to the root and skips environments, caches, and build
-  output.
+* **`compylr` is now the Python console script**, not the Rust binary. The binary lives in
+  `compylr-cli` and keeps `--emit`; a bare `cargo run` has no target to pick, so it is
+  `cargo run -p compylr-cli --`. Precompiling **imports** the project, because a decorator only
+  registers when it runs, and it imports packages the way the runtime does: a synthetic root
+  package is registered and a package's own module runs before anything below it. Discovery is
+  bounded to the root and skips environments, caches, and build output.
 * **`llm_assist` is accepted but refused when enabled**, and `typescript`/`go`/`cpp` are reserved
   names on **both** sides — frontend and backend — that fail with a message saying they are
   planned. A pair with a backend but no bridge is a fourth answer, distinct from an unknown or

@@ -77,7 +77,8 @@ subset restriction: the subset permits the program, and the machine does not.
 ## Benchmarking
 
 ```bash
-uv run python -m nth_prime.benchmark --n 500
+make demo                                          # from the repository root
+PYTHONPATH=src uv run python -m nth_prime.benchmark --n 500   # or directly, from here
 ```
 
 ```
@@ -161,7 +162,9 @@ carries the linker flags for the platform it was generated on — macOS here.
 ## Checks
 
 ```bash
-uv run pytest          # every variant against the reference and against each other
+make demo-check        # from the repository root: sync, precompile, test, lint, type-check
+
+uv run pytest          # or piecemeal, from here
 uv run ruff check .
 uv run mypy src
 ```
