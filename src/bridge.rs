@@ -177,6 +177,11 @@ pub fn compile_with(
     // Taken before optimization, so turning a pass on does not read as a change to the user's
     // code. What distinguishes two builds of the same program is the pass configuration, which
     // build state records separately.
+    //
+    // Note that this is deliberately *not* the fingerprint inside `ir_artifact` below. That one
+    // is written after the passes run, because the artifact is the window onto what the backend
+    // actually received, and it has to match its own contents to stay self-checking. Two numbers,
+    // two jobs: this one identifies the program, that one identifies the file.
     let fingerprint = unit.fingerprint();
 
     let directed = compylr_registry::passes::for_pair(SOURCE_LANGUAGE, backend_name);

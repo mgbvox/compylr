@@ -53,12 +53,14 @@ fn a_unit_no_backend_could_render_is_rejected_before_emission() {
 #[test]
 fn the_default_pipeline_reports_what_ran() {
     let compiled = compile(&[DOUBLE.to_string()], "rust").expect("must compile");
-    // Empty today: no target-agnostic pass has been justified yet, and the report says so rather
-    // than leaving the question open.
-    assert!(compiled.passes.is_empty(), "{:?}", compiled.passes);
+    assert_eq!(compiled.passes, ["constant-folding"]);
 }
 
 /// Turning optimization off must not change what the program computes.
+///
+/// `DOUBLE` has no constant to fold, so the emitted source is byte-identical — which is the
+/// strongest form this assertion can take. Where folding does apply, the emitted source differs
+/// and only the *result* is required to match; that is what the execution tests check.
 #[test]
 fn optimization_off_produces_the_same_program() {
     let optimized = compile_with(&[DOUBLE.to_string()], "rust", &PassConfig::default()).unwrap();
@@ -73,6 +75,34 @@ fn optimization_off_produces_the_same_program() {
 
     assert_eq!(optimized.target_sources, plain.target_sources);
     assert!(plain.passes.is_empty());
+    assert_eq!(optimized.passes, ["constant-folding"]);
+}
+
+/// Folding is visible in the artifact, which is the window a reader has into what ran.
+#[test]
+fn a_folded_constant_appears_in_the_ir_artifact() {
+    let folding = "def answer() -> int:\n    return 6 * 7\n";
+    let optimized = compile_with(&[folding.to_string()], "rust", &PassConfig::default()).unwrap();
+    let plain = compile_with(
+        &[folding.to_string()],
+        "rust",
+        &PassConfig {
+            optimization: Optimization::None,
+        },
+    )
+    .unwrap();
+
+    assert!(
+        !optimized.ir_artifact.contains("\"Mul\""),
+        "the multiplication must be gone:\n{}",
+        optimized.ir_artifact
+    );
+    assert!(
+        plain.ir_artifact.contains("\"Mul\""),
+        "without folding the multiplication must still be there"
+    );
+    // The fingerprint is taken before the pass, so the two are the same program.
+    assert_eq!(optimized.fingerprint, plain.fingerprint);
 }
 
 /// The fingerprint is taken before optimization.

@@ -15,11 +15,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use compylr_core::backend::BackendError;
+use compylr_core::pass::{self, PassConfig};
 use compylr_core::verify::verify;
 // The summary quotes types back in the language of the file being inspected, so it uses the
 // frontend's spelling rather than the IR's neutral one.
 use compylr_frontend_python::PythonTypeName;
-use compylr_registry::{backends, bridges, frontends};
+use compylr_registry::{backends, bridges, frontends, passes};
 
 /// The source language, until there is a second one to choose between.
 ///
@@ -164,12 +165,18 @@ fn run(options: &Options) -> Result<String, String> {
     // The frontend does the parsing and the assembly. Reading the file is this crate's business
     // because the trait takes text: the decorator's sources come from a live function object and
     // may correspond to no file at all.
-    let unit = frontend
+    let mut unit = frontend
         .lower(std::slice::from_ref(&source))
         .map_err(|error| error.to_string())?;
     // Unconditional, and the same check `compile` runs. A CLI with its own idea of what is
     // well formed would become a second source of answers.
     verify(&unit).map_err(|error| error.to_string())?;
+
+    // The same passes a real build runs. A CLI that showed unoptimized source would answer
+    // "what does this become?" with something the toolchain never sees, which is the one thing
+    // this command exists not to do.
+    let directed = passes::for_pair(DEFAULT_FRONTEND, &options.backend);
+    pass::run(&mut unit, &PassConfig::default(), &directed).map_err(|error| error.to_string())?;
 
     match options.emit {
         Emit::Summary => {

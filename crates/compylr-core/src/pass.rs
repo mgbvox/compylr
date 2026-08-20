@@ -133,9 +133,9 @@ pub struct PipelineReport {
 
 /// The target-agnostic passes, in the order they run.
 ///
-/// Empty until there is something correct to put in it. An optimizer that exists because the
-/// architecture has a slot for one is how a compiler acquires transformations nobody can justify.
-const AGNOSTIC: &[&dyn Pass] = &[];
+/// Short on purpose. An optimizer that exists because the architecture has a slot for one is how
+/// a compiler acquires transformations nobody can justify.
+const AGNOSTIC: &[&dyn Pass] = &[&crate::folding::ConstantFolding];
 
 /// Run the pipeline over `unit`.
 ///
@@ -260,7 +260,12 @@ mod tests {
             &[&FIRST as &dyn Pass, &SECOND],
         )
         .unwrap();
-        assert_eq!(report.passes, ["first", "second"]);
+        // The agnostic set runs first, then the directed ones, in registration order.
+        assert_eq!(
+            report.passes,
+            [crate::folding::NAME, "first", "second"],
+            "target-agnostic passes must precede pair-directed ones"
+        );
         assert_eq!(unit.functions().count(), 2);
     }
 

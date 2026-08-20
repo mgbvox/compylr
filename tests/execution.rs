@@ -1091,6 +1091,59 @@ fn a_reading_method_takes_a_shared_receiver() {
     );
 }
 
+/// Folded programs must still run, and still produce what the unfolded ones did.
+///
+/// Folding rewrites the tree the backend receives, so it can produce a literal the backend has
+/// never had to emit before — a float that arrived as a division, say. Checking the pass in
+/// isolation cannot catch that; only compiling and running the result can.
+mod folding {
+    use super::*;
+    use compylr_core::pass::{self, Optimization, PassConfig};
+
+    fn compiled(label: &str, source: &str, main_body: &str, optimization: Optimization) -> String {
+        let mut unit = unit_from(source);
+        pass::run(&mut unit, &PassConfig { optimization }, &[])
+            .expect("passes must not fail on an accepted program");
+        run_unit(label, &unit, main_body)
+    }
+
+    /// The same program, with and without the pass, must print the same thing.
+    #[test]
+    fn folding_does_not_change_what_a_program_computes() {
+        // Every case is one where a wrong fold gives a different answer: flooring on mixed signs,
+        // divisor-signed remainder, and a division that promotes.
+        let source = "def quotient() -> int:\n    return 7 // -2\n\n\
+                      def remainder() -> int:\n    return -7 % 2\n\n\
+                      def ratio() -> float:\n    return 7 / 2\n\n\
+                      def joined() -> str:\n    return \"a\" + \"b\"\n";
+        let main = "    println!(\"{} {} {} {}\", quotient().unwrap(), remainder().unwrap(), \
+                    ratio().unwrap(), joined().unwrap());";
+
+        let folded = compiled("folding_on", source, main, Optimization::Default);
+        let plain = compiled("folding_off", source, main, Optimization::None);
+
+        assert_eq!(folded.trim(), "-4 1 3.5 ab");
+        assert_eq!(folded, plain, "folding must not change the result");
+    }
+
+    /// A failure the program would have reported must survive the pass.
+    #[test]
+    fn a_folded_program_still_reports_the_failures_it_would_have() {
+        let source = "def by_zero() -> int:\n    return 1 // 0\n";
+        let out = compiled(
+            "folding_keeps_errors",
+            source,
+            "    println!(\"{:?}\", by_zero().is_err());",
+            Optimization::Default,
+        );
+        assert_eq!(
+            out.trim(),
+            "true",
+            "the division must still fail at runtime"
+        );
+    }
+}
+
 /// The modes the Python frontend never produces, executed anyway.
 ///
 /// Truncating division and a dividend-signed remainder are what C, Go, Rust, and Java mean by `/`

@@ -89,14 +89,16 @@
 
 ## 6. Constant folding
 
-- [ ] 6.1 Write tests: integer addition folds; a promoting division of two integer literals folds to
+- [x] 6.1 Write tests: integer addition folds; a promoting division of two integer literals folds to
       a float literal; `7 // -2` folds differently under each rounding mode; a non-literal operand is
       untouched
-- [ ] 6.2 Write tests that division by zero and an overflowing constant are left in place so the
+- [x] 6.2 Write tests that division by zero and an overflowing constant are left in place so the
       runtime failure still reaches the caller
-- [ ] 6.3 Implement folding for the arithmetic and comparison forms, reading semantics off each node
-- [ ] 6.4 Confirm the folded form appears in the written IR artifact, and review the emitted-Rust
-      snapshot churn as expected rather than as a regression
+- [x] 6.3 Implement folding for the arithmetic and comparison forms, reading semantics off each node
+- [x] 6.4 Confirm the folded form appears in the written IR artifact, and review the emitted-Rust
+      snapshot churn as expected rather than as a regression. There was none: `emit_quality.rs`
+      emits from lowered IR directly, testing the backend in isolation, which is worth keeping.
+      Folded programs are covered by execution tests instead, which is the stronger check
 
 ## 7. Guarantee negotiation and post-processing
 

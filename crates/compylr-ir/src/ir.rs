@@ -961,6 +961,23 @@ impl Unit {
         Ok(())
     }
 
+    /// Apply `edit` to every function in the unit, methods and constructors included.
+    ///
+    /// Exists for passes. A pass reaching into `functions` and `classes` separately is a pass
+    /// that will one day be written against only the first, and a transformation that silently
+    /// skipped method bodies would be a bug nothing in the type system catches.
+    pub fn map_functions(&mut self, mut edit: impl FnMut(&mut Function)) {
+        for function in self.functions.values_mut() {
+            edit(function);
+        }
+        for class in self.classes.values_mut() {
+            edit(&mut class.init);
+            for method in class.methods.values_mut() {
+                edit(method);
+            }
+        }
+    }
+
     /// Refuse a name already used by either kind of member.
     fn reject_taken_name(&self, name: &str, span: Span) -> Result<(), LowerError> {
         let taken = if self.functions.contains_key(name) {
