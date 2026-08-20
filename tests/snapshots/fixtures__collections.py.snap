@@ -1,6 +1,5 @@
 ---
 source: tests/fixtures.rs
-assertion_line: 52
 expression: functions
 ---
 [
@@ -28,16 +27,18 @@ expression: functions
                             0,
                         ),
                     ),
+                    origin: FromEitherEnd,
                 },
             },
             Bind {
                 name: "count",
                 ty: Int,
-                value: Len(
-                    Name(
+                value: Len {
+                    value: Name(
                         "xs",
                     ),
-                ),
+                    units: CodePoints,
+                },
             },
             Return(
                 Binary {
@@ -82,6 +83,7 @@ expression: functions
                     index: Name(
                         "key",
                     ),
+                    origin: FromEitherEnd,
                 },
             ),
         ],
@@ -289,6 +291,7 @@ expression: functions
                     index: Name(
                         "key",
                     ),
+                    origin: FromEitherEnd,
                 },
             },
             Return(
@@ -301,6 +304,7 @@ expression: functions
                             0,
                         ),
                     ),
+                    origin: FromEitherEnd,
                 },
             ),
         ],
@@ -334,6 +338,7 @@ expression: functions
                             ),
                         ),
                     ),
+                    origin: FromEitherEnd,
                 },
             ),
         ],
@@ -354,11 +359,12 @@ expression: functions
         ret: Int,
         body: [
             Return(
-                Len(
-                    Name(
+                Len {
+                    value: Name(
                         "s",
                     ),
-                ),
+                    units: CodePoints,
+                },
             ),
         ],
         doc: None,

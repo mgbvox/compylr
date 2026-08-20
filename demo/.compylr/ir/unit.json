@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "fingerprint": "6b1fc4a74dfb4334",
+  "version": 3,
+  "fingerprint": "7fe11da0cf06cf93",
   "functions": [
     {
       "name": "iterative_not_divisible",
@@ -112,7 +112,8 @@
                     }
                   }
                 }
-              }
+              },
+              "origin": "FromEitherEnd"
             }
           }
         }
@@ -160,7 +161,10 @@
                 "op": "Lt",
                 "left": {
                   "Len": {
-                    "Name": "found"
+                    "value": {
+                      "Name": "found"
+                    },
+                    "units": "CodePoints"
                   }
                 },
                 "right": {
@@ -927,12 +931,15 @@
             {
               "Return": {
                 "Len": {
-                  "Attribute": {
-                    "object": {
-                      "Name": "self"
-                    },
-                    "name": "known"
-                  }
+                  "value": {
+                    "Attribute": {
+                      "object": {
+                        "Name": "self"
+                      },
+                      "name": "known"
+                    }
+                  },
+                  "units": "CodePoints"
                 }
               }
             }
@@ -1034,7 +1041,8 @@
                         },
                         "index": {
                           "Name": "n"
-                        }
+                        },
+                        "origin": "FromEitherEnd"
                       }
                     }
                   }

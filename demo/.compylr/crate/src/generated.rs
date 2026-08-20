@@ -3,7 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact, py_subscript,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits,
+    div_exact, py_subscript,
 };
 
 /// An nth-prime that remembers what it has already computed.
@@ -41,7 +42,10 @@ impl PrimeCache {
 
     /// How many answers are cached.
     pub fn known_count(&self) -> Result<i64, RuntimeError> {
-        Ok(PyLen::py_len(&((self).known.clone())))
+        Ok(PyLen::py_len(
+            &((self).known.clone()),
+            TextUnits::CodePoints,
+        ))
     }
 
     /// The `n`th prime, one-indexed. Returns 0 for `n` below one.
@@ -51,7 +55,11 @@ impl PrimeCache {
         }
         if PyContains::py_contains(&((self).known.clone()), &(n)) {
             (self).hits = PyAdd::py_add(&((self).hits.clone()), &(1i64))?;
-            return Ok(py_subscript(&((self).known.clone()), &(n))?);
+            return Ok(py_subscript(
+                &((self).known.clone()),
+                &(n),
+                IndexOrigin::FromEitherEnd,
+            )?);
         }
         let mut found: i64 = 0i64;
         let mut candidate: i64 = 1i64;
@@ -88,14 +96,18 @@ pub fn iterative_nth_prime(n: i64) -> Result<i64, RuntimeError> {
         return Ok(0i64);
     }
     let found: Vec<i64> = iterative_primes_up_to_count(n)?;
-    Ok(py_subscript(&(found), &(PyNum::py_sub(&(n), &(1i64))?))?)
+    Ok(py_subscript(
+        &(found),
+        &(PyNum::py_sub(&(n), &(1i64))?),
+        IndexOrigin::FromEitherEnd,
+    )?)
 }
 
 /// The first `n` primes, in order.
 pub fn iterative_primes_up_to_count(n: i64) -> Result<Vec<i64>, RuntimeError> {
     let mut found: Vec<i64> = vec![];
     let mut candidate: i64 = 2i64;
-    while ((&(PyLen::py_len(&(found)))) < (&(n))) {
+    while ((&(PyLen::py_len(&(found), TextUnits::CodePoints))) < (&(n))) {
         let mut divisible: bool = false;
         {
             let __compylr_iter = &found;

@@ -28,8 +28,8 @@ use compylr_ir::Guarantee;
 use std::collections::BTreeSet;
 
 use compylr_ir::{
-    BinOp, Class, DivMode, Expr, Function, Literal, RemSign, Rounding, Stmt, Ty, Unit,
-    returns_on_all_paths,
+    BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, RemSign, Rounding, Stmt,
+    TextUnits, Ty, Unit, returns_on_all_paths,
 };
 
 /// The runtime helpers, embedded verbatim into generated crates.
@@ -230,6 +230,27 @@ impl Backend for RustBackend {
     }
 }
 
+/// The emitted spelling of a declared index origin.
+///
+/// The runtime carries its own copy of this enum, because it is embedded into generated crates and
+/// may not name anything outside itself. These two functions are the seam between the IR's copy and
+/// the runtime's, and a test asserts the two stay in step.
+fn rust_index_origin(origin: IndexOrigin) -> &'static str {
+    match origin {
+        IndexOrigin::FromEitherEnd => "IndexOrigin::FromEitherEnd",
+        IndexOrigin::FromStart => "IndexOrigin::FromStart",
+    }
+}
+
+/// The emitted spelling of declared text units.
+fn rust_text_units(units: TextUnits) -> &'static str {
+    match units {
+        TextUnits::CodePoints => "TextUnits::CodePoints",
+        TextUnits::Utf8Bytes => "TextUnits::Utf8Bytes",
+        TextUnits::Utf16Units => "TextUnits::Utf16Units",
+    }
+}
+
 /// Path of the crate root.
 pub const LIB_PATH: &str = "src/lib.rs";
 /// Path of the file holding the translated functions, and nothing else.
@@ -262,8 +283,8 @@ fn emit_generated(functions: &str) -> String {
          use std::collections::{{HashMap, HashSet}};\n\
          \n\
          use crate::compat::{{\n\
-         {}PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact,\n\
-         {}py_subscript,\n\
+         {}IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,\n\
+         {}TextUnits, div_exact, py_subscript,\n\
          }};\n\
          \n\
          {functions}",
@@ -606,13 +627,14 @@ fn expr_calls_any_of(expr: &Expr, named: &BTreeSet<String>) -> bool {
                 || args.iter().any(|a| expr_calls_any_of(a, named))
         }
         Expr::Literal(_) | Expr::Name(_) => false,
-        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) | Expr::Len(inner) => {
+        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => {
             expr_calls_any_of(inner, named)
         }
+        Expr::Len { value, .. } => expr_calls_any_of(value, named),
         Expr::Attribute { object, .. } => expr_calls_any_of(object, named),
         Expr::TupleIndex { base, .. } => expr_calls_any_of(base, named),
         Expr::Binary { left, right, .. } => recurse(&[left, right]),
-        Expr::Subscript { base, index } => recurse(&[base, index]),
+        Expr::Subscript { base, index, .. } => recurse(&[base, index]),
         Expr::Contains { value, container } => recurse(&[value, container]),
         Expr::Range { start, stop, step } => recurse(&[start, stop, step]),
         Expr::ListLit(items) | Expr::SetLit(items) | Expr::TupleLit(items) => {
@@ -1034,16 +1056,15 @@ fn visit_exprs(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
     visit(expr);
     match expr {
         Expr::Literal(_) | Expr::Name(_) => {}
-        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) | Expr::Len(inner) => {
-            visit_exprs(inner, visit)
-        }
+        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => visit_exprs(inner, visit),
+        Expr::Len { value, .. } => visit_exprs(value, visit),
         Expr::Attribute { object, .. } => visit_exprs(object, visit),
         Expr::TupleIndex { base, .. } => visit_exprs(base, visit),
         Expr::Binary { left, right, .. } => {
             visit_exprs(left, visit);
             visit_exprs(right, visit);
         }
-        Expr::Subscript { base, index } => {
+        Expr::Subscript { base, index, .. } => {
             visit_exprs(base, visit);
             visit_exprs(index, visit);
         }
@@ -1218,15 +1239,26 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             let base = emit_expr(base, unit, &Ty::Unit)?;
             format!("({base}).{position}.clone()")
         }
-        Expr::Subscript { base, index } => {
+        Expr::Subscript {
+            base,
+            index,
+            origin,
+        } => {
             // The base is borrowed rather than consumed, so a collection read twice is not moved.
+            //
+            // The origin is read off the node and passed through. A backend that assumed one would
+            // be silently wrong for any frontend meaning the other, on exactly the inputs — a
+            // negative index — that nobody writes a test for by accident.
             let base = emit_expr(base, unit, &Ty::Unit)?;
             let index = emit_expr(index, unit, &Ty::Unit)?;
-            format!("py_subscript(&({base}), &({index}))?")
+            format!(
+                "py_subscript(&({base}), &({index}), {})?",
+                rust_index_origin(*origin)
+            )
         }
-        Expr::Len(inner) => {
-            let inner = emit_expr(inner, unit, &Ty::Unit)?;
-            format!("PyLen::py_len(&({inner}))")
+        Expr::Len { value, units } => {
+            let value = emit_expr(value, unit, &Ty::Unit)?;
+            format!("PyLen::py_len(&({value}), {})", rust_text_units(*units))
         }
         Expr::Range { .. } => {
             // A range is only meaningful as something to iterate, and lowering rejects it

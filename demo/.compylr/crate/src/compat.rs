@@ -23,11 +23,23 @@
 //! panics on and which yields infinity for floats, and an integer result outside `i64`. Both are
 //! guarantees a frontend declares and this backend preserves — see `compylr_ir::Guarantee`.
 //!
-//! Not everything here is neutral yet. The container helpers below still encode **Python's**
-//! semantics with no way to say otherwise: a negative index counts from the end, `len` counts
-//! code points rather than bytes, and `in` over a string tests substrings. They keep their `Py`
-//! prefix precisely because that is still true of them, and renaming them without giving them a
-//! mode would hide it.
+//! The container helpers take their mode too: [`IndexOrigin`] decides whether a negative offset
+//! counts from the end, and [`TextUnits`] decides what a string's length counts.
+//!
+//! Three container behaviours are deliberately *not* modes, and it is worth saying why rather than
+//! leaving a reader to wonder whether they were overlooked:
+//!
+//! * **A missing mapping key** is reported. Go yields the value type's zero and TypeScript yields
+//!   `undefined`, but `v, ok := m[k]` is not `m[k]` with a setting — it is a different expression
+//!   with a different result type, and modelling it would need a notion of a type's zero the IR
+//!   does not have. A frontend that means it lowers to a different form.
+//! * **Iterating a mapping** yields keys, which is what Python, Go's `range`, and TypeScript's
+//!   `for...in` all do.
+//! * **Membership in a string** tests substrings, which is what `in`, `strings.Contains`,
+//!   `includes`, and `find` all do.
+//!
+//! Those keep their `Py` prefix because they are one language's reading of a question the others
+//! answer the same way — a conclusion, not a gap.
 //!
 //! The operations are exposed as traits rather than free functions so a backend can emit
 //! `PyNum::py_sub(&a, &b)?` without knowing whether `a` is an integer or a float — Rust picks the
@@ -38,6 +50,33 @@
 //! `String` out of a variable that is used again later.
 
 use std::fmt;
+
+/// How a negative offset into a sequence is resolved.
+///
+/// A mirror of the IR's own enum. Duplicated rather than shared, because this file is embedded
+/// verbatim into every generated crate and may not name anything outside itself — a generated crate
+/// depending on compylr at build time would defeat the point of embedding it. The backend's
+/// `rust_index_origin` is the seam, and a test asserts the two stay in step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexOrigin {
+    /// A negative offset counts backwards from the end: `xs[-1]` is the last element.
+    FromEitherEnd,
+    /// A negative offset is out of range.
+    FromStart,
+}
+
+/// What the length of a text value counts.
+///
+/// A mirror of the IR's own enum, for the reason [`IndexOrigin`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextUnits {
+    /// Unicode scalar values.
+    CodePoints,
+    /// Bytes of the UTF-8 encoding.
+    Utf8Bytes,
+    /// Units of the UTF-16 encoding.
+    Utf16Units,
+}
 
 /// A failure inside compiled code that Python reports to the program rather than crashing on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -249,17 +288,22 @@ pub fn div_exact(lhs: &f64, rhs: &f64) -> Result<f64, RuntimeError> {
     Ok(lhs / rhs)
 }
 
-/// Read a sequence element the way Python indexes.
+/// Read a sequence element, resolving a negative offset the way the node declared.
 ///
-/// Python counts a negative index from the end; Rust does not, and `xs[-1]` would either fail to
-/// compile or wrap into an enormous positive index. Reading past either end is reported rather
-/// than panicking, because Python reports it to the program.
+/// Under [`IndexOrigin::FromEitherEnd`] a negative index counts from the end, which is Python's
+/// reading; under [`IndexOrigin::FromStart`] it is out of range, which is everyone else's. Reading
+/// past either end is reported rather than panicking, under both.
 ///
 /// The element is cloned out, which is what lets the read-only subset work without threading
 /// borrows through generated code. For a scalar that is free.
-pub fn py_index<T: Clone>(items: &[T], index: i64) -> Result<T, RuntimeError> {
+pub fn py_index<T: Clone>(items: &[T], index: i64, origin: IndexOrigin) -> Result<T, RuntimeError> {
     let length = items.len() as i64;
-    let resolved = if index < 0 { index + length } else { index };
+    let resolved = match origin {
+        IndexOrigin::FromEitherEnd if index < 0 => index + length,
+        // Left as it is, so it fails the range check below rather than wrapping into an enormous
+        // positive index — which is what a target's native indexing would do with it.
+        IndexOrigin::FromEitherEnd | IndexOrigin::FromStart => index,
+    };
     if resolved < 0 || resolved >= length {
         return Err(RuntimeError::IndexOutOfRange);
     }
@@ -277,31 +321,39 @@ where
         .ok_or_else(|| RuntimeError::MissingKey(format!("{key:?}")))
 }
 
-/// The number of characters in a string.
+/// The length of a string, in the units the node declared.
 ///
-/// **Not** `String::len`, which counts UTF-8 bytes. Python counts code points, so `len("é")` is 1
-/// there and 2 in Rust — correct for ASCII and silently wrong for anything else, which is the
-/// same class of mistake as mapping `//` onto `/`.
-pub fn py_str_len(value: &str) -> i64 {
-    value.chars().count() as i64
+/// The three readings agree on ASCII and disagree on everything else, which is what makes assuming
+/// one of them survive most tests — the same class of mistake as mapping `//` onto `/`. Rust's own
+/// `String::len` is the UTF-8 byte count, so it is the *only* one of the three that comes for free.
+pub fn py_str_len(value: &str, units: TextUnits) -> i64 {
+    match units {
+        TextUnits::CodePoints => value.chars().count() as i64,
+        TextUnits::Utf8Bytes => value.len() as i64,
+        TextUnits::Utf16Units => value.chars().map(char::len_utf16).sum::<usize>() as i64,
+    }
 }
 
 /// Reading one element of a collection, dispatched by the collection's type.
 ///
 /// A trait for the same reason arithmetic is one: the IR does not annotate expressions with their
-/// types, so the backend emits `py_subscript(&(c), &(i))?` and Rust selects the implementation.
-/// Unlike arithmetic, the *result* type differs per container, which is what `Output` carries.
+/// types, so the backend emits one call and Rust selects the implementation. Unlike arithmetic, the
+/// *result* type differs per container, which is what `Output` carries.
+///
+/// The origin reaches every implementation, including the ones it means nothing to. A mapping has
+/// no ends to count from, so its implementation ignores the argument — which is the cost of
+/// carrying the mode on a node that covers both container kinds.
 pub trait PyIndexable<I> {
     /// What reading an element yields.
     type Output;
     /// Read one element.
-    fn py_get(&self, index: &I) -> Result<Self::Output, RuntimeError>;
+    fn py_get(&self, index: &I, origin: IndexOrigin) -> Result<Self::Output, RuntimeError>;
 }
 
 impl<T: Clone> PyIndexable<i64> for Vec<T> {
     type Output = T;
-    fn py_get(&self, index: &i64) -> Result<T, RuntimeError> {
-        py_index(self, *index)
+    fn py_get(&self, index: &i64, origin: IndexOrigin) -> Result<T, RuntimeError> {
+        py_index(self, *index, origin)
     }
 }
 
@@ -311,17 +363,22 @@ where
     V: Clone,
 {
     type Output = V;
-    fn py_get(&self, key: &K) -> Result<V, RuntimeError> {
+    /// A key is not an offset, so there is nothing for the origin to decide.
+    fn py_get(&self, key: &K, _origin: IndexOrigin) -> Result<V, RuntimeError> {
         py_key(self, key)
     }
 }
 
 /// Read one element of a collection.
-pub fn py_subscript<C, I>(collection: &C, index: &I) -> Result<C::Output, RuntimeError>
+pub fn py_subscript<C, I>(
+    collection: &C,
+    index: &I,
+    origin: IndexOrigin,
+) -> Result<C::Output, RuntimeError>
 where
     C: PyIndexable<I>,
 {
-    collection.py_get(index)
+    collection.py_get(index, origin)
 }
 
 /// Assigning to one element of a collection.
@@ -404,34 +461,38 @@ impl PyContains<String> for String {
     }
 }
 
-/// The number of elements Python would report.
+/// The length of a value, in the units the node declared.
+///
+/// The units reach every implementation, and only text has more than one answer to give. A
+/// collection's length is a count of its elements under every reading, so those implementations
+/// ignore the argument.
 pub trait PyLen {
     /// The length.
-    fn py_len(&self) -> i64;
+    fn py_len(&self, units: TextUnits) -> i64;
 }
 
 impl<T> PyLen for Vec<T> {
-    fn py_len(&self) -> i64 {
+    fn py_len(&self, _units: TextUnits) -> i64 {
         self.len() as i64
     }
 }
 
 impl<K, V> PyLen for std::collections::HashMap<K, V> {
-    fn py_len(&self) -> i64 {
+    fn py_len(&self, _units: TextUnits) -> i64 {
         self.len() as i64
     }
 }
 
 impl<T> PyLen for std::collections::HashSet<T> {
-    fn py_len(&self) -> i64 {
+    fn py_len(&self, _units: TextUnits) -> i64 {
         self.len() as i64
     }
 }
 
 impl PyLen for String {
-    /// Characters, not bytes — see [`py_str_len`].
-    fn py_len(&self) -> i64 {
-        py_str_len(self)
+    /// The one implementation the units decide — see [`py_str_len`].
+    fn py_len(&self, units: TextUnits) -> i64 {
+        py_str_len(self, units)
     }
 }
 

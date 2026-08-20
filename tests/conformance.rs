@@ -13,8 +13,8 @@
 use std::collections::BTreeMap;
 
 use compylr::ir::{
-    Attribute, BinOp, Class, DivMode, Expr, Function, Literal, Param, RemSign, Rounding, Stmt, Ty,
-    Unit,
+    Attribute, BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param, RemSign,
+    Rounding, Stmt, TextUnits, Ty, Unit,
 };
 use compylr::span::Span;
 
@@ -88,7 +88,10 @@ fn types() -> Unit {
                     param("t", Ty::Tuple(vec![Ty::Int, Ty::Str])),
                 ],
                 Ty::Int,
-                vec![Stmt::Return(Expr::Len(Box::new(Expr::name("xs"))))],
+                vec![Stmt::Return(Expr::Len {
+                    value: Box::new(Expr::name("xs")),
+                    units: TextUnits::CodePoints,
+                })],
             ),
         ],
         vec![],
@@ -259,6 +262,7 @@ fn collections() -> Unit {
                         value: Expr::Subscript {
                             base: Box::new(Expr::name("xs")),
                             index: Box::new(int(0)),
+                            origin: IndexOrigin::FromEitherEnd,
                         },
                     },
                     Stmt::Bind {

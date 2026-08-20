@@ -7,8 +7,8 @@ expression: functions.trim()
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact,
-    py_subscript,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_subscript,
 };
 
 pub fn at_most(a: i64, b: i64) -> Result<bool, RuntimeError> {

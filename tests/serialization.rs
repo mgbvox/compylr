@@ -363,7 +363,7 @@ fn malformed_json_is_rejected() {
 /// has stopped being part of the program and a build cache will hand back the wrong one.
 mod declared_semantics {
     use super::*;
-    use compylr::ir::{DivMode, RemSign, Rounding};
+    use compylr::ir::{DivMode, IndexOrigin, RemSign, Rounding, TextUnits};
 
     fn unit_dividing(op: BinOp) -> Unit {
         let mut unit = Unit::new();
@@ -466,6 +466,103 @@ mod declared_semantics {
         );
         assert_eq!(restored.requires(), [Guarantee::IntegerOverflowReported]);
         assert_eq!(restored.fingerprint(), unit.fingerprint());
+    }
+
+    fn unit_indexing(origin: IndexOrigin) -> Unit {
+        let mut unit = Unit::new();
+        unit.add_function(Function {
+            name: "read".to_string(),
+            params: vec![
+                Param {
+                    name: "xs".to_string(),
+                    ty: Ty::List(Box::new(Ty::Int)),
+                },
+                Param {
+                    name: "i".to_string(),
+                    ty: Ty::Int,
+                },
+            ],
+            ret: Ty::Int,
+            body: vec![Stmt::Return(Expr::Subscript {
+                base: Box::new(Expr::name("xs")),
+                index: Box::new(Expr::name("i")),
+                origin,
+            })],
+            doc: None,
+            span: Span::default(),
+        })
+        .unwrap();
+        unit
+    }
+
+    fn unit_measuring(units: TextUnits) -> Unit {
+        let mut unit = Unit::new();
+        unit.add_function(Function {
+            name: "size".to_string(),
+            params: vec![Param {
+                name: "s".to_string(),
+                ty: Ty::Str,
+            }],
+            ret: Ty::Int,
+            body: vec![Stmt::Return(Expr::Len {
+                value: Box::new(Expr::name("s")),
+                units,
+            })],
+            doc: None,
+            span: Span::default(),
+        })
+        .unwrap();
+        unit
+    }
+
+    /// Two programs that index differently are two different programs.
+    #[test]
+    fn index_origins_fingerprint_differently() {
+        assert_ne!(
+            unit_indexing(IndexOrigin::FromEitherEnd).fingerprint(),
+            unit_indexing(IndexOrigin::FromStart).fingerprint(),
+            "the origin decides what `xs[-1]` returns, so it must reach the rebuild key"
+        );
+    }
+
+    #[test]
+    fn text_units_fingerprint_differently() {
+        let prints = [
+            unit_measuring(TextUnits::CodePoints).fingerprint(),
+            unit_measuring(TextUnits::Utf8Bytes).fingerprint(),
+            unit_measuring(TextUnits::Utf16Units).fingerprint(),
+        ];
+        let mut sorted = prints;
+        sorted.sort_unstable();
+        let count = sorted.len();
+        let mut deduped = sorted.to_vec();
+        deduped.dedup();
+        assert_eq!(deduped.len(), count, "all three readings must be distinct");
+    }
+
+    #[test]
+    fn a_declared_container_mode_survives_the_artifact() {
+        for origin in [IndexOrigin::FromEitherEnd, IndexOrigin::FromStart] {
+            let unit = unit_indexing(origin);
+            let restored = Unit::from_json(&unit.to_json().unwrap()).expect("round trip");
+            match &restored.get("read").unwrap().body[0] {
+                Stmt::Return(Expr::Subscript { origin: back, .. }) => assert_eq!(*back, origin),
+                other => panic!("unexpected body: {other:?}"),
+            }
+        }
+
+        for units in [
+            TextUnits::CodePoints,
+            TextUnits::Utf8Bytes,
+            TextUnits::Utf16Units,
+        ] {
+            let unit = unit_measuring(units);
+            let restored = Unit::from_json(&unit.to_json().unwrap()).expect("round trip");
+            match &restored.get("size").unwrap().body[0] {
+                Stmt::Return(Expr::Len { units: back, .. }) => assert_eq!(*back, units),
+                other => panic!("unexpected body: {other:?}"),
+            }
+        }
     }
 
     /// A unit nobody claimed fingerprints as it always did.

@@ -211,6 +211,7 @@ expression: functions
                                         index: Name(
                                             "word",
                                         ),
+                                        origin: FromEitherEnd,
                                     },
                                     right: Literal(
                                         Int(

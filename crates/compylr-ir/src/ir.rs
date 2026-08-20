@@ -2,18 +2,36 @@
 //!
 //! The IR is independent of both Python and any target language. Nothing here names a Rust
 //! type, a Go type, or a TypeScript type: a backend maps [`Ty`] onto whatever its target
-//! spells, which is what keeps a second backend from requiring a second IR.
+//! spells, which is what keeps a second backend from requiring a second IR. Nothing here names a
+//! Python construct either: how a type or an operator is spelled *back to the programmer* belongs
+//! to the frontend that read it.
 //!
 //! Two consequences are easy to miss and worth stating up front:
 //!
-//! * Operators carry **Python** semantics. [`BinOp::FloorDiv`] rounds toward negative infinity
-//!   and [`BinOp::Mod`] takes the sign of the divisor. Most targets' native `/` and `%`
-//!   truncate toward zero and take the sign of the dividend, so a backend that maps these to
-//!   the same-named native operator is wrong for negative operands. Naming the Python
-//!   semantic here forces that decision to be made deliberately.
-//! * IR values own their data. Nothing borrows from the source text or the parse tree, so an
+//! * **Operators carry the semantics a frontend declared**, not one language's by default.
+//!   [`BinOp::Div`] carries a mode — exact, or integer with a rounding direction — [`BinOp::Rem`]
+//!   carries which operand's sign the result takes, [`Expr::Subscript`] carries how a negative
+//!   offset resolves, and [`Expr::Len`] carries what a text value is counted in. Python declares
+//!   one reading of each; Go, C++, and TypeScript would declare others. A backend that read the
+//!   node's *name* instead of its mode would be silently wrong for any frontend meaning the other
+//!   thing, on exactly the inputs nobody writes a test for by accident.
+//! * **IR values own their data.** Nothing borrows from the source text or the parse tree, so an
 //!   IR value stays valid after both are dropped — which is what lets a unit accumulate
 //!   functions parsed at different times.
+//!
+//! Three container behaviours are deliberately **not** carried as modes, and the absence is a
+//! conclusion rather than an omission:
+//!
+//! * **Reading a mapping with an absent key** always reports the failure. Go yields the value
+//!   type's zero and TypeScript yields `undefined`, but `v, ok := m[k]` is not `m[k]` with a
+//!   setting — it is a different expression with a different result type, and expressing it would
+//!   need a notion of a type's zero value this model does not have ([`Ty::Instance`] has none).
+//!   A frontend that means it lowers to a different form, the way [`Expr::Range`] is a distinct
+//!   form rather than a mode on a call.
+//! * **Iterating a mapping** yields keys, which Python, Go's `range`, and TypeScript's `for...in`
+//!   all agree on.
+//! * **Membership in a string** tests substrings, which `in`, `strings.Contains`, `includes`, and
+//!   `find` all agree on.
 
 use std::collections::BTreeMap;
 use std::collections::hash_map::DefaultHasher;
@@ -32,7 +50,7 @@ use crate::guarantee::Guarantee;
 ///
 /// Recorded in every artifact and checked on load, so a file written by a future build fails
 /// with an explanation rather than deserializing into a subtly wrong unit.
-const ARTIFACT_VERSION: u32 = 2;
+const ARTIFACT_VERSION: u32 = 3;
 
 /// The on-disk envelope around a unit.
 ///
@@ -252,6 +270,35 @@ pub enum RemSign {
     Dividend,
 }
 
+/// How a negative offset into a sequence is resolved.
+///
+/// Python counts backwards from the end, so `xs[-1]` is the last element. Go, C++, Rust, and
+/// TypeScript do not: a negative offset is out of range, undefined, or an enormous positive number.
+/// Same operation, two conventions — the shape [`Rounding`] has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum IndexOrigin {
+    /// A negative offset counts backwards from the end: `xs[-1]` is the last element.
+    FromEitherEnd,
+    /// A negative offset is out of range.
+    FromStart,
+}
+
+/// What the length of a text value counts.
+///
+/// Three readings, all of them somebody's: Python counts code points, Go's `len` counts UTF-8
+/// bytes, and TypeScript's `.length` counts UTF-16 units. They agree on ASCII and disagree on
+/// everything else, which is the same class of trap as mapping `//` onto `/` — correct on the
+/// inputs a test is likely to use and silently wrong beyond them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TextUnits {
+    /// Unicode scalar values. `len("é")` is 1; a character outside the basic plane is 1.
+    CodePoints,
+    /// Bytes of the UTF-8 encoding. `len("é")` is 2; a character outside the basic plane is 4.
+    Utf8Bytes,
+    /// Units of the UTF-16 encoding. `len("é")` is 1; a character outside the basic plane is 2.
+    Utf16Units,
+}
+
 /// A binary operator, carrying the semantics a frontend declared for it.
 ///
 /// The operators that admit more than one reasonable reading carry which one they mean. A
@@ -439,18 +486,34 @@ pub enum Expr {
     /// one. A flag on [`Self::Contains`] would make every consumer responsible for remembering to
     /// honour it, and the one that forgot would silently invert an answer.
     Not(Box<Expr>),
+    /// Reading one element of a collection, by offset or by key.
     Subscript {
         /// The collection being read.
         base: Box<Expr>,
         /// The index or key.
         index: Box<Expr>,
+        /// How a negative offset is resolved.
+        ///
+        /// Inert when the index is a **key** rather than an offset: a mapping has no ends to count
+        /// from. Carried on the node anyway rather than split into two forms, because indexing a
+        /// sequence and looking one up in a mapping share a spelling in every language compylr
+        /// accepts, and the type of the base is what already distinguishes them.
+        origin: IndexOrigin,
     },
     /// The length of a collection or string.
     ///
     /// A distinct node rather than a call: a call is resolved against the unit during validation,
     /// so leaving `len` as one would make its meaning depend on whether someone had decorated a
     /// function of that name.
-    Len(Box<Expr>),
+    Len {
+        /// What is being measured.
+        value: Box<Expr>,
+        /// What a *text* value is counted in.
+        ///
+        /// Inert for a collection, whose length is a count of elements under every reading. Only
+        /// text admits more than one answer, and it admits three.
+        units: TextUnits,
+    },
     /// A counted sequence of integers: `start`, then `start + step`, and so on while the value
     /// has not reached `stop`. Half-open — `stop` is excluded — and `step` may be negative but
     /// may not be zero.
@@ -526,7 +589,8 @@ impl Expr {
             Self::Literal(_) | Self::Name(_) => {}
             // ToFloat must descend, or a call wrapped in a promotion would be invisible to
             // Unit::validate and its target would never be checked.
-            Self::Neg(inner) | Self::ToFloat(inner) | Self::Len(inner) => inner.walk_calls(visit),
+            Self::Neg(inner) | Self::ToFloat(inner) => inner.walk_calls(visit),
+            Self::Len { value, .. } => value.walk_calls(visit),
             Self::ListLit(items) | Self::SetLit(items) | Self::TupleLit(items) => {
                 for item in items {
                     item.walk_calls(visit);
@@ -558,7 +622,7 @@ impl Expr {
                 value.walk_calls(visit);
                 container.walk_calls(visit);
             }
-            Self::Subscript { base, index } => {
+            Self::Subscript { base, index, .. } => {
                 base.walk_calls(visit);
                 index.walk_calls(visit);
             }

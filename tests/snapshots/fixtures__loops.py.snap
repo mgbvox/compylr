@@ -373,11 +373,12 @@ expression: functions
                             left: Name(
                                 "total_length",
                             ),
-                            right: Len(
-                                Name(
+                            right: Len {
+                                value: Name(
                                     "k",
                                 ),
-                            ),
+                                units: CodePoints,
+                            },
                         },
                     },
                 ],

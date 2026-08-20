@@ -7,8 +7,8 @@ expression: functions.trim()
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact,
-    py_subscript,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_subscript,
 };
 
 pub fn counts(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeError> {
@@ -19,7 +19,7 @@ pub fn counts(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeError> 
             let word: String = __compylr_item;
             if PyContains::py_contains(&(seen), &(word)) {
                 {
-                    let __compylr_value = PyAdd::py_add(&(py_subscript(&(seen), &(word))?), &(1i64))?;
+                    let __compylr_value = PyAdd::py_add(&(py_subscript(&(seen), &(word), IndexOrigin::FromEitherEnd)?), &(1i64))?;
                     let __compylr_index = word.clone();
                     PySetItem::py_set(&mut (seen), &__compylr_index, __compylr_value)?;
                 }

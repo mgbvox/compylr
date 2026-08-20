@@ -195,6 +195,59 @@ mod declared_meanings {
         );
     }
 
+    /// Container operations declare Python's readings too.
+    ///
+    /// Asserted on the declaration rather than the variant, for the same reason the arithmetic
+    /// ones are: a test that checked for a variant named `Subscript` would pass whatever that
+    /// variant happened to mean.
+    #[test]
+    fn subscripting_declares_counting_from_either_end() {
+        use compylr::ir::IndexOrigin;
+        let frontend = frontend::lookup("python").unwrap();
+        let unit = frontend
+            .lower(&["def op(xs: list[int], i: int) -> int:\n    return xs[i]\n".to_string()])
+            .expect("must lower");
+        match &unit.get("op").unwrap().body[0] {
+            Stmt::Return(Expr::Subscript { origin, .. }) => {
+                assert_eq!(*origin, IndexOrigin::FromEitherEnd);
+            }
+            other => panic!("unexpected body: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn length_declares_code_points() {
+        use compylr::ir::TextUnits;
+        let frontend = frontend::lookup("python").unwrap();
+        let unit = frontend
+            .lower(&["def op(s: str) -> int:\n    return len(s)\n".to_string()])
+            .expect("must lower");
+        match &unit.get("op").unwrap().body[0] {
+            Stmt::Return(Expr::Len { units, .. }) => assert_eq!(*units, TextUnits::CodePoints),
+            other => panic!("unexpected body: {other:?}"),
+        }
+    }
+
+    /// A mapping read declares an origin too, and it means nothing there.
+    ///
+    /// Worth pinning: the field is inert for a mapping, and a frontend that left it at some other
+    /// value would be relying on nobody reading it. Declaring one reading everywhere is what makes
+    /// that safe.
+    #[test]
+    fn a_mapping_read_still_declares_one_origin() {
+        use compylr::ir::IndexOrigin;
+        let frontend = frontend::lookup("python").unwrap();
+        let unit = frontend
+            .lower(&["def op(d: dict[str, int], k: str) -> int:\n    return d[k]\n".to_string()])
+            .expect("must lower");
+        match &unit.get("op").unwrap().body[0] {
+            Stmt::Return(Expr::Subscript { origin, .. }) => {
+                assert_eq!(*origin, IndexOrigin::FromEitherEnd);
+            }
+            other => panic!("unexpected body: {other:?}"),
+        }
+    }
+
     /// A lowered unit says which frontend produced it and what that language needs preserved.
     #[test]
     fn a_lowered_unit_records_its_origin() {

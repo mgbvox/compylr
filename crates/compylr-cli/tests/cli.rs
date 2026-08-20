@@ -105,9 +105,10 @@ mod emit {
 
         let artifact: serde_json::Value =
             serde_json::from_str(&stdout(&output)).expect("stdout must be valid JSON");
-        // Bumped to 2 when operators started carrying their declared semantics: an artifact
-        // written before that spells division as `FloorDiv`, which no longer exists.
-        assert_eq!(artifact["version"], 2);
+        // Bumped whenever the IR's shape changes: 2 when arithmetic operators started carrying
+        // their declared semantics, 3 when subscripting and length did. An older artifact spells
+        // nodes that no longer exist.
+        assert_eq!(artifact["version"], 3);
         assert!(artifact["functions"].as_array().unwrap().len() >= 3);
     }
 

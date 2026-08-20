@@ -33,7 +33,7 @@ pub enum Guarantee {
 impl Guarantee {
     /// A stable identifier for this guarantee, for callers that branch on it.
     ///
-    /// Separate from [`Self::to_string`] for the same reason error kinds carry a code: prose is
+    /// Separate from this type's `Display` for the same reason error kinds carry a code: prose is
     /// free to be reworded, and anything acting on the value needs something that does not move.
     pub fn code(self) -> &'static str {
         match self {

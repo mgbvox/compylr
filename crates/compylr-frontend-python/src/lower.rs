@@ -61,10 +61,23 @@ const PY_FLOOR_DIV: BinOp = BinOp::Div {
 const PY_MOD: BinOp = BinOp::Rem {
     sign: RemSign::Divisor,
 };
+
+/// Python's `xs[i]`: a negative index counts backwards from the end, so `xs[-1]` is the last.
+///
+/// Go, C++, and TypeScript all treat a negative index as out of range or undefined. Declared here
+/// rather than assumed downstream, for the same reason the rounding mode is.
+const PY_INDEX_ORIGIN: IndexOrigin = IndexOrigin::FromEitherEnd;
+
+/// Python's `len(s)`: code points, so `len("é")` is 1.
+///
+/// Go's `len` counts UTF-8 bytes and would give 2; TypeScript's `.length` counts UTF-16 units and
+/// would give 1 here but 2 for a character outside the basic plane. All three agree on ASCII, which
+/// is what makes assuming one of them survive most tests.
+const PY_TEXT_UNITS: TextUnits = TextUnits::CodePoints;
 use compylr_diagnostics::error::{LowerError, LowerErrorKind};
 use compylr_ir::{
-    Attribute, BinOp, Class, DivMode, Expr, Function, Literal, Param, RemSign, Rounding, Stmt, Ty,
-    returns_on_all_paths,
+    Attribute, BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param, RemSign,
+    Rounding, Stmt, TextUnits, Ty, returns_on_all_paths,
 };
 
 /// Names visible inside a function body, with the type each was bound at.
@@ -1047,6 +1060,7 @@ fn lower_subscript(
             Expr::Subscript {
                 base: Box::new(base),
                 index: Box::new(index),
+                origin: PY_INDEX_ORIGIN,
             },
             None,
         ));
@@ -1104,6 +1118,7 @@ fn lower_subscript(
         Expr::Subscript {
             base: Box::new(base),
             index: Box::new(index),
+            origin: PY_INDEX_ORIGIN,
         },
         result,
     ))
@@ -2718,9 +2733,13 @@ fn lower_expr(
                     Some(Ty::Tuple(elements)) => {
                         Ok((Expr::int(elements.len() as i64), Some(Ty::Int)))
                     }
-                    Some(Ty::List(_) | Ty::Dict(_, _) | Ty::Set(_) | Ty::Str) | None => {
-                        Ok((Expr::Len(Box::new(operand)), Some(Ty::Int)))
-                    }
+                    Some(Ty::List(_) | Ty::Dict(_, _) | Ty::Set(_) | Ty::Str) | None => Ok((
+                        Expr::Len {
+                            value: Box::new(operand),
+                            units: PY_TEXT_UNITS,
+                        },
+                        Some(Ty::Int),
+                    )),
                     Some(other) => Err(err(
                         LowerErrorKind::TypeMismatch,
                         format!("'len' is not defined for '{}'", other.python_name()),

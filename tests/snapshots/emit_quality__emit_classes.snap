@@ -7,8 +7,8 @@ expression: functions.trim()
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact,
-    py_subscript,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_subscript,
 };
 
 #[derive(Clone)]
@@ -42,7 +42,7 @@ impl Cache {
     }
 
     pub fn size(&self) -> Result<i64, RuntimeError> {
-        Ok(PyLen::py_len(&((self).entries.clone())))
+        Ok(PyLen::py_len(&((self).entries.clone()), TextUnits::CodePoints))
     }
 }
 

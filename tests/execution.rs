@@ -1243,6 +1243,99 @@ mod modes_python_cannot_write {
         assert_eq!(out.lines().collect::<Vec<_>>(), ["1", "-1"]);
     }
 
+    /// A sequence read, under each declared origin, executed.
+    #[test]
+    fn indexing_from_the_start_refuses_a_negative_index() {
+        use compylr::ir::IndexOrigin;
+
+        for (label, origin, expected) in [
+            ("mode_index_either", IndexOrigin::FromEitherEnd, "ok 30"),
+            ("mode_index_start", IndexOrigin::FromStart, "out of range"),
+        ] {
+            let mut unit = Unit::new();
+            unit.add_function(Function {
+                name: "read".to_string(),
+                params: vec![
+                    Param {
+                        name: "xs".to_string(),
+                        ty: Ty::List(Box::new(Ty::Int)),
+                    },
+                    Param {
+                        name: "i".to_string(),
+                        ty: Ty::Int,
+                    },
+                ],
+                ret: Ty::Int,
+                body: vec![Stmt::Return(Expr::Subscript {
+                    base: Box::new(Expr::name("xs")),
+                    index: Box::new(Expr::name("i")),
+                    origin,
+                })],
+                doc: None,
+                span: Span::default(),
+            })
+            .unwrap();
+
+            let out = run_unit(
+                label,
+                &unit,
+                "    let xs = vec![10i64, 20, 30];\n\
+                 \x20   match read(xs, -1) {\n\
+                 \x20       Ok(value) => println!(\"ok {value}\"),\n\
+                 \x20       Err(_) => println!(\"out of range\"),\n\
+                 \x20   }",
+            );
+            assert_eq!(out.trim(), expected, "{label}");
+        }
+    }
+
+    /// A length, under each declared reading, executed.
+    ///
+    /// The same string measured three ways gives three answers. A backend that ignored the units
+    /// would return one of them for all three and pass every Python-driven test in this repo,
+    /// because Python only ever declares code points.
+    #[test]
+    fn each_text_unit_reading_measures_differently() {
+        use compylr::ir::TextUnits;
+
+        let mut unit = Unit::new();
+        for (name, units) in [
+            ("code_points", TextUnits::CodePoints),
+            ("utf8_bytes", TextUnits::Utf8Bytes),
+            ("utf16_units", TextUnits::Utf16Units),
+        ] {
+            unit.add_function(Function {
+                name: name.to_string(),
+                params: vec![Param {
+                    name: "s".to_string(),
+                    ty: Ty::Str,
+                }],
+                ret: Ty::Int,
+                body: vec![Stmt::Return(Expr::Len {
+                    value: Box::new(Expr::name("s")),
+                    units,
+                })],
+                doc: None,
+                span: Span::default(),
+            })
+            .unwrap();
+        }
+
+        let out = run_unit(
+            "mode_text_units",
+            &unit,
+            "    let s = \"\u{1f980}\".to_string();\n\
+             \x20   println!(\n\
+             \x20       \"{} {} {}\",\n\
+             \x20       code_points(s.clone()).unwrap(),\n\
+             \x20       utf8_bytes(s.clone()).unwrap(),\n\
+             \x20       utf16_units(s).unwrap(),\n\
+             \x20   );",
+        );
+        // One character outside the basic plane is the only input that separates all three.
+        assert_eq!(out.trim(), "1 4 2");
+    }
+
     /// Each pair must satisfy `(a / b) * b + (a % b) == a`; mixing halves must not.
     ///
     /// This is the property that makes the pairing real rather than a naming convention. A

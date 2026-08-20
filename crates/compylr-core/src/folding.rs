@@ -87,9 +87,10 @@ fn fold_stmts(stmts: &mut [Stmt]) {
 fn fold_expr(expr: &mut Expr) {
     match expr {
         Expr::Literal(_) | Expr::Name(_) => return,
-        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) | Expr::Len(inner) => {
-            fold_expr(inner)
-        }
+        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => fold_expr(inner),
+        // Neither container node folds — a length or a subscript needs the value, not just its
+        // type — but both have to be descended through, or a constant inside one survives.
+        Expr::Len { value, .. } => fold_expr(value),
         Expr::Binary { left, right, .. } => {
             fold_expr(left);
             fold_expr(right);
@@ -104,7 +105,7 @@ fn fold_expr(expr: &mut Expr) {
             }
         }
         Expr::TupleIndex { base, .. } | Expr::Attribute { object: base, .. } => fold_expr(base),
-        Expr::Subscript { base, index } => {
+        Expr::Subscript { base, index, .. } => {
             fold_expr(base);
             fold_expr(index);
         }
@@ -314,7 +315,7 @@ fn finite_float(value: f64) -> Option<Literal> {
 mod tests {
     use super::*;
     use compylr_diagnostics::span::Span;
-    use compylr_ir::{Function, Param, Ty};
+    use compylr_ir::{Function, IndexOrigin, Param, TextUnits, Ty};
 
     fn folded(body: Vec<Stmt>) -> Vec<Stmt> {
         let mut unit = Unit::new();
@@ -667,12 +668,16 @@ mod tests {
                 value: Expr::Subscript {
                     base: Box::new(Expr::name("xs")),
                     index: Box::new(sum()),
+                    origin: IndexOrigin::FromEitherEnd,
                 },
             },
             Stmt::Bind {
                 name: "len".to_string(),
                 ty: Ty::Int,
-                value: Expr::Len(Box::new(Expr::name("xs"))),
+                value: Expr::Len {
+                    value: Box::new(Expr::name("xs")),
+                    units: TextUnits::CodePoints,
+                },
             },
             Stmt::Bind {
                 name: "has".to_string(),

@@ -220,3 +220,310 @@ mod failures {
         );
     }
 }
+
+mod sequence_indexing {
+    use super::*;
+    use compylr_backend_rust::runtime::{IndexOrigin, PyIndexable, py_index, py_subscript};
+
+    fn items() -> Vec<i64> {
+        vec![10, 20, 30]
+    }
+
+    #[test]
+    fn the_two_origins_disagree_only_on_a_negative_index() {
+        assert_eq!(py_index(&items(), -1, IndexOrigin::FromEitherEnd), Ok(30));
+        assert_eq!(
+            py_index(&items(), -1, IndexOrigin::FromStart),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+
+        // Non-negative offsets are the same read under either declaration.
+        for origin in [IndexOrigin::FromEitherEnd, IndexOrigin::FromStart] {
+            assert_eq!(py_index(&items(), 0, origin), Ok(10), "{origin:?}");
+            assert_eq!(py_index(&items(), 2, origin), Ok(30), "{origin:?}");
+        }
+    }
+
+    #[test]
+    fn counting_from_the_end_reaches_the_first_element_and_no_further() {
+        assert_eq!(py_index(&items(), -3, IndexOrigin::FromEitherEnd), Ok(10));
+        assert_eq!(
+            py_index(&items(), -4, IndexOrigin::FromEitherEnd),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+    }
+
+    /// The boundary at exactly the length, which is the off-by-one a hand-written check gets wrong.
+    #[test]
+    fn an_index_equal_to_the_length_is_out_of_range() {
+        for origin in [IndexOrigin::FromEitherEnd, IndexOrigin::FromStart] {
+            assert_eq!(
+                py_index(&items(), 3, origin),
+                Err(RuntimeError::IndexOutOfRange),
+                "{origin:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_sequence_has_no_readable_index() {
+        let empty: Vec<i64> = vec![];
+        for origin in [IndexOrigin::FromEitherEnd, IndexOrigin::FromStart] {
+            assert_eq!(
+                py_index(&empty, 0, origin),
+                Err(RuntimeError::IndexOutOfRange)
+            );
+            assert_eq!(
+                py_index(&empty, -1, origin),
+                Err(RuntimeError::IndexOutOfRange)
+            );
+        }
+    }
+
+    /// A negative index must not wrap into an enormous positive one under `FromStart`.
+    ///
+    /// That is what a target's native indexing does with it, and it would read arbitrary memory or
+    /// panic rather than report a range failure.
+    #[test]
+    fn a_negative_index_from_the_start_is_a_range_failure_not_a_wrap() {
+        assert_eq!(
+            py_index(&items(), i64::MIN, IndexOrigin::FromStart),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+    }
+
+    #[test]
+    fn the_dispatching_entry_point_carries_the_origin_through() {
+        // What the backend actually emits, rather than the helper underneath it.
+        assert_eq!(
+            py_subscript(&items(), &-1, IndexOrigin::FromEitherEnd),
+            Ok(30)
+        );
+        assert_eq!(
+            py_subscript(&items(), &-1, IndexOrigin::FromStart),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+    }
+
+    /// A mapping ignores the origin, because a key is not an offset.
+    #[test]
+    fn a_mapping_read_is_unaffected_by_the_origin() {
+        let mut map = std::collections::HashMap::new();
+        map.insert("k".to_string(), 7i64);
+
+        for origin in [IndexOrigin::FromEitherEnd, IndexOrigin::FromStart] {
+            assert_eq!(py_subscript(&map, &"k".to_string(), origin), Ok(7));
+            assert_eq!(map.py_get(&"k".to_string(), origin), Ok(7));
+        }
+    }
+}
+
+mod text_length {
+    use compylr_backend_rust::runtime::{PyLen, TextUnits, py_str_len};
+
+    /// A two-byte character separates code points from bytes, and not from UTF-16 units.
+    #[test]
+    fn a_two_byte_character_distinguishes_two_of_the_three() {
+        assert_eq!(py_str_len("é", TextUnits::CodePoints), 1);
+        assert_eq!(py_str_len("é", TextUnits::Utf8Bytes), 2);
+        assert_eq!(py_str_len("é", TextUnits::Utf16Units), 1);
+    }
+
+    /// A character outside the basic plane is the only input that separates all three.
+    ///
+    /// Without it a test could pass with UTF-16 units and code points confused, which is exactly
+    /// the mistake a Python author would make writing a TypeScript backend.
+    #[test]
+    fn a_character_outside_the_basic_plane_distinguishes_all_three() {
+        let emoji = "🦀";
+        assert_eq!(py_str_len(emoji, TextUnits::CodePoints), 1);
+        assert_eq!(py_str_len(emoji, TextUnits::Utf8Bytes), 4);
+        assert_eq!(py_str_len(emoji, TextUnits::Utf16Units), 2);
+    }
+
+    #[test]
+    fn ascii_agrees_under_every_reading() {
+        // Which is why assuming one of them survives most tests.
+        for units in [
+            TextUnits::CodePoints,
+            TextUnits::Utf8Bytes,
+            TextUnits::Utf16Units,
+        ] {
+            assert_eq!(py_str_len("abc", units), 3, "{units:?}");
+            assert_eq!(py_str_len("", units), 0, "{units:?}");
+        }
+    }
+
+    #[test]
+    fn a_string_measures_through_the_dispatching_trait() {
+        let text = "é🦀".to_string();
+        assert_eq!(PyLen::py_len(&text, TextUnits::CodePoints), 2);
+        assert_eq!(PyLen::py_len(&text, TextUnits::Utf8Bytes), 6);
+        assert_eq!(PyLen::py_len(&text, TextUnits::Utf16Units), 3);
+    }
+
+    /// A collection counts elements under every reading, so the units mean nothing to it.
+    #[test]
+    fn a_collection_ignores_the_declared_units() {
+        let list = vec![1i64, 2, 3];
+        let mut map = std::collections::HashMap::new();
+        map.insert(1i64, 2i64);
+        let mut set = std::collections::HashSet::new();
+        set.insert(9i64);
+
+        for units in [
+            TextUnits::CodePoints,
+            TextUnits::Utf8Bytes,
+            TextUnits::Utf16Units,
+        ] {
+            assert_eq!(PyLen::py_len(&list, units), 3, "{units:?}");
+            assert_eq!(PyLen::py_len(&map, units), 1, "{units:?}");
+            assert_eq!(PyLen::py_len(&set, units), 1, "{units:?}");
+        }
+    }
+}
+
+mod mapping_and_membership {
+    use super::*;
+    use compylr_backend_rust::runtime::{PyContains, PyIterate, PySetItem, py_key};
+
+    fn map() -> std::collections::HashMap<String, i64> {
+        let mut map = std::collections::HashMap::new();
+        map.insert("present".to_string(), 1i64);
+        map
+    }
+
+    #[test]
+    fn a_missing_key_is_reported_and_names_itself() {
+        let error = py_key(&map(), &"absent".to_string()).expect_err("not in the map");
+        match error {
+            RuntimeError::MissingKey(key) => assert!(key.contains("absent"), "{key}"),
+            other => panic!("expected a missing key, got {other:?}"),
+        }
+        assert_eq!(py_key(&map(), &"present".to_string()), Ok(1));
+    }
+
+    /// Assigning creates a key that reading would have refused.
+    ///
+    /// The two are different operations sharing a spelling, and conflating them would either make
+    /// reads create entries or make assignments fail on any key not already there.
+    #[test]
+    fn assigning_inserts_a_key_that_reading_refuses() {
+        let mut map = map();
+        assert!(py_key(&map, &"fresh".to_string()).is_err());
+
+        map.py_set(&"fresh".to_string(), 2).unwrap();
+        assert_eq!(py_key(&map, &"fresh".to_string()), Ok(2));
+
+        map.py_set(&"fresh".to_string(), 3).unwrap();
+        assert_eq!(py_key(&map, &"fresh".to_string()), Ok(3), "and overwrites");
+    }
+
+    /// A sequence has no element to create, so assigning out of range is a failure.
+    #[test]
+    fn assigning_past_a_sequences_end_is_reported() {
+        let mut items = vec![1i64, 2];
+        items.py_set(&0, 9).unwrap();
+        assert_eq!(items[0], 9);
+        assert_eq!(
+            items.py_set(&5, 9),
+            Err(RuntimeError::IndexOutOfRange),
+            "a sequence does not grow to fit an assignment"
+        );
+    }
+
+    #[test]
+    fn membership_works_over_every_container() {
+        let list = vec![1i64, 2];
+        let mut set = std::collections::HashSet::new();
+        set.insert(3i64);
+
+        assert!(list.py_contains(&1));
+        assert!(!list.py_contains(&9));
+        assert!(set.py_contains(&3));
+        assert!(!set.py_contains(&9));
+        // A mapping tests its keys, not its values.
+        assert!(map().py_contains(&"present".to_string()));
+        assert!(!map().py_contains(&"absent".to_string()));
+    }
+
+    /// Membership in a string is a substring test, which every language compylr accepts agrees on.
+    #[test]
+    fn membership_in_a_string_tests_substrings() {
+        let text = "cab".to_string();
+        assert!(text.py_contains(&"ab".to_string()));
+        assert!(text.py_contains(&"".to_string()));
+        assert!(!text.py_contains(&"abc".to_string()));
+    }
+
+    #[test]
+    fn iterating_a_mapping_yields_its_keys() {
+        let keys: Vec<String> = map().py_iter().collect();
+        assert_eq!(keys, ["present".to_string()]);
+    }
+
+    #[test]
+    fn iterating_a_sequence_and_a_set_yields_their_elements() {
+        let list = vec![1i64, 2];
+        let mut yielded: Vec<i64> = list.py_iter().collect();
+        yielded.sort_unstable();
+        assert_eq!(yielded, [1, 2]);
+
+        let mut set = std::collections::HashSet::new();
+        set.insert(7i64);
+        let from_set: Vec<i64> = set.py_iter().collect();
+        assert_eq!(from_set, [7]);
+    }
+}
+
+/// The IR's mode enums and the runtime's copies are two spellings of one decision.
+///
+/// They cannot be coupled: this file is embedded verbatim into generated crates and may not name
+/// anything outside itself. So they are compared as text, which is the same idiom
+/// `tests/crate_boundaries.rs` uses for the claims the type system cannot carry.
+mod the_two_copies_agree {
+    fn variants(source: &str, enum_name: &str) -> Vec<String> {
+        let start = source
+            .find(&format!("pub enum {enum_name} {{"))
+            .unwrap_or_else(|| panic!("{enum_name} must be declared"));
+        let body = &source[start..];
+        let end = body.find("\n}").expect("the enum must close");
+
+        body[..end]
+            .lines()
+            .skip(1)
+            .filter_map(|line| {
+                let trimmed = line.trim();
+                trimmed
+                    .starts_with(|c: char| c.is_ascii_uppercase())
+                    .then(|| trimmed.trim_end_matches(',').to_string())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_mode_enums_have_the_same_variants_on_both_sides() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("the crate lives at <root>/crates/<name>")
+            .to_path_buf();
+
+        let ir = std::fs::read_to_string(root.join("crates/compylr-ir/src/ir.rs")).unwrap();
+        let runtime =
+            std::fs::read_to_string(root.join("crates/compylr-backend-rust/src/runtime.rs"))
+                .unwrap();
+
+        for name in ["IndexOrigin", "TextUnits"] {
+            let declared = variants(&ir, name);
+            assert!(!declared.is_empty(), "{name} must have variants");
+            assert_eq!(
+                declared,
+                variants(&runtime, name),
+                "{name} differs between the IR and the emitted runtime; the backend emits the \
+                 IR's spelling, so a variant on one side and not the other produces generated \
+                 code that does not compile"
+            );
+        }
+    }
+}
