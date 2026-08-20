@@ -5,7 +5,8 @@
 //! both into "unknown backend" would tell the first user their target does not exist, which is
 //! wrong and actively discouraging.
 
-use compylr::backend::{BackendError, lookup, names};
+use compylr_core::backend::BackendError;
+use compylr_registry::backends::{lookup, names};
 
 #[test]
 fn the_rust_backend_is_implemented() {

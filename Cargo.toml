@@ -1,8 +1,10 @@
-# The workspace root is also the `compylr` package, because that is what maturin builds into
-# `compylr._core`. Every other crate is a member under `crates/`, and the dependency edges
-# between them are the enforcement mechanism for keeping languages out of shared code: a crate
-# that does not depend on ruff cannot grow a Python spelling.
+# A virtual manifest: the root is a workspace and nothing else. No language's crate sits above the
+# others, and the dependency edges between the members are the enforcement mechanism for keeping
+# languages out of shared code -- a crate that does not depend on ruff cannot grow a Python
+# spelling, and `crates/compylr-host-python/tests/crate_boundaries.rs` fails when an edge appears
+# that would make that false.
 [workspace]
+resolver = "3"
 members = ["crates/*"]
 # `vendored/ruff` is a submodule with its own workspace, and the generated crates under
 # `.compylr/` are build output that happens to contain a manifest. Both sit inside this
@@ -22,6 +24,7 @@ compylr-frontend-python = { path = "crates/compylr-frontend-python" }
 compylr-backend-rust = { path = "crates/compylr-backend-rust" }
 compylr-bridge-python-rust = { path = "crates/compylr-bridge-python-rust" }
 compylr-registry = { path = "crates/compylr-registry" }
+compylr = { path = "crates/compylr-host-python" }
 
 ruff_python_ast = { version = "0.0.0", path = "vendored/ruff/crates/ruff_python_ast" }
 ruff_python_parser = { version = "0.0.0", path = "vendored/ruff/crates/ruff_python_parser" }
@@ -30,40 +33,3 @@ ruff_text_size = { version = "0.0.0", path = "vendored/ruff/crates/ruff_text_siz
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 pyo3 = { version = "0.29.2", features = ["abi3-py311"] }
-
-[package]
-name = "compylr"
-version.workspace = true
-edition.workspace = true
-
-[lib]
-name = "compylr"
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
-compylr-diagnostics.workspace = true
-compylr-ir.workspace = true
-compylr-core.workspace = true
-compylr-frontend-python.workspace = true
-compylr-backend-rust.workspace = true
-compylr-bridge-python-rust.workspace = true
-compylr-registry.workspace = true
-pyo3.workspace = true
-
-# `extension-module` tells PyO3 not to link libpython, which is required when building a
-# wheel but breaks `cargo test`: the test binary needs those symbols resolved. Keeping it
-# optional lets maturin turn it on without making the test suite unbuildable.
-[features]
-extension-module = ["pyo3/extension-module"]
-
-[dev-dependencies]
-# The integration tests reach the pass pipeline and the registries directly, since the facade
-# deliberately exposes only what a caller of the compiler needs.
-compylr-core.workspace = true
-compylr-registry.workspace = true
-insta = "1.35.1"
-serde_json.workspace = true
-# `auto-initialize` starts an interpreter on demand, which lets the bridge's exception types be
-# asserted from Rust tests instead of only through a built wheel. It is a dev-dependency because
-# it is incompatible with `extension-module`, which is what a real wheel is built with.
-pyo3 = { workspace = true, features = ["auto-initialize"] }

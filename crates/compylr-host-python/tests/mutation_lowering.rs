@@ -6,10 +6,10 @@
 //! parameter is rejected, and the diagnostic has to explain the copy rather than merely refuse:
 //! a rule without its reason leaves the user no workaround.
 
-use compylr::error::LowerErrorKind;
-use compylr::frontend::parse_source;
-use compylr::ir::{Expr, Function, Stmt, Ty};
-use compylr::lower::lower_source;
+use compylr_diagnostics::error::LowerErrorKind;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source;
+use compylr_ir::{Expr, Function, Stmt, Ty};
 
 fn lower(source: &str) -> Vec<Function> {
     let parsed = parse_source(source).expect("fixture must parse");

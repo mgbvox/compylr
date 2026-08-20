@@ -5,8 +5,8 @@
 //! something that does not exist. And `append` must not be validated as a function call, or a unit
 //! containing one fails to resolve a callee named `append` that was never meant to exist.
 
-use compylr::ir::{Expr, Function, Stmt, Ty, Unit};
-use compylr::span::Span;
+use compylr_diagnostics::span::Span;
+use compylr_ir::{Expr, Function, Stmt, Ty, Unit};
 
 fn func(name: &str, body: Vec<Stmt>) -> Function {
     Function {

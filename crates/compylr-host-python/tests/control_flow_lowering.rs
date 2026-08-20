@@ -11,10 +11,10 @@
 //! all, and getting them wrong in the permissive direction means generated code that does not
 //! compile — a complaint about Rust rather than about the function the user wrote.
 
-use compylr::error::LowerErrorKind;
-use compylr::frontend::parse_source;
-use compylr::ir::{Expr, Function, Stmt, Ty};
-use compylr::lower::lower_source;
+use compylr_diagnostics::error::LowerErrorKind;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source;
+use compylr_ir::{Expr, Function, Stmt, Ty};
 
 fn lower(source: &str) -> Vec<Function> {
     let parsed = parse_source(source).expect("fixture must parse");

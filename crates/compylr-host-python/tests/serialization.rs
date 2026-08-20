@@ -10,10 +10,10 @@
 //! * **Fidelity.** Every construct survives a round trip, and float literals survive *bit*-exactly
 //!   rather than approximately — `-0.0` and `0.0` are different literals.
 
-use compylr::frontend::parse_source;
-use compylr::ir::{BinOp, DivMode, Expr, Function, Literal, Param, Stmt, Ty, Unit};
-use compylr::lower::lower_source;
-use compylr::span::Span;
+use compylr_diagnostics::span::Span;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source;
+use compylr_ir::{BinOp, DivMode, Expr, Function, Literal, Param, Stmt, Ty, Unit};
 
 /// Lower source text into a unit, panicking with the diagnostic if it does not lower.
 fn unit_from(source: &str) -> Unit {
@@ -363,7 +363,7 @@ fn malformed_json_is_rejected() {
 /// has stopped being part of the program and a build cache will hand back the wrong one.
 mod declared_semantics {
     use super::*;
-    use compylr::ir::{DivMode, IndexOrigin, RemSign, Rounding, TextUnits};
+    use compylr_ir::{DivMode, IndexOrigin, RemSign, Rounding, TextUnits};
 
     fn unit_dividing(op: BinOp) -> Unit {
         let mut unit = Unit::new();
@@ -453,7 +453,7 @@ mod declared_semantics {
     /// would mean a cached build silently escaped the check the fresh one passed.
     #[test]
     fn the_origin_survives_the_artifact() {
-        use compylr::Guarantee;
+        use compylr_ir::Guarantee;
         let mut unit = unit_dividing(BinOp::Rem {
             sign: RemSign::Divisor,
         });

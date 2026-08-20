@@ -5,9 +5,9 @@
 //! reason. And `walk_calls` must reach into attribute objects, construction arguments, and method
 //! receivers, or a call hidden in one escapes unit validation.
 
-use compylr::ir::{Attribute, Class, Expr, Function, Param, Stmt, Ty, Unit};
-use compylr::span::Span;
+use compylr_diagnostics::span::Span;
 use compylr_frontend_python::PythonTypeName;
+use compylr_ir::{Attribute, Class, Expr, Function, Param, Stmt, Ty, Unit};
 
 fn func(name: &str, params: Vec<Param>, ret: Ty, body: Vec<Stmt>) -> Function {
     Function {

@@ -13,12 +13,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::LazyLock;
 
-use compylr::backend::bindings::{cargo_manifest, emit_extension, module_name};
-use compylr::frontend::parse_source;
-use compylr::ir::Unit;
-use compylr::lower::lower_source;
+use compylr_bridge_python_rust::bindings::{cargo_manifest, emit_extension, module_name};
 use compylr_core::bridge::BuildKey;
 use compylr_core::pass::Optimization;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source;
+use compylr_ir::Unit;
 
 /// PyO3 version the generated crate depends on. Matches this crate's own pin.
 const PYO3_VERSION: &str = "0.29.2";

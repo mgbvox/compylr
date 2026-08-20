@@ -7,16 +7,28 @@
 
 use std::path::{Path, PathBuf};
 
-use compylr::error::LowerErrorKind;
-use compylr::frontend::parse_file;
-use compylr::ir::{Function, Unit};
-use compylr::lower::lower_source_members;
+use compylr_diagnostics::error::LowerErrorKind;
+use compylr_frontend_python::frontend::parse_file;
+use compylr_frontend_python::lower::lower_source_members;
+use compylr_ir::{Function, Unit};
 
-fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/fixtures")
+/// The workspace root, which the fixture tree hangs off.
+///
+/// `CARGO_MANIFEST_DIR` is this crate's directory, two levels down since the host binding moved
+/// under `crates/` alongside every other crate.
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the crate lives at <root>/crates/<name>")
+        .to_path_buf()
 }
 
-fn lower_fixture(path: &Path) -> Result<Vec<Function>, compylr::error::LowerError> {
+fn fixtures_dir() -> PathBuf {
+    workspace_root().join("python/fixtures")
+}
+
+fn lower_fixture(path: &Path) -> Result<Vec<Function>, compylr_diagnostics::error::LowerError> {
     let parsed = parse_file(path).expect("fixture must parse as valid Python");
     lower_source_members(&parsed).map(|(functions, _)| functions)
 }
@@ -155,7 +167,7 @@ fn entrypoint_is_rejected() {
     // diagnostics report the first violation in source order, the missing annotation is what
     // surfaces -- the guard is never reached. Asserting the earlier one keeps this test honest
     // about ordering; main_guard.py covers the guard rule on its own.
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/entrypoint.py");
+    let path = workspace_root().join("python/entrypoint.py");
     let error = lower_fixture(&path).expect_err("entrypoint.py should be rejected");
     assert_eq!(error.kind(), LowerErrorKind::MissingAnnotation);
     assert!(error.message().contains("main"));
@@ -189,7 +201,7 @@ fn formatting_differences_do_not_change_fingerprints() {
     );
 
     let lower_text = |source: &str| {
-        let parsed = compylr::frontend::parse_source(source).unwrap();
+        let parsed = compylr_frontend_python::frontend::parse_source(source).unwrap();
         lower_source_members(&parsed).unwrap().0
     };
 

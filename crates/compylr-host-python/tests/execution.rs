@@ -16,10 +16,10 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use compylr::backend::lookup;
-use compylr::frontend::parse_source;
-use compylr::ir::Unit;
-use compylr::lower::lower_source_members;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source_members;
+use compylr_ir::Unit;
+use compylr_registry::backends::lookup;
 
 fn unit_from(source: &str) -> Unit {
     let parsed = parse_source(source).expect("fixture must parse");
@@ -1152,8 +1152,8 @@ mod folding {
 /// bug the change is meant to make impossible.
 mod modes_python_cannot_write {
     use super::*;
-    use compylr::ir::{BinOp, DivMode, Expr, Function, Param, RemSign, Rounding, Stmt, Ty};
-    use compylr::span::Span;
+    use compylr_diagnostics::span::Span;
+    use compylr_ir::{BinOp, DivMode, Expr, Function, Param, RemSign, Rounding, Stmt, Ty};
 
     /// A unit holding one function `op(a, b) -> int` applying `op` to its two parameters.
     fn binary_unit(op: BinOp) -> Unit {
@@ -1246,7 +1246,7 @@ mod modes_python_cannot_write {
     /// A sequence read, under each declared origin, executed.
     #[test]
     fn indexing_from_the_start_refuses_a_negative_index() {
-        use compylr::ir::IndexOrigin;
+        use compylr_ir::IndexOrigin;
 
         for (label, origin, expected) in [
             ("mode_index_either", IndexOrigin::FromEitherEnd, "ok 30"),
@@ -1296,7 +1296,7 @@ mod modes_python_cannot_write {
     /// because Python only ever declares code points.
     #[test]
     fn each_text_unit_reading_measures_differently() {
-        use compylr::ir::TextUnits;
+        use compylr_ir::TextUnits;
 
         let mut unit = Unit::new();
         for (name, units) in [

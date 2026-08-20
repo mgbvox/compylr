@@ -1,0 +1,52 @@
+# The host binding for Python: exposes *the compiler* to Python as `compylr._core`.
+#
+# Named for what it is rather than for the project, because the project is not Python's. A
+# TypeScript host would be `compylr-host-typescript` beside this, built the same way and with the
+# same standing. What makes this one look privileged is only that it is the one that exists.
+#
+# Do not confuse it with `compylr-bridge-python-rust`, which *generates* PyO3 code onto the user's
+# functions. This crate links PyO3; that one emits it as text. Different artifacts, different
+# lifecycles, and the only two places in the workspace PyO3 is mentioned at all.
+[package]
+name = "compylr"
+version.workspace = true
+edition.workspace = true
+
+# The package keeps the name `compylr` because it is what maturin builds into the published wheel,
+# and the wheel's Python-facing name is the product's, not a preference of the compiler's.
+[lib]
+name = "compylr"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+compylr-diagnostics.workspace = true
+compylr-ir.workspace = true
+compylr-core.workspace = true
+compylr-frontend-python.workspace = true
+compylr-backend-rust.workspace = true
+compylr-bridge-python-rust.workspace = true
+compylr-registry.workspace = true
+pyo3.workspace = true
+
+# `extension-module` tells PyO3 not to link libpython, which is required when building a
+# wheel but breaks `cargo test`: the test binary needs those symbols resolved. Keeping it
+# optional lets maturin turn it on without making the test suite unbuildable.
+[features]
+extension-module = ["pyo3/extension-module"]
+
+[dev-dependencies]
+insta = "1.35.1"
+serde_json.workspace = true
+# The suite reaches the workspace crates directly rather than through a facade, so that a test of
+# the IR is a test of `compylr-ir` and not of whatever this crate chose to re-export.
+compylr-core.workspace = true
+compylr-registry.workspace = true
+compylr-backend-rust.workspace = true
+compylr-frontend-python.workspace = true
+compylr-bridge-python-rust.workspace = true
+compylr-diagnostics.workspace = true
+compylr-ir.workspace = true
+# `auto-initialize` starts an interpreter on demand, which lets the exception types be asserted
+# from Rust tests instead of only through a built wheel. It is a dev-dependency because it is
+# incompatible with `extension-module`, which is what a real wheel is built with.
+pyo3 = { workspace = true, features = ["auto-initialize"] }

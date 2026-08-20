@@ -243,3 +243,46 @@ mod crate_form {
         );
     }
 }
+
+/// The source language is selectable, and reports the same three answers the target does.
+///
+/// Neither end of the pipeline is the one that has to be Python. Before `--frontend` existed the
+/// CLI could only read Python, which made a reserved *frontend* unreachable from the command line
+/// even though the registry had always been able to answer for one.
+mod frontends {
+    use super::*;
+
+    #[test]
+    fn a_reserved_frontend_reads_as_planned() {
+        let output = cli(&["--frontend", "go", ACCEPTED]);
+        assert!(!output.status.success());
+        let message = stderr(&output);
+        assert!(message.contains("planned"), "{message}");
+    }
+
+    #[test]
+    fn an_unknown_frontend_lists_what_is_available() {
+        let output = cli(&["--frontend", "perl", ACCEPTED]);
+        assert!(!output.status.success());
+        let message = stderr(&output);
+        assert!(message.contains("python"), "{message}");
+    }
+
+    #[test]
+    fn the_default_frontend_still_reads_python() {
+        let output = cli(&[ACCEPTED]);
+        assert!(output.status.success(), "{}", stderr(&output));
+        assert!(stdout(&output).contains("unit fingerprint:"));
+    }
+
+    /// A pair with a backend and no bridge is a distinct answer from an unknown target.
+    #[test]
+    fn a_reserved_frontend_is_reported_before_the_file_is_read() {
+        let output = cli(&["--frontend", "cpp", "does-not-exist.py"]);
+        assert!(!output.status.success());
+        assert!(
+            !stderr(&output).contains("does-not-exist"),
+            "the frontend is resolved first, so the missing file is never reached"
+        );
+    }
+}

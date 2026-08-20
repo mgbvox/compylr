@@ -10,10 +10,10 @@
 //! collection **parameter** may not. An instance is not converted at the boundary — Python holds
 //! the Rust value itself — so a mutated attribute is exactly what the caller does observe.
 
-use compylr::error::LowerErrorKind;
-use compylr::frontend::parse_source;
-use compylr::ir::{Class, Stmt, Ty};
-use compylr::lower::lower_source_members;
+use compylr_diagnostics::error::LowerErrorKind;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source_members;
+use compylr_ir::{Class, Stmt, Ty};
 
 fn classes(source: &str) -> Vec<Class> {
     let parsed = parse_source(source).expect("fixture must parse");

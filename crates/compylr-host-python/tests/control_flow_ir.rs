@@ -5,8 +5,8 @@
 //! form must survive the artifact, or the IR stops being readable for exactly the programs this
 //! change makes worth reading.
 
-use compylr::ir::{Expr, Function, Stmt, Ty, Unit};
-use compylr::span::Span;
+use compylr_diagnostics::span::Span;
+use compylr_ir::{Expr, Function, Stmt, Ty, Unit};
 
 fn func(name: &str, body: Vec<Stmt>) -> Function {
     Function {
