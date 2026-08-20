@@ -8,6 +8,7 @@
 pub mod backends;
 pub mod bridges;
 pub mod frontends;
+pub mod passes;
 
 pub use compylr_core::backend::{BackendError, GeneratedFiles, format_source};
 pub use compylr_core::bridge::{BridgeError, HostArtifact, HostBridge};

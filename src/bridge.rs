@@ -19,6 +19,8 @@ use crate::bridge_registry::{self, BridgeError};
 use crate::error::{LowerError, SourceError};
 use crate::frontend::{self, FrontendError, LoweringError, parse_source};
 use crate::lower::lower_source_members;
+use compylr_core::pass::{self, PassConfig};
+use compylr_core::verify::verify;
 
 /// The source language every compilation currently uses.
 ///
@@ -44,6 +46,11 @@ pub struct Compiled {
     pub manifest: String,
     /// Names of the functions in the unit, in the unit's deterministic order.
     pub function_names: Vec<String>,
+    /// Names of the passes that ran, in order.
+    ///
+    /// Carried out so that "why is this generated code different?" is answerable about *this*
+    /// build rather than by reading the compiler's pass list.
+    pub passes: Vec<String>,
 }
 
 /// Why a compilation did not produce a unit.
@@ -127,6 +134,19 @@ impl From<LoweringError> for CompileFailure {
 /// always produces. Because callee resolution happens over the assembled unit rather than during
 /// lowering, the result does not depend on the order the sources arrive.
 pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, CompileFailure> {
+    compile_with(sources, backend_name, &PassConfig::default())
+}
+
+/// The same, with the pass pipeline configured explicitly.
+///
+/// Separate rather than a defaulted argument so that the common call stays short, and so that a
+/// caller turning optimization off has to say so — the two produce different artifacts, and one
+/// silently standing in for the other is the failure this split prevents.
+pub fn compile_with(
+    sources: &[String],
+    backend_name: &str,
+    config: &PassConfig,
+) -> Result<Compiled, CompileFailure> {
     // Resolved first so that an unusable backend is reported before any parsing work, and so the
     // error is about the backend rather than about whichever source happened to be malformed.
     //
@@ -141,17 +161,30 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
 
     // Parsing, gathering signatures across sources, and lowering are all the frontend's, because
     // they are Python's typing rules rather than the pipeline's. What comes back is a unit.
-    let unit = frontend.lower(sources)?;
+    let mut unit = frontend.lower(sources)?;
 
-    // Resolves calls across every source at once. Reported against the first source because a
-    // unit assembled from many texts has no single source a span indexes into.
-    unit.validate()
-        .map_err(|error| CompileFailure::Unsupported {
-            message: error.message().to_string(),
-            code: error.kind().code(),
-            line: 1,
-            column: 1,
-        })?;
+    // Verification is unconditional and knows no source language. For Python it never fires --
+    // lowering enforces the same invariants -- and it is here for the frontend that will not have.
+    // Reported against line 1 because a unit assembled from many texts has no single source a span
+    // indexes into.
+    verify(&unit).map_err(|error| CompileFailure::Unsupported {
+        message: error.to_string(),
+        code: "malformed_unit",
+        line: 1,
+        column: 1,
+    })?;
+
+    // Taken before optimization, so turning a pass on does not read as a change to the user's
+    // code. What distinguishes two builds of the same program is the pass configuration, which
+    // build state records separately.
+    let fingerprint = unit.fingerprint();
+
+    let directed = compylr_registry::passes::for_pair(SOURCE_LANGUAGE, backend_name);
+    let report = pass::run(&mut unit, config, &directed).map_err(|error| {
+        CompileFailure::Backend(BackendError::Unsupported {
+            detail: error.to_string(),
+        })
+    })?;
 
     // Generating the target source is the backend's job; making it callable is the bridge's,
     // because a calling convention belongs to the pair rather than to either language alone.
@@ -165,10 +198,11 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     Ok(Compiled {
         target_sources: artifact.files,
         ir_artifact,
-        fingerprint: unit.fingerprint(),
+        fingerprint,
         module_name: artifact.loaded_as,
         manifest: artifact.manifest,
         function_names: unit.functions().map(|f| f.name.clone()).collect(),
+        passes: report.passes.iter().map(|name| name.to_string()).collect(),
     })
 }
 

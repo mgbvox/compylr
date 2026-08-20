@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use compylr_core::backend::BackendError;
+use compylr_core::verify::verify;
 // The summary quotes types back in the language of the file being inspected, so it uses the
 // frontend's spelling rather than the IR's neutral one.
 use compylr_frontend_python::PythonTypeName;
@@ -166,7 +167,9 @@ fn run(options: &Options) -> Result<String, String> {
     let unit = frontend
         .lower(std::slice::from_ref(&source))
         .map_err(|error| error.to_string())?;
-    unit.validate().map_err(|error| error.render(&source))?;
+    // Unconditional, and the same check `compile` runs. A CLI with its own idea of what is
+    // well formed would become a second source of answers.
+    verify(&unit).map_err(|error| error.to_string())?;
 
     match options.emit {
         Emit::Summary => {

@@ -57,6 +57,10 @@ pyo3.workspace = true
 extension-module = ["pyo3/extension-module"]
 
 [dev-dependencies]
+# The integration tests reach the pass pipeline and the registries directly, since the facade
+# deliberately exposes only what a caller of the compiler needs.
+compylr-core.workspace = true
+compylr-registry.workspace = true
 insta = "1.35.1"
 serde_json.workspace = true
 # `auto-initialize` starts an interpreter on demand, which lets the bridge's exception types be

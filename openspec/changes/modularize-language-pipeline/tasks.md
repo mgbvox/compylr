@@ -76,15 +76,15 @@
 
 ## 5. Verification and the pass pipeline
 
-- [ ] 5.1 Write tests for a well-formed unit passing verification, a unit referencing an unknown
+- [x] 5.1 Write tests for a well-formed unit passing verification, a unit referencing an unknown
       callee failing it, and the failure being identical regardless of recorded frontend
-- [ ] 5.2 Implement the IR verifier in `compylr-core` as an unconditional stage between lowering and
+- [x] 5.2 Implement the IR verifier in `compylr-core` as an unconditional stage between lowering and
       emission
-- [ ] 5.3 Define the `Pass` interface and an ordered, named, configurable pipeline; make the pass
+- [x] 5.3 Define the `Pass` interface and an ordered, named, configurable pipeline; make the pass
       names that ran reportable to the caller
-- [ ] 5.4 Wire pair-directed passes to run after agnostic passes, with a test that a pass registered
+- [x] 5.4 Wire pair-directed passes to run after agnostic passes, with a test that a pass registered
       for one pair does not run for another and that an unregistered pair compiles fine
-- [ ] 5.5 Assert the fingerprint is taken pre-optimization and is identical with passes enabled and
+- [x] 5.5 Assert the fingerprint is taken pre-optimization and is identical with passes enabled and
       disabled
 
 ## 6. Constant folding
