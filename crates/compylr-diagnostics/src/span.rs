@@ -1,16 +1,18 @@
-//! Source locations, kept independent of the parser's types.
+//! Source locations, kept independent of any parser's types.
 //!
 //! Diagnostics need to point at the offending construct, but the IR must not borrow from the
-//! parsed source or leak ruff types into its public shape. A [`Span`] is therefore a plain pair
-//! of byte offsets, converted from ruff's `TextRange` at the frontend boundary. Rendering it as
-//! `line:column` needs the source text, so that is a separate step rather than a field.
+//! parsed source or leak a parser's types into its public shape. A [`Span`] is therefore a plain
+//! pair of byte offsets, converted from whatever range type a frontend's parser uses at the
+//! frontend boundary. Rendering it as `line:column` needs the source text, so that is a separate
+//! step rather than a field.
+//!
+//! Resolving a line and column is written out here rather than delegated to a parser's line
+//! index, because this crate is below the IR: a dependency added here reaches every crate in the
+//! workspace, and a source-language parser is the one thing that must not.
 
 use std::fmt;
 
-use ruff_source_file::LineIndex;
-use ruff_text_size::{TextRange, TextSize};
-
-/// A half-open byte range `[start, end)` into a Python source string.
+/// A half-open byte range `[start, end)` into a source string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct Span {
     start: u32,
@@ -56,20 +58,19 @@ impl Span {
     ///
     /// Column counts UTF-8 characters rather than bytes, so a position after a multi-byte
     /// character reads the way a person counting columns in an editor would expect.
+    /// A span that outruns the text is clamped to its end rather than panicking: a diagnostic
+    /// arriving with a stale offset should still be readable, and a compiler that aborts while
+    /// reporting an error has replaced a message with nothing.
     pub fn line_column(self, source: &str) -> LineColumn {
-        let index = LineIndex::from_source_text(source);
-        let offset = TextSize::from(self.start.min(source.len() as u32));
-        let location = index.line_column(offset, source);
-        LineColumn {
-            line: location.line.get(),
-            column: location.column.get(),
+        let mut offset = (self.start as usize).min(source.len());
+        while offset > 0 && !source.is_char_boundary(offset) {
+            offset -= 1;
         }
-    }
-}
-
-impl From<TextRange> for Span {
-    fn from(range: TextRange) -> Self {
-        Self::new(range.start().to_u32(), range.end().to_u32())
+        let before = &source[..offset];
+        let line = before.bytes().filter(|byte| *byte == b'\n').count() + 1;
+        let line_start = before.rfind('\n').map_or(0, |index| index + 1);
+        let column = source[line_start..offset].chars().count() + 1;
+        LineColumn { line, column }
     }
 }
 
@@ -99,9 +100,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_text_range_preserves_offsets() {
-        let range = TextRange::new(TextSize::from(3u32), TextSize::from(9u32));
-        let span = Span::from(range);
+    fn raw_offsets_are_preserved() {
+        let span = Span::new(3, 9);
         assert_eq!(span.start(), 3);
         assert_eq!(span.end(), 9);
         assert_eq!(span.len(), 6);
@@ -161,6 +161,25 @@ mod tests {
         let source = "x\n";
         // Should not panic even if a span outruns the text.
         let _ = Span::new(500, 600).line_column(source);
+    }
+
+    #[test]
+    fn line_column_never_splits_a_character() {
+        // Offset 1 is inside the two-byte "é"; resolving it must not panic on a slice.
+        let source = "é = 1\n";
+        assert_eq!(
+            Span::new(1, 2).line_column(source),
+            LineColumn { line: 1, column: 1 }
+        );
+    }
+
+    #[test]
+    fn line_column_on_the_final_newline() {
+        let source = "a = 1\nb = 2\n";
+        assert_eq!(
+            Span::new(11, 12).line_column(source),
+            LineColumn { line: 2, column: 6 }
+        );
     }
 
     #[test]

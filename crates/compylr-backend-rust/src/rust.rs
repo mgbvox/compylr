@@ -22,10 +22,10 @@
 
 use std::fmt::Write as _;
 
-use super::{Backend, BackendError, GeneratedFiles};
+use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
 use std::collections::BTreeSet;
 
-use crate::ir::{BinOp, Class, Expr, Function, Literal, Stmt, Ty, Unit, returns_on_all_paths};
+use compylr_ir::{BinOp, Class, Expr, Function, Literal, Stmt, Ty, Unit, returns_on_all_paths};
 
 /// The runtime helpers, embedded verbatim into generated crates.
 ///
@@ -145,24 +145,9 @@ fn int_literal(value: i64) -> String {
 #[derive(Debug)]
 pub struct RustBackend;
 
-/// PyO3 version generated crates depend on.
-///
-/// Pinned to match this crate's own dependency: the bindings emitted here are written against
-/// that API, so letting a generated crate float to a different major version would produce code
-/// that does not compile.
-pub const PYO3_VERSION: &str = "0.29.2";
-
 impl Backend for RustBackend {
     fn name(&self) -> &'static str {
         "rust"
-    }
-
-    fn emit_python_extension(&self, unit: &Unit) -> Result<GeneratedFiles, BackendError> {
-        super::bindings::emit_extension(unit)
-    }
-
-    fn build_manifest(&self, unit: &Unit) -> Result<String, BackendError> {
-        Ok(super::bindings::cargo_manifest(unit, PYO3_VERSION))
     }
 
     fn emit(&self, unit: &Unit) -> Result<GeneratedFiles, BackendError> {
@@ -233,8 +218,8 @@ fn emit_generated(functions: &str) -> String {
 ///
 /// The generated source is written to disk for people to read, and a translated function stripped
 /// of the explanation its author wrote is harder to check against the original than it needs to
-/// be. PyO3 also lifts a `///` comment onto the compiled function's `__doc__`, so the compiled
-/// function gains its documentation as a side benefit.
+/// be. A host bridge that lifts doc comments onto the exposed function gets the documentation
+/// across for free as a side benefit, but that is the bridge's business, not this crate's.
 ///
 /// The text is arbitrary user input, so it is made comment-safe rather than trusted: every line is
 /// prefixed individually, and carriage returns are dropped so nothing can escape the comment and
@@ -263,8 +248,8 @@ fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendErro
         out.push_str(&doc_comment(doc));
     }
     // A parameter the body assigns to is declared `mut`. This changes nothing a caller sees —
-    // `mut` on a parameter is a property of the binding, not of the signature — so the PyO3
-    // wrappers are unaffected.
+    // `mut` on a parameter is a property of the binding, not of the signature — so whatever
+    // wraps this function for a host language is unaffected.
     let params = function
         .params
         .iter()
@@ -452,7 +437,7 @@ fn indent(block: &str) -> String {
 /// So this is a fixpoint: mark the directly-mutating methods, then repeatedly mark any method
 /// calling a marked one until nothing changes. A class has few methods, so it converges in a
 /// handful of passes over a small set.
-pub(super) fn mutating_methods(class: &Class) -> BTreeSet<String> {
+pub fn mutating_methods(class: &Class) -> BTreeSet<String> {
     let mut mutating: BTreeSet<String> = class
         .methods
         .values()

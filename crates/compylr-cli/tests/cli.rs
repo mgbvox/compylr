@@ -7,8 +7,16 @@
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+/// The workspace root, which is where the fixture paths in this file are relative to.
+///
+/// `CARGO_MANIFEST_DIR` is this crate's directory, two levels down since the split. Deriving the
+/// root rather than hardcoding it keeps the test working if the crate moves again.
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the crate lives at <root>/crates/<name>")
+        .to_path_buf()
 }
 
 /// Run the CLI with `args`, returning the completed output.

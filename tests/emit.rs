@@ -95,9 +95,13 @@ fn emission_leaves_the_ir_unchanged() {
 
 #[test]
 fn the_ir_module_names_no_rust_types() {
-    // The mapping belongs to the backend. If a Rust spelling appears in `src/ir.rs`, a second
+    // The mapping belongs to the backend. If a Rust spelling appears in the IR, a second
     // backend has already been made harder to write.
-    let ir = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ir.rs")).unwrap();
+    let ir = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/crates/compylr-ir/src/ir.rs"
+    ))
+    .unwrap();
     let code: String = ir
         .lines()
         .filter(|line| !line.trim_start().starts_with("//"))
@@ -111,7 +115,7 @@ fn the_ir_module_names_no_rust_types() {
     }
     assert!(
         !code.contains("\"i64\"") && !code.contains("\"String\"") && !code.contains("\"f64\""),
-        "src/ir.rs must not spell target types"
+        "the IR must not spell target types"
     );
 }
 

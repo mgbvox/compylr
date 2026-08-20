@@ -1,28 +1,28 @@
 ## 1. Workspace split (behavior-preserving)
 
-- [ ] 1.1 Convert the repo root to a Cargo workspace with a shared `[workspace.dependencies]`
+- [x] 1.1 Convert the repo root to a Cargo workspace with a shared `[workspace.dependencies]`
       section, keeping `compylr` as the member that builds the `cdylib` so `maturin develop` and
       `compylr._core` are unaffected
-- [ ] 1.2 Create `compylr-diagnostics` and move `src/span.rs` into it verbatim, re-exporting `Span`
+- [x] 1.2 Create `compylr-diagnostics` and move `src/span.rs` into it verbatim, re-exporting `Span`
       and `LineColumn`; keep `LowerError`'s span behavior identical
-- [ ] 1.3 Create `compylr-ir` and move `src/ir.rs` into it verbatim, including `returns_on_all_paths`
+- [x] 1.3 Create `compylr-ir` and move `src/ir.rs` into it verbatim, including `returns_on_all_paths`
       and the fingerprint; verify `tests/serialization.rs` passes with only import-path edits
-- [ ] 1.4 Create `compylr-core` and move `src/backend/mod.rs`'s `Backend` trait, registry, and
+- [x] 1.4 Create `compylr-core` and move `src/backend/mod.rs`'s `Backend` trait, registry, and
       `BackendError` into it; `format_source` moves with it for now
-- [ ] 1.5 Create `compylr-frontend-python` and move `src/frontend.rs`, `src/lower.rs`, and the
+- [x] 1.5 Create `compylr-frontend-python` and move `src/frontend.rs`, `src/lower.rs`, and the
       lowering half of `src/error.rs` into it; move the four vendored ruff path dependencies onto
       this crate alone
-- [ ] 1.6 Create `compylr-backend-rust` and move `src/backend/rust.rs` and `src/backend/runtime.rs`
+- [x] 1.6 Create `compylr-backend-rust` and move `src/backend/rust.rs` and `src/backend/runtime.rs`
       into it
-- [ ] 1.7 Create `compylr-bridge-python-rust` and move `src/backend/bindings.rs` into it, depending
+- [x] 1.7 Create `compylr-bridge-python-rust` and move `src/backend/bindings.rs` into it, depending
       on `compylr-backend-rust` for type spellings
-- [ ] 1.8 Create `compylr-cli` and move `src/main.rs` into it; keep the binary name `compylr` and
+- [x] 1.8 Create `compylr-cli` and move `src/main.rs` into it; keep the binary name `compylr` and
       every `--emit` mode working
-- [ ] 1.9 Leave `src/bridge.rs` in the `compylr` cdylib crate, re-exporting the workspace crates so
+- [x] 1.9 Leave `src/bridge.rs` in the `compylr` cdylib crate, re-exporting the workspace crates so
       `compylr::{ir, lower, backend}` paths used by tests still resolve or are updated in place
-- [ ] 1.10 Confirm `cargo build -p compylr-backend-rust` does not compile ruff or PyO3, and assert
+- [x] 1.10 Confirm `cargo build -p compylr-backend-rust` does not compile ruff or PyO3, and assert
       this as a test or a documented check rather than a one-time observation
-- [ ] 1.11 Run the full suite unchanged (`cargo test`, `cargo clippy --workspace --all-targets -- -D
+- [x] 1.11 Run the full suite unchanged (`cargo test`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `pytest`) and confirm no fixture, snapshot, or diagnostic text moved
 
 ## 2. Frontend as a component

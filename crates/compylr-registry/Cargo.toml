@@ -1,0 +1,16 @@
+# Where implementations are registered.
+#
+# The one crate that is allowed to know every frontend, backend, and bridge at once. Adding a
+# language means adding a crate and an entry here, and touching nothing else.
+[package]
+name = "compylr-registry"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compylr-core.workspace = true
+compylr-ir.workspace = true
+compylr-diagnostics.workspace = true
+compylr-frontend-python.workspace = true
+compylr-backend-rust.workspace = true
+compylr-bridge-python-rust.workspace = true

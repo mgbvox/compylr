@@ -1,0 +1,14 @@
+# The component model: the traits a frontend, a backend, and a host bridge implement, and the
+# machinery that resolves and runs them.
+#
+# Deliberately knows no implementation. The concrete registry tables live in
+# `compylr-registry`, which is allowed to depend on both this crate and every implementation;
+# putting them here would make core depend on the crates that depend on core.
+[package]
+name = "compylr-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compylr-diagnostics.workspace = true
+compylr-ir.workspace = true

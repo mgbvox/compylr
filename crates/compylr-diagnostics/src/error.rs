@@ -1,111 +1,20 @@
-//! Error types for the frontend and the lowering pass.
+//! Located diagnostics, shared by every frontend and every backend.
 //!
-//! Both are hand-written rather than derived from a macro crate: there are only two of them,
-//! the impls are short, and it keeps the dependency surface at "the vendored ruff tree".
+//! Hand-written rather than derived from a macro crate: the impls are short, and this crate
+//! sits below the IR, so a dependency added here would reach everything.
 //!
 //! Callers must be able to branch on *what went wrong* without matching on message text, since
-//! message wording is presentation and changes freely. That is why both types expose an
-//! explicit kind alongside their human-readable rendering.
+//! message wording is presentation and changes freely. That is why the type exposes an explicit
+//! kind alongside its human-readable rendering.
+//!
+//! The kinds are deliberately not Python's. "Missing annotation", "unresolved name", and
+//! "arity mismatch" are categories any frontend for a statically annotated subset produces, and
+//! [`crate::error::LowerError`] is raised by the IR's own validation as well as by lowering.
 
 use std::error::Error;
 use std::fmt;
-use std::io;
-use std::path::{Path, PathBuf};
-
-use ruff_python_parser::ParseError;
 
 use crate::span::Span;
-
-/// A failure while turning Python source into a parse tree.
-#[derive(Debug)]
-pub enum FrontendError {
-    /// The source could not be read from disk.
-    Io {
-        /// Path that was requested.
-        path: PathBuf,
-        /// Underlying operating-system error.
-        source: io::Error,
-    },
-    /// The source was read but is not valid Python.
-    Syntax {
-        /// Parser description of the problem.
-        message: String,
-        /// Where parsing gave up.
-        span: Span,
-    },
-}
-
-impl FrontendError {
-    /// Build an I/O failure that remembers which path was requested.
-    ///
-    /// The path cannot come from [`io::Error`] itself, so it is threaded in here rather than
-    /// through a `From` impl — an I/O error that cannot say which file it was about is not
-    /// worth reporting.
-    pub fn io(path: impl Into<PathBuf>, source: io::Error) -> Self {
-        Self::Io {
-            path: path.into(),
-            source,
-        }
-    }
-
-    /// Whether this failure came from reading the source.
-    pub fn is_io(&self) -> bool {
-        matches!(self, Self::Io { .. })
-    }
-
-    /// Whether this failure came from parsing the source.
-    pub fn is_syntax(&self) -> bool {
-        matches!(self, Self::Syntax { .. })
-    }
-
-    /// Location of a syntax failure, if this is one.
-    pub fn span(&self) -> Option<Span> {
-        match self {
-            Self::Io { .. } => None,
-            Self::Syntax { span, .. } => Some(*span),
-        }
-    }
-
-    /// Path involved in an I/O failure, if this is one.
-    pub fn path(&self) -> Option<&Path> {
-        match self {
-            Self::Io { path, .. } => Some(path.as_path()),
-            Self::Syntax { .. } => None,
-        }
-    }
-}
-
-impl fmt::Display for FrontendError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            // `source` is rendered via Display, not Debug, so the message stays readable.
-            Self::Io { path, source } => {
-                write!(f, "could not read {}: {source}", path.display())
-            }
-            Self::Syntax { message, span } => {
-                write!(f, "invalid Python syntax at {span}: {message}")
-            }
-        }
-    }
-}
-
-impl Error for FrontendError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Io { source, .. } => Some(source),
-            Self::Syntax { .. } => None,
-        }
-    }
-}
-
-impl From<ParseError> for FrontendError {
-    fn from(error: ParseError) -> Self {
-        Self::Syntax {
-            message: error.error.to_string(),
-            span: Span::from(error.location),
-        }
-    }
-}
 
 /// What category of rule a lowering diagnostic violated.
 ///
@@ -249,112 +158,9 @@ impl fmt::Display for LowerError {
 
 impl Error for LowerError {}
 
-/// A failure while reading or writing the IR's on-disk artifact form.
-///
-/// Kept separate from [`LowerError`] because these describe a *file* being wrong rather than a
-/// *program* being wrong: none of them carry a source location, and none of them are something a
-/// user fixes by editing Python.
-#[derive(Debug)]
-pub enum ArtifactError {
-    /// The bytes are not valid JSON, or do not describe a unit.
-    Json(serde_json::Error),
-    /// The artifact was written by an incompatible version of the format.
-    UnsupportedVersion {
-        /// Version recorded in the artifact.
-        found: u32,
-        /// Version this build understands.
-        expected: u32,
-    },
-    /// The artifact's contents disagree with the fingerprint recorded alongside them.
-    ///
-    /// This catches truncation and hand-editing. Without it a corrupted artifact would load as
-    /// a valid but different unit, and the rebuild cache would then happily reuse a build that
-    /// does not correspond to any source.
-    FingerprintMismatch {
-        /// Fingerprint the artifact claims.
-        recorded: String,
-        /// Fingerprint its contents actually produce.
-        computed: String,
-    },
-    /// The artifact lists two functions of the same name.
-    DuplicateFunction(Box<LowerError>),
-}
-
-impl fmt::Display for ArtifactError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Json(source) => write!(f, "artifact is not a readable IR document: {source}"),
-            Self::UnsupportedVersion { found, expected } => write!(
-                f,
-                "artifact format version {found} is not supported; this build reads version {expected}"
-            ),
-            Self::FingerprintMismatch { recorded, computed } => write!(
-                f,
-                "artifact is corrupt: it records fingerprint {recorded} but its contents produce {computed}"
-            ),
-            Self::DuplicateFunction(source) => {
-                write!(f, "artifact contains a duplicate function: {source}")
-            }
-        }
-    }
-}
-
-impl Error for ArtifactError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Json(source) => Some(source),
-            Self::DuplicateFunction(source) => Some(source),
-            _ => None,
-        }
-    }
-}
-
-impl From<serde_json::Error> for ArtifactError {
-    fn from(source: serde_json::Error) -> Self {
-        Self::Json(source)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn io_failure_names_the_path_and_is_distinguishable() {
-        let error = FrontendError::io(
-            "/tmp/missing.py",
-            io::Error::new(io::ErrorKind::NotFound, "no such file"),
-        );
-        assert!(error.is_io());
-        assert!(!error.is_syntax());
-        assert_eq!(error.path().unwrap().to_str().unwrap(), "/tmp/missing.py");
-        assert!(error.to_string().contains("/tmp/missing.py"));
-        assert!(error.source().is_some());
-    }
-
-    #[test]
-    fn io_display_uses_the_causes_display_not_debug() {
-        let error = FrontendError::io(
-            "/tmp/x.py",
-            io::Error::new(io::ErrorKind::PermissionDenied, "permission denied"),
-        );
-        let rendered = error.to_string();
-        assert!(rendered.contains("permission denied"));
-        // Debug formatting of io::Error contains `Custom {` / `kind:`; Display must not.
-        assert!(!rendered.contains("kind:"));
-    }
-
-    #[test]
-    fn syntax_failure_carries_a_span_and_is_distinguishable() {
-        let error = FrontendError::Syntax {
-            message: "unexpected token".to_string(),
-            span: Span::new(4, 7),
-        };
-        assert!(error.is_syntax());
-        assert!(!error.is_io());
-        assert_eq!(error.span(), Some(Span::new(4, 7)));
-        assert!(error.path().is_none());
-    }
 
     #[test]
     fn lower_error_exposes_kind_message_and_span() {

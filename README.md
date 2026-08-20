@@ -85,7 +85,7 @@ Then the snippet at the top of this file works. There is also a CLI for seeing w
 compiles to, without a build:
 
 ```bash
-cargo run -- python/fixtures/accepted/inference.py
+cargo run -p compylr-cli -- python/fixtures/accepted/inference.py
 ```
 
 ```
@@ -99,9 +99,9 @@ unit fingerprint: bcddf18219a7c991
 gives you a usable file:
 
 ```bash
-cargo run -- --emit ir    python/fixtures/accepted/inference.py   # the IR, as JSON
-cargo run -- --emit rust  python/fixtures/accepted/inference.py   # just the translated code
-cargo run -- --emit crate --out ./out python/fixtures/accepted/inference.py
+cargo run -p compylr-cli -- --emit ir    python/fixtures/accepted/inference.py   # the IR, as JSON
+cargo run -p compylr-cli -- --emit rust  python/fixtures/accepted/inference.py   # just the translated code
+cargo run -p compylr-cli -- --emit crate --out ./out python/fixtures/accepted/inference.py
 ```
 
 Artifacts live in `.compylr/`, found by searching upward from the working directory for a
@@ -453,25 +453,29 @@ The binary prints the unit fingerprint and each function's signature, and report
 with a `line:column` location:
 
 ```
-$ cargo run -- python/fixtures/rejected/boolean_arithmetic.py
+$ cargo run -p compylr-cli -- python/fixtures/rejected/boolean_arithmetic.py
 error: 2:12: operator '+' is not defined for 'bool' and 'bool'; booleans are not numbers in compylr
 ```
 
 ## Layout
 
+A Cargo workspace. The dependency edges between the crates are the enforcement mechanism, not a
+convention: a crate that does not depend on a Python parser cannot name a Python construct, and a
+crate that does not depend on PyO3 cannot quietly grow a Python calling convention.
+
 ```
 src/
-  frontend.rs   parse source text -> ruff AST
-  lower.rs      ruff AST -> IR, plus the type checker
-  ir.rs         the IR: types, expressions, statements, Unit, fingerprints, artifact
-  error.rs      frontend, lowering, and artifact diagnostics
-  span.rs       byte-offset source locations
+  lib.rs        the facade over the workspace crates
   bridge.rs     compylr._core: the compiler, exposed to Python
-  backend/
-    mod.rs      the Backend trait and the name registry
-    rust.rs     IR -> Rust source
-    bindings.rs the PyO3 layer generated onto compiled functions
-    runtime.rs  Python arithmetic semantics, embedded into generated crates
+crates/
+  compylr-diagnostics/         spans and located diagnostics; depends on nothing
+  compylr-ir/                  the IR: types, expressions, statements, Unit, fingerprints, artifact
+  compylr-core/                the Backend trait and the component model; knows no implementation
+  compylr-frontend-python/     ruff parsing and lowering; the only crate that depends on ruff
+  compylr-backend-rust/        IR -> Rust source, plus the runtime shim embedded in generated crates
+  compylr-bridge-python-rust/  the PyO3 layer generated onto compiled functions, for one pair
+  compylr-registry/            where implementations are registered; the one crate that knows them all
+  compylr-cli/                 the `compylr` binary and its --emit surface
 python/
   compylr/      the Python package: initialize, the decorator, the build pipeline
   tests/        pytest suite for the package and the native boundary
@@ -489,8 +493,9 @@ reports/        rendered spec EPUBs
 
 Two different things use PyO3 and conflating them causes lasting confusion. `src/bridge.rs`
 exposes **the compiler** to Python as `compylr._core`, built from this repo.
-`src/backend/bindings.rs` *generates* PyO3 code onto **your** functions, built at runtime into a
-separate crate. Different crates, different lifecycles.
+`crates/compylr-bridge-python-rust/` *generates* PyO3 code onto **your** functions, built at
+runtime into a separate crate. Different crates, different lifecycles — and note that the
+generating crate does not itself depend on PyO3, because it emits PyO3 source as text.
 
 ## Design invariants
 

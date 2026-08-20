@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "compylr_generated_cfd1e60aa377d578"
 version = "0.1.0"

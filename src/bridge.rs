@@ -94,7 +94,9 @@ impl CompileFailure {
 pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, CompileFailure> {
     // Resolved first so that an unusable backend is reported before any parsing work, and so the
     // error is about the backend rather than about whichever source happened to be malformed.
-    let backend = backend::lookup(backend_name).map_err(CompileFailure::Backend)?;
+    // Resolved for its rejection of an unusable target name; the generated files come from the
+    // (python, rust) bridge, since a calling convention belongs to the pair.
+    let _backend = backend::lookup(backend_name).map_err(CompileFailure::Backend)?;
 
     // Every source is parsed before any is lowered, so signatures can be gathered across all of
     // them. The decorator submits each function as its own source, which makes a call between two
@@ -161,12 +163,12 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
             column: 1,
         })?;
 
-    let target_sources = backend
-        .emit_python_extension(&unit)
+    // Generating the target source is the backend's job; making it callable from Python is the
+    // (python, rust) bridge's, because a calling convention belongs to the pair rather than to
+    // either language alone.
+    let target_sources = compylr_bridge_python_rust::emit_python_extension(&unit)
         .map_err(CompileFailure::Backend)?;
-    let manifest = backend
-        .build_manifest(&unit)
-        .map_err(CompileFailure::Backend)?;
+    let manifest = compylr_bridge_python_rust::build_manifest(&unit);
     let ir_artifact = unit.to_json().map_err(|error| {
         CompileFailure::Backend(BackendError::Unsupported {
             detail: format!("could not serialize the IR: {error}"),

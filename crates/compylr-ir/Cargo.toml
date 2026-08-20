@@ -1,0 +1,13 @@
+# The program model every frontend produces and every backend consumes.
+#
+# Depends on diagnostics and serde and nothing else: no parser, no target toolchain. A
+# dependency added here is a dependency of the whole workspace.
+[package]
+name = "compylr-ir"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compylr-diagnostics.workspace = true
+serde.workspace = true
+serde_json.workspace = true

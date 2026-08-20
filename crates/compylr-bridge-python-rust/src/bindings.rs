@@ -12,10 +12,9 @@
 
 use std::fmt::Write as _;
 
-use super::rust::{BINDINGS_PATH, LIB_PATH, RustBackend, rust_ident, rust_ty};
-use super::{BackendError, GeneratedFiles};
-use crate::backend::Backend;
-use crate::ir::{Class, Ty, Unit};
+use compylr_backend_rust::rust::{BINDINGS_PATH, LIB_PATH, RustBackend, rust_ident, rust_ty};
+use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
+use compylr_ir::{Class, Ty, Unit};
 
 /// Prefix for the extension module a unit compiles to.
 const MODULE_PREFIX: &str = "compylr_generated_";
@@ -154,7 +153,7 @@ fn emit_class_binding(index: usize, class: &Class) -> String {
     let mut out = String::new();
     let wrapper = format!("__compylr_class_{index}");
     let translated = rust_ident(&class.name);
-    let mutating = super::rust::mutating_methods(class);
+    let mutating = compylr_backend_rust::rust::mutating_methods(class);
 
     if let Some(doc) = &class.doc {
         for line in doc.lines() {
@@ -277,7 +276,13 @@ fn __compylr_to_py_err(error: RuntimeError) -> PyErr {
 pub fn cargo_manifest(unit: &Unit, pyo3_version: &str) -> String {
     let name = module_name(unit);
     format!(
-        "[package]\n\
+        // The empty `[workspace]` table makes this crate its own workspace root. Without it,
+        // a generated crate written anywhere inside a Cargo workspace — a user's project, or
+        // this repo's own `target/` — is adopted as a member and fails to build, complaining
+        // that it believes it is in a workspace when it is not.
+        "[workspace]\n\
+         \n\
+         [package]\n\
          name = \"{name}\"\n\
          version = \"0.1.0\"\n\
          edition = \"2024\"\n\

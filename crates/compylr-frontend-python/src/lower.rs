@@ -33,11 +33,11 @@ use ruff_python_ast::{
 use ruff_python_parser::Parsed;
 use ruff_text_size::Ranged;
 
-use crate::error::{LowerError, LowerErrorKind};
-use crate::ir::{
+use crate::span_of;
+use compylr_diagnostics::error::{LowerError, LowerErrorKind};
+use compylr_ir::{
     Attribute, BinOp, Class, Expr, Function, Literal, Param, Stmt, Ty, returns_on_all_paths,
 };
-use crate::span::Span;
 
 /// Names visible inside a function body, with the type each was bound at.
 ///
@@ -202,7 +202,7 @@ impl<'a> Ctx<'a> {
 const RANGE: &str = "range";
 
 fn err(kind: LowerErrorKind, message: impl Into<String>, node: &impl Ranged) -> LowerError {
-    LowerError::new(kind, message, Span::from(node.range()))
+    LowerError::new(kind, message, span_of(node.range()))
 }
 
 /// A function's declared interface, as written in its annotations.
@@ -638,7 +638,7 @@ pub fn lower_class(
         init,
         methods,
         doc,
-        span: Span::from(def.range()),
+        span: span_of(def.range()),
     })
 }
 
@@ -793,7 +793,7 @@ pub fn lower_function_in(
         ret,
         body,
         doc,
-        span: Span::from(def.range()),
+        span: span_of(def.range()),
     })
 }
 

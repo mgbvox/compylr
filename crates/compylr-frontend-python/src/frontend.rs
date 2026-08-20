@@ -33,8 +33,16 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    /// The workspace root, where the fixture tree lives.
+    ///
+    /// `CARGO_MANIFEST_DIR` points at this crate since the split, so the fixtures are two
+    /// levels up rather than beside it.
     fn manifest_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("the crate lives at <root>/crates/<name>")
+            .to_path_buf()
     }
 
     #[test]

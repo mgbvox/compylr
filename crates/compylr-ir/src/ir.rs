@@ -21,8 +21,10 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ArtifactError, LowerError, LowerErrorKind};
-use crate::span::Span;
+use compylr_diagnostics::error::{LowerError, LowerErrorKind};
+use compylr_diagnostics::span::Span;
+
+use crate::artifact::ArtifactError;
 
 /// Format version of the on-disk artifact.
 ///

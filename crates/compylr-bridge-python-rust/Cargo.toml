@@ -1,0 +1,15 @@
+# The host bridge for the (python, rust) pair: generates the PyO3 layer that makes compiled
+# Rust callable from Python.
+#
+# Depends on the Rust backend for its type spellings, never the other way round. That
+# direction is what keeps `compylr-backend-rust` usable by a host language that has never
+# heard of Python. It emits PyO3 source as text and does not itself depend on PyO3.
+[package]
+name = "compylr-bridge-python-rust"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compylr-ir.workspace = true
+compylr-core.workspace = true
+compylr-backend-rust.workspace = true

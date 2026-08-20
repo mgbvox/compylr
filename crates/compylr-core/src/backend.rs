@@ -14,15 +14,16 @@
 //! Folding the middle case into the last one would tell a user asking for TypeScript that no such
 //! target exists, which is both false and discouraging. An enum could not express `Reserved`
 //! without carrying a second list beside it.
+//!
+//! The registry *table* is not here. It lives in `compylr-registry`, which is allowed to name
+//! every backend; this crate defines what a backend is, and a crate that defines an interface
+//! cannot depend on the crates implementing it.
 
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::ir::Unit;
-
-pub mod bindings;
-pub mod rust;
+use compylr_ir::Unit;
 
 /// The files of a generated crate, keyed by path relative to the crate root.
 ///
@@ -48,30 +49,11 @@ pub trait Backend: fmt::Debug + Send + Sync {
     /// Emission is still a pure function of the unit: no I/O, no filesystem, no environment.
     /// Returning a set of files must not become *writing* files — that is the build pipeline's
     /// job, and keeping it there is what makes the determinism guarantee mean anything.
-    fn emit(&self, unit: &Unit) -> Result<GeneratedFiles, BackendError>;
-
-    /// Render a unit as a Python extension module, bindings included.
     ///
-    /// Separate from [`Backend::emit`] because exposing a target to Python is a target-specific
-    /// concern: PyO3 is meaningless to a TypeScript backend, which would reach Python — if ever —
-    /// by an entirely different route. The default refuses rather than pretending, so a backend
-    /// that gains code generation without gaining bindings cannot silently appear to support the
-    /// decorator.
-    fn emit_python_extension(&self, _unit: &Unit) -> Result<GeneratedFiles, BackendError> {
-        Err(BackendError::Unsupported {
-            detail: format!(
-                "the '{}' backend can generate source but cannot yet expose it to Python",
-                self.name()
-            ),
-        })
-    }
-
-    /// The build manifest for a generated crate, when the target needs one.
-    fn build_manifest(&self, _unit: &Unit) -> Result<String, BackendError> {
-        Err(BackendError::Unsupported {
-            detail: format!("the '{}' backend defines no build manifest", self.name()),
-        })
-    }
+    /// Note what is *not* here: making the result callable from a host language. That is a
+    /// property of the (source, target) pair rather than of the target, so it belongs to a host
+    /// bridge. A method here would mean every backend growing one per source language.
+    fn emit(&self, unit: &Unit) -> Result<GeneratedFiles, BackendError>;
 }
 
 /// Format generated source with `rustfmt`, falling back to the input unchanged.
@@ -113,70 +95,6 @@ pub fn format_source(source: &str) -> String {
             String::from_utf8(output.stdout).unwrap_or_else(|_| source.to_string())
         }
         _ => source.to_string(),
-    }
-}
-
-/// One entry in the registry.
-///
-/// The three-way answer lives in `backend`: `Some` is implemented, `None` is a name compylr has
-/// reserved for a planned target, and absence from [`REGISTRY`] entirely is an unknown name.
-struct Entry {
-    /// The name this entry is selected by.
-    name: &'static str,
-    /// The backend, or `None` when the name is reserved but not yet implemented.
-    backend: Option<&'static dyn Backend>,
-}
-
-/// The registry, in the order [`names`] reports.
-const REGISTRY: &[Entry] = &[
-    Entry {
-        name: "rust",
-        backend: Some(&rust::RustBackend),
-    },
-    Entry {
-        name: "typescript",
-        backend: None,
-    },
-    Entry {
-        name: "go",
-        backend: None,
-    },
-    Entry {
-        name: "cpp",
-        backend: None,
-    },
-];
-
-/// Every backend name compylr recognizes, implemented or not.
-pub fn names() -> Vec<&'static str> {
-    REGISTRY.iter().map(|entry| entry.name).collect()
-}
-
-/// Every backend name that can compile today.
-pub fn implemented_names() -> Vec<String> {
-    REGISTRY
-        .iter()
-        .filter(|entry| entry.backend.is_some())
-        .map(|entry| entry.name.to_string())
-        .collect()
-}
-
-/// Resolve a backend name.
-///
-/// Lookup is exact: a backend name comes from a configuration value someone typed deliberately,
-/// and normalising case would raise the question of what else to normalise.
-pub fn lookup(name: &str) -> Result<&'static dyn Backend, BackendError> {
-    match REGISTRY.iter().find(|entry| entry.name == name) {
-        Some(entry) => match entry.backend {
-            Some(backend) => Ok(backend),
-            None => Err(BackendError::NotImplemented {
-                backend: name.to_string(),
-            }),
-        },
-        None => Err(BackendError::Unknown {
-            backend: name.to_string(),
-            available: implemented_names(),
-        }),
     }
 }
 

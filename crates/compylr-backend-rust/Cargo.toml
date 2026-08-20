@@ -1,0 +1,13 @@
+# The Rust backend: IR to Rust source, plus the runtime shim emitted alongside it.
+#
+# Nothing here knows which language the IR came from, and nothing here depends on PyO3 —
+# exposing generated Rust to a host language belongs to a bridge crate, one per pair.
+[package]
+name = "compylr-backend-rust"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compylr-diagnostics.workspace = true
+compylr-ir.workspace = true
+compylr-core.workspace = true
