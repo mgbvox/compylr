@@ -229,8 +229,14 @@ Collections support literals, subscripting, `len`, membership, and mutation of *
 def total(xs: list[int]) -> int:
     first = xs[0]        # int
     last = xs[-1]        # counts from the end, as Python does
-    return first + last + len(xs)
+    return first + last + len(xs)   # code points for a string, not bytes
 ```
+
+Both of those are *declared* on the IR rather than assumed, because they are the two container
+operations the supported languages disagree about: Go, C++, and TypeScript all treat a negative
+index as out of range, and `len` counts UTF-8 bytes in Go and UTF-16 units in TypeScript. The
+three readings agree on ASCII, which is exactly what would make a wrong assumption survive a test
+suite.
 
 Two divergences worth knowing. **Collections cross the boundary by value**, so a compiled function
 cannot affect a list its caller still holds — currently unobservable, since nothing in the subset
@@ -524,17 +530,26 @@ Three rules that are easy to break and expensive to discover later:
 `String` — belong to a backend, never to the IR. Rust is the first backend, but Go, C++, and
 TypeScript backends should consume the same tree unchanged.
 
-**Operators carry the semantics a frontend declared, not a language's by default.** `BinOp::Div`
-carries a mode — exact, or integer with a rounding direction — and `BinOp::Rem` carries which
-operand's sign the result takes. The Python frontend sets `//` to round toward negative infinity,
-`%` to take the sign of the divisor, and `/` to divide exactly; a Go frontend would set the first
-two the other way. The backend reads the mode off the node and never the operator's name, which
-is what lets one backend serve both. Lowering inserts an explicit widening node for exact
-division, so a backend never re-derives a conversion.
+**Operations carry the semantics a frontend declared, not a language's by default.** `BinOp::Div`
+carries a mode — exact, or integer with a rounding direction — `BinOp::Rem` carries which operand's
+sign the result takes, `Expr::Subscript` carries whether a negative index counts from the end, and
+`Expr::Len` carries what a string is counted in. The Python frontend sets `//` to round toward
+negative infinity, `%` to take the sign of the divisor, `/` to divide exactly, `xs[-1]` to reach
+the last element, and `len` to count code points; Go and TypeScript would set several of them
+otherwise. The backend reads the mode off the node and never the operation's name, which is what
+lets one backend serve both. Lowering inserts an explicit widening node for exact division, so a
+backend never re-derives a conversion.
 
 The IR's own rendering says the mode rather than a symbol — `//` is Python's way of writing one
 particular rounding, not the rounding itself — so quoting a programmer's syntax back at them
 belongs to the frontend that read it.
+
+Three container behaviours deliberately have **no** mode, and the absence is a conclusion rather
+than an omission: reading a mapping with an absent key always reports it, iterating a mapping
+yields keys, and membership in a string tests substrings. The last two are what every language in
+the supported list does. The first is a difference in the *shape* of the operation rather than a
+setting on it — Go's `v, ok := m[k]` is a different expression with a different result type — so a
+frontend that means it lowers to a different form.
 
 **Rebuild decisions key off the IR, not the source text.** `Unit::fingerprint` hashes structure,
 so comments and reformatting do not trigger a recompile, and it is order-independent so
@@ -543,9 +558,10 @@ and what that language requires preserved — because two units with identical b
 requirements can legitimately emit different code, and a cache that could not tell them apart
 would hand back the wrong build.
 
-> **Upgrading past this release rebuilds every project once.** Operators changed shape, so the
-> artifact format went to version 2 and every fingerprint moved. The build state records the
-> compiler version, so this happens automatically rather than as a stale-artifact bug.
+> **Upgrading past this release rebuilds every project once.** The IR changed shape — first the
+> arithmetic operators and then subscripting and length — so the artifact format is at version 3
+> and every fingerprint moved. The build state records the compiler version, so this happens
+> automatically rather than as a stale-artifact bug.
 
 ## Development
 

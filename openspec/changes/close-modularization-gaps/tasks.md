@@ -72,11 +72,16 @@
 
 ## 8. Documentation and close-out
 
-- [ ] 8.1 Update the README's subset section for the container semantics, and note the one-time
+- [x] 8.1 Update the README's subset section for the container semantics, and note the one-time
       rebuild
-- [ ] 8.2 Update `CLAUDE.md`'s conventions for what the IR now declares and what it deliberately
+- [x] 8.2 Update `CLAUDE.md`'s conventions for what the IR now declares and what it deliberately
       does not
-- [ ] 8.3 Rebuild the demo from scratch, re-run the benchmark, and re-commit `demo/.compylr`
-- [ ] 8.4 Run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 8.3 Rebuild the demo from scratch, re-run the benchmark, and re-commit `demo/.compylr`. The
+      artifacts were already current — the Python suite rebuilds the demo, so earlier commits in
+      this change carried them. Benchmark ratios are in the same band (32.3x / 33.8x / 30.1x
+      against 31.7x / 35.8x / 29.5x); the recorded table is left alone, since this run's absolute
+      times are noisier and nothing here touches performance
+- [x] 8.4 Run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`, and `cargo llvm-cov` with the venv deactivated; confirm the total
-      has not fallen below 87.40%
+      has not fallen below 87.40%. 87.40% -> 88.57%; `runtime.rs` 57.95% -> 98.91%, and
+      `artifact.rs` 10.71% -> 100% after testing the error surface nothing had exercised

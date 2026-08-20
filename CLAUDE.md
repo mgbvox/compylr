@@ -144,10 +144,16 @@ Known gaps worth knowing before you trip on them:
   the package — but during development here the version does not move, so after changing emission
   you must `rm -rf .compylr` (and `demo/.compylr`) or you will benchmark last build's code. This
   cost real time once already.
-* **Operators changed shape, so every existing cache is invalid once.** The artifact format is at
-  version 2 and every fingerprint moved. `_state_is_current` compares the recorded compylr version,
-  so a user upgrading rebuilds automatically; there is nothing to do beyond knowing why the first
-  run after upgrading is slow.
+* **The IR changed shape twice, so every existing cache is invalid once.** The artifact format is
+  at version 3 — 2 for the arithmetic operators, 3 for subscripting and length. `_state_is_current`
+  compares the recorded compylr version, so a user upgrading rebuilds automatically; there is
+  nothing to do beyond knowing why the first run after upgrading is slow.
+* **A statement's emission depends on where it is, not only on what it is.** The backend renders a
+  constructor body, a method body, a free function body, and a loop body through different code,
+  and `tests/conformance.rs` checks coverage over `(form, position)` pairs for that reason. The
+  first run of that check found four defects, three reachable from ordinary Python — including a
+  `continue` inside `for i in range(n)` that skipped the cursor increment and hung. Adding a
+  statement form means covering it in every position it is legal in, and the test says which.
 * **`COMPYLR_DISABLE=1` turns compilation off for a process**, returning every marked member
   untouched without validating it. That is what makes an interpreted measurement honest: a marked
   function reaches other marked functions through module globals, so `python_function` alone gives
@@ -191,13 +197,19 @@ silently was the first.
   backend; how a construct is spelled *back to the programmer* belongs to the frontend that read
   it, which is why `Ty::python_name` and `BinOp::python_symbol` live in
   `compylr-frontend-python::spelling` as extension traits and not on the IR.
-* IR operators carry the semantics **a frontend declared**, not one language's by default.
-  `BinOp::Div` carries a mode — exact, or integer with a rounding direction — and `BinOp::Rem`
-  carries which operand's sign the result takes. The Python frontend sets these in three named
-  constants at the top of `lower.rs`; the backend matches on the mode and never on the operator's
-  name. A backend that read the name would be silently wrong for any frontend meaning the other
-  thing, and there is no way for a test written in Python to catch that — which is why
+* IR operations carry the semantics **a frontend declared**, not one language's by default.
+  `BinOp::Div` carries a rounding mode, `BinOp::Rem` a sign convention, `Expr::Subscript` an index
+  origin, and `Expr::Len` the units a string is counted in. The Python frontend sets all five in
+  named constants at the top of `lower.rs`; the backend matches on the mode and never on the
+  operation's name. A backend that read the name would be silently wrong for any frontend meaning
+  the other thing, and there is no way for a test written in Python to catch that — which is why
   `tests/conformance.rs` and the hand-built entries in `tests/execution.rs` exist.
+* **Three container behaviours deliberately have no mode**, and the reason is recorded in the IR's
+  module doc, the runtime's, and the spec: a missing mapping key always reports, mapping iteration
+  yields keys, and string membership tests substrings. The last two are universal across the
+  supported languages. The first is a difference in the *shape* of the operation — Go's
+  `v, ok := m[k]` is a different expression — so a frontend that means it lowers to a different
+  form, the way `Expr::Range` is a distinct form rather than a mode on a call.
 * A **guarantee** is what a source language needs preserved for a translation to still mean what
   the source meant: overflow reported, division by zero reported, float order preserved. The
   frontend declares what it requires, the backend what it preserves, and core refuses the

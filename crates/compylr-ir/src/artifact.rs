@@ -73,3 +73,113 @@ impl From<serde_json::Error> for ArtifactError {
         Self::Json(source)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use compylr_diagnostics::error::LowerErrorKind;
+    use compylr_diagnostics::span::Span;
+
+    /// Every failure has to render, because each one becomes a message somebody reads while
+    /// holding a file they cannot open.
+    #[test]
+    fn every_failure_renders_and_says_which_it_is() {
+        let json = serde_json::from_str::<serde_json::Value>("{").expect_err("not valid JSON");
+        let duplicate = LowerError::new(
+            LowerErrorKind::DuplicateFunction,
+            "'f' is defined twice",
+            Span::default(),
+        );
+
+        let cases = [
+            (ArtifactError::Json(json), "readable"),
+            (
+                ArtifactError::UnsupportedVersion {
+                    found: 9,
+                    expected: 3,
+                },
+                "9",
+            ),
+            (
+                ArtifactError::FingerprintMismatch {
+                    recorded: "aaaa".to_string(),
+                    computed: "bbbb".to_string(),
+                },
+                "corrupt",
+            ),
+            (
+                ArtifactError::DuplicateFunction(Box::new(duplicate)),
+                "duplicate",
+            ),
+        ];
+
+        let mut rendered = Vec::new();
+        for (error, expected) in cases {
+            let text = error.to_string();
+            assert!(text.contains(expected), "{expected} missing from: {text}");
+            rendered.push(text);
+        }
+
+        let count = rendered.len();
+        rendered.sort();
+        rendered.dedup();
+        assert_eq!(rendered.len(), count, "failures must be distinguishable");
+    }
+
+    /// An unsupported version has to name both, or the reader cannot tell which way to move.
+    #[test]
+    fn an_unsupported_version_names_the_one_found_and_the_one_expected() {
+        let error = ArtifactError::UnsupportedVersion {
+            found: 2,
+            expected: 3,
+        };
+        let text = error.to_string();
+        assert!(text.contains('2') && text.contains('3'), "{text}");
+    }
+
+    /// A mismatch quotes both fingerprints, since the whole content of the diagnostic is that they
+    /// differ.
+    #[test]
+    fn a_fingerprint_mismatch_quotes_both() {
+        let error = ArtifactError::FingerprintMismatch {
+            recorded: "0123456789abcdef".to_string(),
+            computed: "fedcba9876543210".to_string(),
+        };
+        let text = error.to_string();
+        assert!(text.contains("0123456789abcdef"), "{text}");
+        assert!(text.contains("fedcba9876543210"), "{text}");
+    }
+
+    /// The two failures that wrap another error expose it; the two that do not, do not.
+    #[test]
+    fn only_the_wrapping_failures_report_a_cause() {
+        let json: ArtifactError = serde_json::from_str::<serde_json::Value>("{")
+            .expect_err("not valid JSON")
+            .into();
+        assert!(json.source().is_some(), "a parse failure wraps serde's");
+
+        let duplicate = ArtifactError::DuplicateFunction(Box::new(LowerError::new(
+            LowerErrorKind::DuplicateFunction,
+            "'f' is defined twice",
+            Span::default(),
+        )));
+        assert!(duplicate.source().is_some());
+
+        assert!(
+            ArtifactError::UnsupportedVersion {
+                found: 1,
+                expected: 3
+            }
+            .source()
+            .is_none()
+        );
+        assert!(
+            ArtifactError::FingerprintMismatch {
+                recorded: "a".into(),
+                computed: "b".into(),
+            }
+            .source()
+            .is_none()
+        );
+    }
+}
