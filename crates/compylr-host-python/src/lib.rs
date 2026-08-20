@@ -1,5 +1,10 @@
 //! `compylr._core`: the compiler, exposed to Python.
 //!
+//! One of what will be several host bindings, and the only one that exists. Everything Python
+//! knows about compylr arrives through this crate; everything below it is a language-neutral
+//! pipeline that has no idea a host exists. A TypeScript host would be a sibling crate of the
+//! same standing, and nothing here would have to move for it.
+//!
 //! This is the seam between the two languages. Above it, Python decides *what* to compile and
 //! *when*; below it, everything is the Rust pipeline. Compiling in-process rather than shelling
 //! out matters for one concrete reason: diagnostics stay structured. A subprocess would have to
@@ -14,21 +19,25 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
-use crate::backend::{self, BackendError, GeneratedFiles};
-use crate::bridge_registry::{self, BridgeError};
-use crate::error::{LowerError, SourceError};
-use crate::frontend::{self, FrontendError, LoweringError, parse_source};
-use crate::lower::lower_source_members;
-use compylr_core::bridge::BuildKey;
+use compylr_core::backend::{BackendError, GeneratedFiles};
+use compylr_core::bridge::{BridgeError, BuildKey};
+use compylr_core::frontend::{FrontendError, LoweringError};
 use compylr_core::negotiation::{UnmetGuarantee, negotiate};
 use compylr_core::pass::{self, PassConfig};
 use compylr_core::verify::verify;
+use compylr_diagnostics::error::LowerError;
+use compylr_frontend_python::error::SourceError;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source_members;
+use compylr_registry::{backends, bridges, frontends, passes};
 
-/// The source language every compilation currently uses.
+/// The source language a caller gets when it does not name one.
 ///
-/// Named rather than assumed: the frontend is resolved through the registry like the backend is,
-/// so a second source language is a registry entry rather than a branch here.
-const SOURCE_LANGUAGE: &str = "python";
+/// A default, not an assumption: every entry point takes a frontend name and resolves it through
+/// the registry, so a second source language is a registry entry and a different argument rather
+/// than a branch anywhere in this crate. The default is Python because this is the Python host and
+/// its callers write Python — which is a fact about the caller, not about the compiler.
+pub const DEFAULT_FRONTEND: &str = "python";
 
 /// Everything a successful compilation produces.
 #[derive(Debug, Clone)]
@@ -139,7 +148,12 @@ impl From<LoweringError> for CompileFailure {
 /// always produces. Because callee resolution happens over the assembled unit rather than during
 /// lowering, the result does not depend on the order the sources arrive.
 pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, CompileFailure> {
-    compile_with(sources, backend_name, &PassConfig::default())
+    compile_with(
+        sources,
+        DEFAULT_FRONTEND,
+        backend_name,
+        &PassConfig::default(),
+    )
 }
 
 /// The same, with the pass pipeline configured explicitly.
@@ -149,6 +163,7 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
 /// silently standing in for the other is the failure this split prevents.
 pub fn compile_with(
     sources: &[String],
+    frontend_name: &str,
     backend_name: &str,
     config: &PassConfig,
 ) -> Result<Compiled, CompileFailure> {
@@ -157,12 +172,11 @@ pub fn compile_with(
     //
     // The value is not used: the files come from the (python, rust) bridge, since a calling
     // convention belongs to the pair. Resolution is still what rejects an unusable target name.
-    let backend = backend::lookup(backend_name).map_err(CompileFailure::Backend)?;
-    let frontend = frontend::lookup(SOURCE_LANGUAGE).map_err(CompileFailure::Frontend)?;
+    let backend = backends::lookup(backend_name).map_err(CompileFailure::Backend)?;
+    let frontend = frontends::lookup(frontend_name).map_err(CompileFailure::Frontend)?;
     // Resolved by pair. A target compylr can generate but not call back from fails here, with a
     // message naming both languages rather than claiming the target does not exist.
-    let host =
-        bridge_registry::lookup(SOURCE_LANGUAGE, backend_name).map_err(CompileFailure::Bridge)?;
+    let host = bridges::lookup(frontend_name, backend_name).map_err(CompileFailure::Bridge)?;
 
     // Parsing, gathering signatures across sources, and lowering are all the frontend's, because
     // they are Python's typing rules rather than the pipeline's. What comes back is a unit.
@@ -193,7 +207,7 @@ pub fn compile_with(
     // the program means is refused by name rather than discovered as a wrong answer.
     negotiate(&unit, backend).map_err(CompileFailure::Guarantee)?;
 
-    let directed = compylr_registry::passes::for_pair(SOURCE_LANGUAGE, backend_name);
+    let directed = passes::for_pair(frontend_name, backend_name);
     let report = pass::run(&mut unit, config, &directed).map_err(|error| {
         CompileFailure::Backend(BackendError::Unsupported {
             detail: error.to_string(),
@@ -363,9 +377,14 @@ impl From<Compiled> for PyCompiledUnit {
 
 /// Compile source texts for a backend.
 #[pyfunction]
-#[pyo3(signature = (sources, backend = "rust"))]
-fn compile_unit(py: Python<'_>, sources: Vec<String>, backend: &str) -> PyResult<PyCompiledUnit> {
-    match compile(&sources, backend) {
+#[pyo3(signature = (sources, backend = "rust", frontend = DEFAULT_FRONTEND))]
+fn compile_unit(
+    py: Python<'_>,
+    sources: Vec<String>,
+    backend: &str,
+    frontend: &str,
+) -> PyResult<PyCompiledUnit> {
+    match compile_with(&sources, frontend, backend, &PassConfig::default()) {
         Ok(compiled) => Ok(compiled.into()),
         Err(failure) => Err(failure.into_py_err(py)),
     }
@@ -406,19 +425,19 @@ fn validate_source(py: Python<'_>, source: &str) -> PyResult<Vec<String>> {
 /// Every backend name compylr recognizes, implemented or not.
 #[pyfunction]
 fn backend_names() -> Vec<String> {
-    backend::names().into_iter().map(str::to_string).collect()
+    backends::names().into_iter().map(str::to_string).collect()
 }
 
 /// Every backend name that can compile today.
 #[pyfunction]
 fn implemented_backends() -> Vec<String> {
-    backend::implemented_names()
+    backends::implemented_names()
 }
 
 /// Resolve a backend name, raising if it cannot be used.
 #[pyfunction]
 fn check_backend(name: &str) -> PyResult<()> {
-    backend::lookup(name)
+    backends::lookup(name)
         .map(|_| ())
         .map_err(|error| BackendNotAvailableError::new_err(error.to_string()))
 }

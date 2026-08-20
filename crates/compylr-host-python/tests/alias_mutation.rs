@@ -9,9 +9,9 @@
 //! The transitive case is the one that matters most. A rule that stops at one binding is defeated
 //! by writing two, and the failure is silent: the program compiles and diverges.
 
-use compylr::error::LowerErrorKind;
-use compylr::frontend::parse_source;
-use compylr::lower::lower_source;
+use compylr_diagnostics::error::LowerErrorKind;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source;
 
 fn accepts(source: &str) {
     let parsed = parse_source(source).expect("fixture must parse");

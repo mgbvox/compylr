@@ -39,8 +39,16 @@ class UnsupportedProgramError(CompilationError):
 class BackendNotAvailableError(CompylrError):
     """The requested backend is unknown, or reserved but not implemented."""
 
-def compile_unit(sources: list[str], backend: str = "rust") -> CompiledUnit:
-    """Compile source texts into a target artifact."""
+def compile_unit(
+    sources: list[str], backend: str = "rust", frontend: str = "python"
+) -> CompiledUnit:
+    """Compile source texts into a target artifact.
+
+    Both ends of the pipeline are named and defaulted. `frontend` is not a knob anybody needs
+    today -- there is one source language -- but hardcoding it would have made the Python host the
+    only caller that could not ask for another, which is the asymmetry the workspace exists to
+    avoid.
+    """
 
 def validate_source(source: str) -> list[str]:
     """Check one source against the supported subset, returning its function names."""

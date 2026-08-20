@@ -5,11 +5,11 @@
 //! expression statement would let dead code and inexpressible side effects through silently, which
 //! is the failure this narrowness exists to prevent.
 
-use compylr::backend::lookup;
-use compylr::error::LowerErrorKind;
-use compylr::frontend::parse_source;
-use compylr::ir::{Function, Stmt, Unit};
-use compylr::lower::lower_source;
+use compylr_diagnostics::error::LowerErrorKind;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source;
+use compylr_ir::{Function, Stmt, Unit};
+use compylr_registry::backends::lookup;
 
 fn lower(source: &str) -> Vec<Function> {
     let parsed = parse_source(source).expect("fixture must parse");

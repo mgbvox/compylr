@@ -10,17 +10,17 @@
 //! the frontend requires is withheld with a reason. "Why is compylr not emitting the fast thing?"
 //! is otherwise unanswerable.
 
-use compylr::Guarantee;
-use compylr::bridge::{CompileFailure, compile};
-use compylr::ir::{Expr, Function, Literal, Stmt, Ty, Unit};
-use compylr::span::Span;
+use compylr::{CompileFailure, compile};
 use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
 use compylr_core::negotiation::{negotiate, resolve_options, withheld_by_default};
+use compylr_diagnostics::span::Span;
+use compylr_ir::Guarantee;
+use compylr_ir::{Expr, Function, Literal, Stmt, Ty, Unit};
 
 const DOUBLE: &str = "def double(n: int) -> int:\n    return n * 2\n";
 
 fn python_unit() -> Unit {
-    compylr::frontend::lookup("python")
+    compylr_registry::frontends::lookup("python")
         .unwrap()
         .lower(&[DOUBLE.to_string()])
         .expect("must lower")
@@ -28,7 +28,7 @@ fn python_unit() -> Unit {
 
 #[test]
 fn the_rust_backend_covers_everything_the_python_frontend_requires() {
-    let backend = compylr::backend::lookup("rust").unwrap();
+    let backend = compylr_registry::backends::lookup("rust").unwrap();
     let unit = python_unit();
 
     // Asserted rather than inspected: the two lists are declared in different crates, and nothing
@@ -109,7 +109,7 @@ fn a_hand_built_unit_negotiates_with_any_backend() {
 /// A guarantee-violating transformation is not applied by default, and says why.
 #[test]
 fn a_guarantee_violating_option_is_withheld_and_reportable() {
-    let backend = compylr::backend::lookup("rust").unwrap();
+    let backend = compylr_registry::backends::lookup("rust").unwrap();
     let unit = python_unit();
 
     let withheld = withheld_by_default(&unit, backend);
@@ -128,7 +128,7 @@ fn a_guarantee_violating_option_is_withheld_and_reportable() {
 /// Asking for it explicitly does not get it either, because the requirement still stands.
 #[test]
 fn permitting_a_violating_option_still_withholds_it() {
-    let backend = compylr::backend::lookup("rust").unwrap();
+    let backend = compylr_registry::backends::lookup("rust").unwrap();
     let unit = python_unit();
 
     let (applied, withheld) =
@@ -141,7 +141,7 @@ fn permitting_a_violating_option_still_withholds_it() {
 /// A name the backend does not offer is a typo, and is reported as one.
 #[test]
 fn an_unknown_option_is_refused() {
-    let backend = compylr::backend::lookup("rust").unwrap();
+    let backend = compylr_registry::backends::lookup("rust").unwrap();
     let unit = python_unit();
 
     let error =
@@ -156,7 +156,7 @@ fn an_unknown_option_is_refused() {
 /// failure mode the registries' reserved/unknown split already exists to avoid.
 #[test]
 fn a_reserved_option_says_so_rather_than_silently_doing_nothing() {
-    let backend = compylr::backend::lookup("rust").unwrap();
+    let backend = compylr_registry::backends::lookup("rust").unwrap();
     // A unit with no origin requires nothing, so the option is not withheld on those grounds.
     let unit = Unit::new();
 
@@ -169,7 +169,7 @@ fn a_reserved_option_says_so_rather_than_silently_doing_nothing() {
 /// Formatting is meaning-preserving, so it needs no permission and is applied on the way out.
 #[test]
 fn emitted_source_is_formatted_outside_emission() {
-    let backend = compylr::backend::lookup("rust").unwrap();
+    let backend = compylr_registry::backends::lookup("rust").unwrap();
     let unit = python_unit();
 
     let raw = backend.emit(&unit).unwrap();

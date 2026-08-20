@@ -6,17 +6,17 @@
 //! which will not have re-derived them — and whose mistakes would otherwise arrive as a backend
 //! complaining about Rust rather than as a diagnostic about the program.
 
-use compylr::bridge::{CompileFailure, compile, compile_with};
-use compylr::ir::{Expr, Function, Param, Stmt, Ty, Unit};
-use compylr::span::Span;
+use compylr::{CompileFailure, compile, compile_with};
 use compylr_core::pass::{Optimization, PassConfig};
 use compylr_core::verify::verify;
+use compylr_diagnostics::span::Span;
+use compylr_ir::{Expr, Function, Param, Stmt, Ty, Unit};
 
 const DOUBLE: &str = "def double(n: int) -> int:\n    return n * 2\n";
 
 #[test]
 fn an_accepted_program_verifies() {
-    let unit = compylr::frontend::lookup("python")
+    let unit = compylr_registry::frontends::lookup("python")
         .unwrap()
         .lower(&[DOUBLE.to_string()])
         .unwrap();
@@ -65,9 +65,16 @@ fn the_default_pipeline_reports_what_ran() {
 /// required to match, which is what the execution tests check.
 #[test]
 fn optimization_off_produces_the_same_program() {
-    let optimized = compile_with(&[DOUBLE.to_string()], "rust", &PassConfig::default()).unwrap();
+    let optimized = compile_with(
+        &[DOUBLE.to_string()],
+        "python",
+        "rust",
+        &PassConfig::default(),
+    )
+    .unwrap();
     let plain = compile_with(
         &[DOUBLE.to_string()],
+        "python",
         "rust",
         &PassConfig {
             optimization: Optimization::None,
@@ -86,9 +93,16 @@ fn optimization_off_produces_the_same_program() {
 /// The two builds are the same program and different artifacts, and the names say both.
 #[test]
 fn builds_under_different_configurations_load_under_different_names() {
-    let optimized = compile_with(&[DOUBLE.to_string()], "rust", &PassConfig::default()).unwrap();
+    let optimized = compile_with(
+        &[DOUBLE.to_string()],
+        "python",
+        "rust",
+        &PassConfig::default(),
+    )
+    .unwrap();
     let plain = compile_with(
         &[DOUBLE.to_string()],
+        "python",
         "rust",
         &PassConfig {
             optimization: Optimization::None,
@@ -107,9 +121,16 @@ fn builds_under_different_configurations_load_under_different_names() {
 #[test]
 fn a_folded_constant_appears_in_the_ir_artifact() {
     let folding = "def answer() -> int:\n    return 6 * 7\n";
-    let optimized = compile_with(&[folding.to_string()], "rust", &PassConfig::default()).unwrap();
+    let optimized = compile_with(
+        &[folding.to_string()],
+        "python",
+        "rust",
+        &PassConfig::default(),
+    )
+    .unwrap();
     let plain = compile_with(
         &[folding.to_string()],
+        "python",
         "rust",
         &PassConfig {
             optimization: Optimization::None,
@@ -136,9 +157,16 @@ fn a_folded_constant_appears_in_the_ir_artifact() {
 /// code, and every project would rebuild on a compiler setting nobody changed in their source.
 #[test]
 fn the_fingerprint_does_not_move_with_the_pass_configuration() {
-    let optimized = compile_with(&[DOUBLE.to_string()], "rust", &PassConfig::default()).unwrap();
+    let optimized = compile_with(
+        &[DOUBLE.to_string()],
+        "python",
+        "rust",
+        &PassConfig::default(),
+    )
+    .unwrap();
     let plain = compile_with(
         &[DOUBLE.to_string()],
+        "python",
         "rust",
         &PassConfig {
             optimization: Optimization::None,

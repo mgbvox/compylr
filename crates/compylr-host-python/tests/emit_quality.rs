@@ -7,13 +7,26 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use compylr::backend::{format_source, lookup};
-use compylr::frontend::parse_file;
-use compylr::ir::Unit;
-use compylr::lower::lower_source_members;
+use compylr_core::backend::format_source;
+use compylr_frontend_python::frontend::parse_file;
+use compylr_frontend_python::lower::lower_source_members;
+use compylr_ir::Unit;
+use compylr_registry::backends::lookup;
+
+/// The workspace root, which the fixture tree hangs off.
+///
+/// `CARGO_MANIFEST_DIR` is this crate's directory, two levels down since the host binding moved
+/// under `crates/` alongside every other crate.
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the crate lives at <root>/crates/<name>")
+        .to_path_buf()
+}
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/fixtures/accepted")
+    workspace_root().join("python/fixtures/accepted")
 }
 
 /// Build a unit from one or more fixtures.

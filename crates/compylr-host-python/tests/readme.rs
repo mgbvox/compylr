@@ -14,11 +14,17 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use compylr::ir::{BinOp, DivMode, RemSign, Rounding, Ty};
 use compylr_frontend_python::{PythonOperator, PythonTypeName};
+use compylr_ir::{BinOp, DivMode, RemSign, Rounding, Ty};
 
 fn repo_root() -> PathBuf {
+    // `CARGO_MANIFEST_DIR` is this crate's directory, two levels down since the host binding
+    // moved under `crates/` alongside every other crate.
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the crate lives at <root>/crates/<name>")
+        .to_path_buf()
 }
 
 fn readme() -> String {
@@ -131,18 +137,15 @@ fn readme_layout_covers_every_crate() {
 ///
 /// This is the check that catches the common failure: a rename lands, and the README keeps
 /// pointing at a file that is no longer there.
+///
+/// The roots are the directories that exist *at the workspace root*. `tests/` is not one of them
+/// any more — the integration suite moved under `crates/compylr-host-python/` with the package it
+/// belongs to — so a bare `tests/` in the layout block is a nested entry rather than a path, and
+/// is left alone.
 #[test]
 fn readme_references_only_paths_that_exist() {
     let text = readme();
-    let roots = [
-        "src/",
-        "crates/",
-        "scripts/",
-        "python/",
-        "openspec/",
-        "tests/",
-        "vendored/",
-    ];
+    let roots = ["crates/", "scripts/", "python/", "openspec/", "vendored/"];
     let mut checked = 0;
 
     for raw in text.split(|c: char| c.is_whitespace() || c == '`' || c == '(' || c == ')') {

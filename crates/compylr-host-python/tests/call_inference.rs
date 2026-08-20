@@ -9,10 +9,10 @@
 //! would make acceptance depend on decoration order, which is exactly what unit validation exists
 //! to prevent.
 
-use compylr::error::LowerErrorKind;
-use compylr::frontend::parse_source;
-use compylr::ir::{Expr, Function, Stmt, Ty, Unit};
-use compylr::lower::{collect_signatures, lower_source};
+use compylr_diagnostics::error::LowerErrorKind;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::{collect_signatures, lower_source};
+use compylr_ir::{Expr, Function, Stmt, Ty, Unit};
 
 fn lower(source: &str) -> Vec<Function> {
     let parsed = parse_source(source).expect("fixture must parse");

@@ -5,7 +5,7 @@
 //! a subset rejection are distinguishable" is a claim about Python classes and cannot be checked
 //! any other way.
 
-use compylr::bridge::{CompileFailure, compile};
+use compylr::{CompileFailure, compile};
 
 const ADD: &str = "def add(a: int, b: int) -> int:\n    return a + b\n";
 
@@ -171,7 +171,7 @@ fn the_fingerprint_ignores_formatting_but_follows_meaning() {
 
 /// The exception hierarchy, checked under a real interpreter.
 mod python_exceptions {
-    use compylr::bridge::compile;
+    use compylr::compile;
     use pyo3::Python;
     use pyo3::types::{PyAnyMethods, PyStringMethods, PyTypeMethods};
 
@@ -235,10 +235,10 @@ mod python_exceptions {
                 let failure = compile(&[source.to_string()], "rust").expect_err("must fail");
                 let err = failure.into_py_err(py);
                 assert!(
-                    err.is_instance_of::<compylr::bridge::CompylrError>(py),
+                    err.is_instance_of::<compylr::CompylrError>(py),
                     "a caller must be able to handle any compylr failure with one except clause"
                 );
-                assert!(err.is_instance_of::<compylr::bridge::CompilationError>(py));
+                assert!(err.is_instance_of::<compylr::CompilationError>(py));
             }
         });
     }
@@ -254,8 +254,8 @@ mod python_exceptions {
             )
             .expect_err("must fail");
             let err = failure.into_py_err(py);
-            assert!(err.is_instance_of::<compylr::bridge::CompylrError>(py));
-            assert!(!err.is_instance_of::<compylr::bridge::CompilationError>(py));
+            assert!(err.is_instance_of::<compylr::CompylrError>(py));
+            assert!(!err.is_instance_of::<compylr::CompilationError>(py));
         });
     }
 }

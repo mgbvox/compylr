@@ -36,8 +36,11 @@ The pipeline is complete end to end for the supported subset:
 source text ──frontend──> tree ──lower──> IR ──verify──> passes ──backend──> Rust ──bridge──> extension
 ```
 
-The workspace is eight crates, and the dependency edges are the enforcement mechanism rather than
-a convention. `compylr-backend-rust` cannot name Python because no Python parser is reachable
+The workspace is nine crates and the root is a virtual manifest — no language's crate sits above
+the others. Three crates name Python, and each is named for the *job*: a frontend that reads it, a
+bridge that makes generated Rust callable from it, and a host binding that exposes the compiler to
+it. A TypeScript host would be `compylr-host-typescript` beside them. The dependency edges are the
+enforcement mechanism rather than a convention. `compylr-backend-rust` cannot name Python because no Python parser is reachable
 from it; `compylr-ir` cannot name Rust for the same reason. `tests/crate_boundaries.rs` reads the
 manifests and fails when an edge appears that would make either claim false. If you find yourself
 wanting to add a dependency to `compylr-diagnostics` or `compylr-ir`, that is the signal to stop:
@@ -173,7 +176,8 @@ Known gaps worth knowing before you trip on them:
   an interpreted outer call into compiled inner ones.
 * **`compylr` is now the Python console script**, not the Rust binary. The binary lives in
   `compylr-cli` and keeps `--emit`; a bare `cargo run` has no target to pick, so it is
-  `cargo run -p compylr-cli --`. Precompiling **imports** the project, because a decorator only
+  `cargo run -p compylr-cli --`. Both ends of the pipeline are selectable — `--frontend` and
+  `--backend` — and both default rather than being assumed. Precompiling **imports** the project, because a decorator only
   registers when it runs, and it imports packages the way the runtime does: a synthetic root
   package is registered and a package's own module runs before anything below it. Discovery is
   bounded to the root and skips environments, caches, and build output.
@@ -193,8 +197,10 @@ Known gaps worth knowing before you trip on them:
 
 Do not conflate them:
 
-* `src/bridge.rs` exposes **the compiler** to Python as `compylr._core`, built from this repo.
-  This is the only crate in the workspace that links PyO3.
+* `crates/compylr-host-python/` exposes **the compiler** to Python as `compylr._core`, built from
+  this repo. It is the only crate that links PyO3, and `crate_boundaries.rs` states that rule over
+  the `compylr-host-*` prefix rather than over its name — a `compylr-host-typescript` linking
+  napi-rs would pass for the same reason, and neither is special.
 * `crates/compylr-bridge-python-rust/` **generates** PyO3 code onto the user's functions, built at
   runtime into a separate crate (`compylr_generated_<fingerprint>_<variant>`). It emits PyO3
   source as *text* and does not itself depend on PyO3 — `tests/crate_boundaries.rs` asserts that.

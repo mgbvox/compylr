@@ -5,11 +5,11 @@
 //! semantic ones: a helper can look right and compute the wrong thing. Semantics are covered in
 //! `tests/execution.rs`, which compiles and runs what is emitted.
 
-use compylr::backend::lookup;
-use compylr::frontend::parse_source;
-use compylr::ir::{BinOp, DivMode, Expr, Function, Param, Stmt, Ty, Unit};
-use compylr::lower::lower_source;
-use compylr::span::Span;
+use compylr_diagnostics::span::Span;
+use compylr_frontend_python::frontend::parse_source;
+use compylr_frontend_python::lower::lower_source;
+use compylr_ir::{BinOp, DivMode, Expr, Function, Param, Stmt, Ty, Unit};
+use compylr_registry::backends::lookup;
 
 /// Lower source into a unit and return its translated functions.
 fn emit(source: &str) -> String {
@@ -97,10 +97,13 @@ fn emission_leaves_the_ir_unchanged() {
 fn the_ir_module_names_no_rust_types() {
     // The mapping belongs to the backend. If a Rust spelling appears in the IR, a second
     // backend has already been made harder to write.
-    let ir = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/crates/compylr-ir/src/ir.rs"
-    ))
+    let ir = std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("the crate lives at <root>/crates/<name>")
+            .join("crates/compylr-ir/src/ir.rs"),
+    )
     .unwrap();
     let code: String = ir
         .lines()

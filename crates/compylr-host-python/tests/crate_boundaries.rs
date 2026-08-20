@@ -14,7 +14,13 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 fn repo_root() -> PathBuf {
+    // `CARGO_MANIFEST_DIR` is this crate's directory, two levels down since the host binding
+    // moved under `crates/` alongside every other crate.
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the crate lives at <root>/crates/<name>")
+        .to_path_buf()
 }
 
 /// The direct dependency names declared by a crate's manifest, dev-dependencies excluded.
@@ -93,19 +99,62 @@ fn only_the_python_frontend_depends_on_a_python_parser() {
     }
 }
 
-/// Nothing below the assembly layer may depend on PyO3.
+/// Only a host binding may link a host language's runtime.
 ///
-/// Generating PyO3 code is emitting text and needs no PyO3 dependency. The only crate that links
-/// it is the one that *is* a Python extension module — the root `compylr` package.
+/// `compylr-host-python` links PyO3 because it *is* a Python extension module. Nothing else may:
+/// generating PyO3 code is emitting text and needs no dependency on it, and a crate below the host
+/// layer that linked one would be a crate that only works when that language is present.
+///
+/// Stated over the `compylr-host-*` prefix rather than over one crate's name, so that a
+/// `compylr-host-typescript` linking napi-rs passes for the same reason and neither is special.
 #[test]
-fn no_workspace_crate_links_pyo3() {
+fn only_a_host_binding_links_a_host_runtime() {
+    const HOST_RUNTIMES: [&str; 3] = ["pyo3", "napi", "wasm-bindgen"];
+
     for name in every_crate() {
-        assert!(
-            !direct_dependencies(&name).contains("pyo3"),
-            "{name} depends on pyo3; only the root `compylr` package, which is the extension \
-             module itself, may link it"
-        );
+        let is_host = name.starts_with("compylr-host-");
+        let deps = direct_dependencies(&name);
+        let linked: Vec<&&str> = HOST_RUNTIMES
+            .iter()
+            .filter(|r| deps.contains(**r))
+            .collect();
+
+        if is_host {
+            assert!(
+                !linked.is_empty(),
+                "{name} is a host binding and links no host runtime, so it cannot be one"
+            );
+        } else {
+            assert!(
+                linked.is_empty(),
+                "{name} depends on {linked:?}; only a `compylr-host-*` crate may link a host \
+                 language's runtime"
+            );
+        }
     }
+}
+
+/// Exactly one crate is the host binding for a given language.
+///
+/// A second one would mean two answers to "how does Python call this", and the registries have no
+/// way to choose between them.
+#[test]
+fn each_host_language_has_one_binding() {
+    let hosts: Vec<String> = every_crate()
+        .into_iter()
+        .filter(|name| name.starts_with("compylr-host-"))
+        .collect();
+    assert!(!hosts.is_empty(), "there must be at least one host binding");
+
+    let mut sorted = hosts.clone();
+    sorted.sort();
+    let count = sorted.len();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        count,
+        "host bindings must name distinct languages"
+    );
 }
 
 /// Diagnostics sits below everything, so it may depend on nothing.

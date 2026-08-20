@@ -5,7 +5,8 @@
 //! in. A compiler that intends to accept more than one source language cannot have one of them
 //! be the default by construction.
 
-use compylr::frontend::{self, FrontendError};
+use compylr_core::frontend::FrontendError;
+use compylr_registry::frontends as frontend;
 
 #[test]
 fn python_is_implemented() {
@@ -130,7 +131,7 @@ fn a_failure_carries_a_resolved_line_and_column() {
 /// The frontend declares what its source language needs preserved on the way to a target.
 #[test]
 fn the_python_frontend_declares_what_it_requires() {
-    use compylr::Guarantee;
+    use compylr_ir::Guarantee;
     let frontend = frontend::lookup("python").unwrap();
     let required = frontend.requires();
 
@@ -154,7 +155,7 @@ fn the_python_frontend_declares_what_it_requires() {
 /// mode the change exists to remove.
 mod declared_meanings {
     use super::*;
-    use compylr::ir::{BinOp, DivMode, Expr, RemSign, Rounding, Stmt};
+    use compylr_ir::{BinOp, DivMode, Expr, RemSign, Rounding, Stmt};
 
     fn operator_of(source: &str) -> BinOp {
         let frontend = frontend::lookup("python").unwrap();
@@ -202,7 +203,7 @@ mod declared_meanings {
     /// variant happened to mean.
     #[test]
     fn subscripting_declares_counting_from_either_end() {
-        use compylr::ir::IndexOrigin;
+        use compylr_ir::IndexOrigin;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
             .lower(&["def op(xs: list[int], i: int) -> int:\n    return xs[i]\n".to_string()])
@@ -217,7 +218,7 @@ mod declared_meanings {
 
     #[test]
     fn length_declares_code_points() {
-        use compylr::ir::TextUnits;
+        use compylr_ir::TextUnits;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
             .lower(&["def op(s: str) -> int:\n    return len(s)\n".to_string()])
@@ -235,7 +236,7 @@ mod declared_meanings {
     /// that safe.
     #[test]
     fn a_mapping_read_still_declares_one_origin() {
-        use compylr::ir::IndexOrigin;
+        use compylr_ir::IndexOrigin;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
             .lower(&["def op(d: dict[str, int], k: str) -> int:\n    return d[k]\n".to_string()])
@@ -251,7 +252,7 @@ mod declared_meanings {
     /// A lowered unit says which frontend produced it and what that language needs preserved.
     #[test]
     fn a_lowered_unit_records_its_origin() {
-        use compylr::Guarantee;
+        use compylr_ir::Guarantee;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
             .lower(&["def op(a: int, b: int) -> int:\n    return a + b\n".to_string()])

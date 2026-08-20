@@ -12,11 +12,11 @@
 
 use std::collections::BTreeMap;
 
-use compylr::ir::{
+use compylr_diagnostics::span::Span;
+use compylr_ir::{
     Attribute, BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param, RemSign,
     Rounding, Stmt, TextUnits, Ty, Unit,
 };
-use compylr::span::Span;
 
 fn param(name: &str, ty: Ty) -> Param {
     Param {
@@ -742,11 +742,12 @@ fn every_corpus_entry_is_well_formed() {
 /// that stays true without somebody remembering.
 #[test]
 fn every_implemented_backend_renders_the_whole_corpus() {
-    let backends = compylr::backend::implemented_names();
+    let backends = compylr_registry::backends::implemented_names();
     assert!(!backends.is_empty(), "at least one backend must compile");
 
     for backend_name in &backends {
-        let backend = compylr::backend::lookup(backend_name).expect("the registry listed it");
+        let backend =
+            compylr_registry::backends::lookup(backend_name).expect("the registry listed it");
         for (name, unit) in corpus() {
             let files = backend.emit(&unit).unwrap_or_else(|error| {
                 panic!("the '{backend_name}' backend cannot render corpus entry '{name}': {error}")
@@ -768,7 +769,7 @@ fn every_implemented_backend_renders_the_whole_corpus() {
 fn every_corpus_entry_compiles_for_the_rust_backend() {
     use std::process::Command;
 
-    let backend = compylr::backend::lookup("rust").expect("the shipped backend");
+    let backend = compylr_registry::backends::lookup("rust").expect("the shipped backend");
     for (name, unit) in corpus() {
         let files = backend.post_process(backend.emit(&unit).expect("must emit"));
         let dir =
@@ -803,8 +804,8 @@ fn the_corpus_needs_no_source_language() {
             unit.origin().is_none(),
             "corpus entry '{name}' must not claim a frontend"
         );
-        for backend_name in compylr::backend::implemented_names() {
-            let backend = compylr::backend::lookup(&backend_name).unwrap();
+        for backend_name in compylr_registry::backends::implemented_names() {
+            let backend = compylr_registry::backends::lookup(&backend_name).unwrap();
             assert!(compylr_core::negotiation::negotiate(&unit, backend).is_ok());
         }
     }
@@ -1024,10 +1025,13 @@ fn the_corpus_covers_both_method_receivers() {
 
 /// The variants of the IR's four central enums, read from its source.
 fn ir_variants() -> Vec<IrVariant> {
-    let source = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/crates/compylr-ir/src/ir.rs"
-    ))
+    let source = std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("the crate lives at <root>/crates/<name>")
+            .join("crates/compylr-ir/src/ir.rs"),
+    )
     .expect("the IR source must be readable");
 
     let mut found = Vec::new();
@@ -1081,9 +1085,9 @@ fn ir_variants() -> Vec<IrVariant> {
 /// diagnostic asks and no other test does.
 #[test]
 fn every_registry_can_enumerate_itself() {
-    let backends = compylr::backend::names();
-    let frontends = compylr::frontend::names();
-    let bridges = compylr::bridge_registry::pairs();
+    let backends = compylr_registry::backends::names();
+    let frontends = compylr_registry::frontends::names();
+    let bridges = compylr_registry::bridges::pairs();
     let directed = compylr_registry::passes::pairs();
 
     assert!(backends.contains(&"rust"));

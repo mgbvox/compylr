@@ -24,6 +24,11 @@ compylr = "compylr._precompile:main"
 [tool.maturin]
 # Mixed layout: the Python package lives in `python/compylr`, and the compiled half of it is
 # `compylr._core`. `python/fixtures` sits alongside but is not a package, so it is not packaged.
+#
+# The Rust half is `crates/compylr-host-python`, named for the job it does rather than for the
+# project -- the workspace root is a virtual manifest and no language's crate sits above the
+# others. Naming it here is what lets that be true.
+manifest-path = "crates/compylr-host-python/Cargo.toml"
 python-source = "python"
 module-name = "compylr._core"
 # Tells PyO3 not to link libpython, which is required for a wheel and would break `cargo test`.

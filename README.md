@@ -484,21 +484,26 @@ error: 2:12: operator '+' is not defined for 'bool' and 'bool'; booleans are not
 
 ## Layout
 
-A Cargo workspace. The dependency edges between the crates are the enforcement mechanism, not a
-convention: a crate that does not depend on a Python parser cannot name a Python construct, and a
-crate that does not depend on PyO3 cannot quietly grow a Python calling convention.
+A Cargo workspace, and the root is a workspace and nothing else — no language's crate sits above
+the others. Three of the nine name Python, and each is named for the *job* rather than for the
+project: a frontend that reads it, a bridge that makes generated Rust callable from it, and a host
+binding that exposes the compiler to it. A TypeScript host would be `compylr-host-typescript`
+beside them, with the same standing; what makes Python's three look privileged is only that they
+are the ones that exist.
+
+The dependency edges are the enforcement mechanism, not a convention: a crate that does not depend
+on a Python parser cannot name a Python construct, and only a `compylr-host-*` crate may link a
+host language's runtime.
 
 ```
-src/
-  lib.rs        the facade over the workspace crates
-  bridge.rs     compylr._core: the compiler, exposed to Python
 crates/
   compylr-diagnostics/         spans and located diagnostics; depends on nothing
   compylr-ir/                  the IR: types, expressions, statements, Unit, fingerprints, artifact
-  compylr-core/                the Backend trait and the component model; knows no implementation
+  compylr-core/                the traits and the component model; knows no implementation
   compylr-frontend-python/     ruff parsing and lowering; the only crate that depends on ruff
   compylr-backend-rust/        IR -> Rust source, plus the runtime shim embedded in generated crates
   compylr-bridge-python-rust/  the PyO3 layer generated onto compiled functions, for one pair
+  compylr-host-python/         compylr._core: the compiler itself, exposed to Python
   compylr-registry/            where implementations are registered; the one crate that knows them all
   compylr-cli/                 the `compylr` binary and its --emit surface
 python/
@@ -516,10 +521,10 @@ scripts/
 reports/        rendered spec EPUBs
 ```
 
-Two different things use PyO3 and conflating them causes lasting confusion. `src/bridge.rs`
-exposes **the compiler** to Python as `compylr._core`, built from this repo.
-`crates/compylr-bridge-python-rust/` *generates* PyO3 code onto **your** functions, built at
-runtime into a separate crate. Different crates, different lifecycles — and note that the
+Two different things use PyO3 and conflating them causes lasting confusion.
+`crates/compylr-host-python/` exposes **the compiler** to Python as `compylr._core`, built from
+this repo. `crates/compylr-bridge-python-rust/` *generates* PyO3 code onto **your** functions,
+built at runtime into a separate crate. Different crates, different lifecycles — and note that the
 generating crate does not itself depend on PyO3, because it emits PyO3 source as text.
 
 ## Design invariants
@@ -579,11 +584,15 @@ Conventions: tests before implementation; `cargo fmt`, `cargo clippy --workspace
 Three tests exist to stop documentation and structure drifting apart, and they are worth knowing
 about before a change surprises you:
 
-* `tests/readme.rs` checks this file against the code, so the type table, operator list, crate
-  layout, and referenced paths cannot drift silently.
-* `tests/crate_boundaries.rs` reads the manifests, so an edge that would let a backend name Python
-  or the IR reach a parser fails the suite rather than passing review.
-* `tests/conformance.rs` renders a corpus of hand-built IR through every backend the registry
-  reports as implemented, and fails if any IR node form has no entry. It is authored as IR rather
-  than as Python on purpose: a tree Python cannot express is a tree the fixtures can never
-  contain, and that is exactly where a backend can be silently wrong.
+The three live in `crates/compylr-host-python/tests/`, which is where the workspace's integration
+suite sits.
+
+* `readme.rs` checks this file against the code, so the type table, operator list, crate layout,
+  and referenced paths cannot drift silently.
+* `crate_boundaries.rs` reads the manifests, so an edge that would let a backend name Python, the
+  IR reach a parser, or a non-host crate link a host runtime fails the suite rather than passing
+  review.
+* `conformance.rs` renders a corpus of hand-built IR through every backend the registry reports as
+  implemented, and fails if any IR node form is unexercised in a position it is legal in. It is
+  authored as IR rather than as Python on purpose: a tree Python cannot express is a tree the
+  fixtures can never contain, and that is exactly where a backend can be silently wrong.

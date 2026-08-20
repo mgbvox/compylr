@@ -9,11 +9,11 @@
 //! The cost is therefore N x M, and these tests exist to keep it *visible*: a pair with a backend
 //! but no bridge is a specific, reportable answer rather than a missing method or a wrong guess.
 
-use compylr::bridge_registry;
-use compylr::ir::{Expr, Function, Literal, Param, Stmt, Ty, Unit};
-use compylr::span::Span;
 use compylr_core::bridge::BuildKey;
 use compylr_core::pass::Optimization;
+use compylr_diagnostics::span::Span;
+use compylr_ir::{Expr, Function, Literal, Param, Stmt, Ty, Unit};
+use compylr_registry::bridges as bridge_registry;
 
 fn key_for(unit: &Unit) -> BuildKey {
     BuildKey {
@@ -82,7 +82,7 @@ fn an_unbridged_pair_names_both_languages() {
 #[test]
 fn an_unbridged_pair_is_distinguishable_from_an_unimplemented_target() {
     let unbridged = bridge_registry::lookup("python", "go").expect_err("no bridge");
-    let unimplemented = compylr::backend::lookup("go").expect_err("no backend either");
+    let unimplemented = compylr_registry::backends::lookup("go").expect_err("no backend either");
 
     assert!(unbridged.is_unbridged());
     assert!(unimplemented.is_not_implemented());

@@ -23,21 +23,25 @@ use compylr_core::verify::verify;
 use compylr_frontend_python::PythonTypeName;
 use compylr_registry::{backends, bridges, frontends, passes};
 
-/// The source language, until there is a second one to choose between.
+/// The source language a caller gets when it does not name one.
 ///
-/// A constant rather than a hardcoded call: the name goes through the registry like any other,
-/// so adding a `--frontend` flag later is a change to argument parsing rather than to how a
-/// frontend is reached.
+/// A default, not an assumption. `--frontend` selects any other, resolved through the same
+/// registry `--backend` uses, so neither end of the pipeline is the one that has to be Python.
 const DEFAULT_FRONTEND: &str = "python";
 
+/// The target language a caller gets when it does not name one.
+const DEFAULT_BACKEND: &str = "rust";
+
 const USAGE: &str = "\
-usage: compylr [--emit summary|ir|rust|crate] [--out DIR] [--backend NAME] <file.py>
+usage: compylr [--emit summary|ir|rust|crate] [--out DIR]
+               [--frontend NAME] [--backend NAME] <file>
 
   --emit summary   unit fingerprint and each function's signature (default)
   --emit ir        the IR artifact, as JSON
   --emit rust      the translated functions, without performing a build
   --emit crate     every generated file; requires --out
   --out DIR        destination for --emit crate
+  --frontend NAME  source language (default: python)
   --backend NAME   target backend (default: rust)
 ";
 
@@ -71,6 +75,7 @@ impl Emit {
 struct Options {
     path: PathBuf,
     emit: Emit,
+    frontend: String,
     backend: String,
     out: Option<PathBuf>,
 }
@@ -82,7 +87,8 @@ struct Options {
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut path: Option<PathBuf> = None;
     let mut emit = Emit::Summary;
-    let mut backend = "rust".to_string();
+    let mut frontend = DEFAULT_FRONTEND.to_string();
+    let mut backend = DEFAULT_BACKEND.to_string();
     let mut out: Option<PathBuf> = None;
     let mut args = args.peekable();
 
@@ -91,6 +97,9 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--emit" => {
                 let value = args.next().ok_or("--emit needs a value")?;
                 emit = Emit::parse(&value)?;
+            }
+            "--frontend" => {
+                frontend = args.next().ok_or("--frontend needs a value")?;
             }
             "--backend" => {
                 backend = args.next().ok_or("--backend needs a value")?;
@@ -114,6 +123,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let options = Options {
         path: path.ok_or("no input file given")?,
         emit,
+        frontend,
         backend,
         out,
     };
@@ -158,7 +168,9 @@ fn run(options: &Options) -> Result<String, String> {
         // tell someone asking for TypeScript that no such target exists.
         error.to_string()
     })?;
-    let frontend = frontends::lookup(DEFAULT_FRONTEND).map_err(|error| error.to_string())?;
+    // Resolved the same way the backend is, and reporting the same three answers. A reserved
+    // source language reads as planned rather than as a typo.
+    let frontend = frontends::lookup(&options.frontend).map_err(|error| error.to_string())?;
 
     let source = std::fs::read_to_string(&options.path)
         .map_err(|error| format!("could not read {}: {error}", options.path.display()))?;
@@ -176,7 +188,7 @@ fn run(options: &Options) -> Result<String, String> {
     // The same passes a real build runs. A CLI that showed unoptimized source would answer
     // "what does this become?" with something the toolchain never sees, which is the one thing
     // this command exists not to do.
-    let directed = passes::for_pair(DEFAULT_FRONTEND, &options.backend);
+    let directed = passes::for_pair(&options.frontend, &options.backend);
     pass::run(&mut unit, &PassConfig::default(), &directed).map_err(|error| error.to_string())?;
 
     match options.emit {
@@ -213,7 +225,7 @@ fn run(options: &Options) -> Result<String, String> {
         Emit::Crate => {
             // A buildable crate, which means the host boundary as well as the translation — so
             // this form, unlike `--emit rust`, needs the pair to be bridged.
-            let host = bridges::lookup(DEFAULT_FRONTEND, &options.backend)
+            let host = bridges::lookup(&options.frontend, &options.backend)
                 .map_err(|error| error.to_string())?;
             let key = BuildKey {
                 fingerprint: unit.fingerprint(),
@@ -293,6 +305,29 @@ mod tests {
     #[test]
     fn the_backend_can_be_selected() {
         assert_eq!(parse(&["--backend", "go", "f.py"]).unwrap().backend, "go");
+    }
+
+    /// Both ends of the pipeline are selectable, and neither is the one that has to be Python.
+    #[test]
+    fn the_frontend_can_be_selected() {
+        assert_eq!(
+            parse(&["--frontend", "typescript", "f.ts"])
+                .unwrap()
+                .frontend,
+            "typescript"
+        );
+    }
+
+    #[test]
+    fn both_ends_default_when_unnamed() {
+        let options = parse(&["f.py"]).unwrap();
+        assert_eq!(options.frontend, DEFAULT_FRONTEND);
+        assert_eq!(options.backend, DEFAULT_BACKEND);
+    }
+
+    #[test]
+    fn a_frontend_without_a_value_is_refused() {
+        assert!(parse(&["--frontend"]).is_err());
     }
 
     #[test]
