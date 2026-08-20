@@ -380,7 +380,6 @@ fn classes() -> Unit {
                 ty: Ty::List(Box::new(Ty::Int)),
                 value: Expr::ListLit(vec![]),
             },
-            Stmt::ReturnUnit,
         ],
     );
 
@@ -502,6 +501,219 @@ fn calls() -> Unit {
     )
 }
 
+/// Every statement form, in every position a backend renders separately.
+///
+/// The corpus above covers each form once, which is what let the constructor defect through:
+/// `Stmt::ReturnUnit` was already exercised — in a *function* — while the bug was its behaviour in
+/// a **constructor**, which `emit_constructor` renders through a bespoke path. Forms are not the
+/// unit of coverage here; `(form, position)` pairs are.
+fn positions() -> Unit {
+    let discard = |name: &str| {
+        Stmt::Effect(Expr::Call {
+            callee: name.to_string(),
+            args: vec![],
+        })
+    };
+
+    // Every form legal at the top of a body that has a receiver, plus a loop holding the two that
+    // are legal nowhere else.
+    let body_with_receiver = |returning: Option<Expr>| {
+        let mut body = vec![
+            Stmt::SetAttr {
+                object: Expr::name("self"),
+                name: "count".to_string(),
+                ty: Ty::Int,
+                value: int(1),
+            },
+            Stmt::Bind {
+                name: "local".to_string(),
+                ty: Ty::Int,
+                value: int(0),
+            },
+            Stmt::Assign {
+                name: "local".to_string(),
+                ty: Ty::Int,
+                value: int(2),
+            },
+            Stmt::Bind {
+                name: "xs".to_string(),
+                ty: Ty::List(Box::new(Ty::Int)),
+                value: Expr::ListLit(vec![int(1)]),
+            },
+            Stmt::Bind {
+                name: "d".to_string(),
+                ty: Ty::Dict(Box::new(Ty::Int), Box::new(Ty::Int)),
+                value: Expr::DictLit(vec![]),
+            },
+            Stmt::Append {
+                sequence: Expr::name("xs"),
+                value: int(3),
+            },
+            Stmt::SetItem {
+                collection: Expr::name("d"),
+                index: int(1),
+                value: int(1),
+            },
+            discard("effectful"),
+            Stmt::If {
+                test: binary(BinOp::Lt, Expr::name("local"), int(9)),
+                then: vec![Stmt::Assign {
+                    name: "local".to_string(),
+                    ty: Ty::Int,
+                    value: int(3),
+                }],
+                otherwise: vec![],
+            },
+            Stmt::While {
+                test: binary(BinOp::Lt, Expr::name("local"), int(0)),
+                body: vec![Stmt::Break],
+            },
+            // The loop body: every form again, including the two that are legal only here.
+            Stmt::For {
+                name: "i".to_string(),
+                ty: Ty::Int,
+                iter: Expr::Range {
+                    start: Box::new(int(0)),
+                    stop: Box::new(int(3)),
+                    step: Box::new(int(1)),
+                },
+                body: vec![
+                    Stmt::SetAttr {
+                        object: Expr::name("self"),
+                        name: "count".to_string(),
+                        ty: Ty::Int,
+                        value: Expr::name("i"),
+                    },
+                    Stmt::Bind {
+                        name: "inner".to_string(),
+                        ty: Ty::Int,
+                        value: Expr::name("i"),
+                    },
+                    Stmt::Assign {
+                        name: "local".to_string(),
+                        ty: Ty::Int,
+                        value: Expr::name("inner"),
+                    },
+                    Stmt::Append {
+                        sequence: Expr::name("xs"),
+                        value: Expr::name("i"),
+                    },
+                    Stmt::SetItem {
+                        collection: Expr::name("d"),
+                        index: Expr::name("i"),
+                        value: int(0),
+                    },
+                    discard("effectful"),
+                    Stmt::While {
+                        test: binary(BinOp::Lt, Expr::name("local"), int(0)),
+                        body: vec![Stmt::Break],
+                    },
+                    Stmt::For {
+                        name: "j".to_string(),
+                        ty: Ty::Int,
+                        iter: Expr::Range {
+                            start: Box::new(int(0)),
+                            stop: Box::new(int(1)),
+                            step: Box::new(int(1)),
+                        },
+                        body: vec![Stmt::Continue],
+                    },
+                    Stmt::If {
+                        test: binary(BinOp::Gt, Expr::name("i"), int(1)),
+                        then: vec![Stmt::Break],
+                        otherwise: vec![Stmt::Continue],
+                    },
+                ],
+            },
+        ];
+        // A constructor may not return at all, so `None` simply ends the body.
+        if let Some(value) = returning {
+            body.push(Stmt::Return(value));
+        }
+        body
+    };
+
+    // A free function: the same, minus the attribute assignment it has no receiver for.
+    let free_body = {
+        let mut body = body_with_receiver(Some(int(0)));
+        body.retain(|stmt| !matches!(stmt, Stmt::SetAttr { .. }));
+        if let Some(Stmt::For {
+            body: loop_body, ..
+        }) = body.iter_mut().find(|s| matches!(s, Stmt::For { .. }))
+        {
+            loop_body.retain(|stmt| !matches!(stmt, Stmt::SetAttr { .. }));
+        }
+        body
+    };
+
+    let class = Class {
+        name: "Positions".to_string(),
+        attributes: vec![Attribute {
+            name: "count".to_string(),
+            ty: Ty::Int,
+        }],
+        init: function("__init__", vec![], Ty::Unit, body_with_receiver(None)),
+        methods: BTreeMap::from([
+            // A mutating receiver: it assigns an attribute.
+            (
+                "mutate".to_string(),
+                function("mutate", vec![], Ty::Unit, body_with_receiver(None)),
+            ),
+            // A shared receiver: it only reads.
+            (
+                "read".to_string(),
+                function(
+                    "read",
+                    vec![],
+                    Ty::Int,
+                    vec![Stmt::Return(Expr::Attribute {
+                        object: Box::new(Expr::name("self")),
+                        name: "count".to_string(),
+                    })],
+                ),
+            ),
+        ]),
+        doc: None,
+        span: Span::default(),
+    };
+
+    // Returning from inside a loop, in both flavours. Kept out of the shared body above because a
+    // constructor may not return at all, and that body is used for one.
+    let returning_loop = |returned: Option<Expr>| Stmt::For {
+        name: "k".to_string(),
+        ty: Ty::Int,
+        iter: Expr::Range {
+            start: Box::new(int(0)),
+            stop: Box::new(int(2)),
+            step: Box::new(int(1)),
+        },
+        body: vec![Stmt::If {
+            test: binary(BinOp::Gt, Expr::name("k"), int(0)),
+            then: vec![match returned {
+                Some(value) => Stmt::Return(value),
+                None => Stmt::ReturnUnit,
+            }],
+            otherwise: vec![],
+        }],
+    };
+
+    let mut free_body = free_body;
+    free_body.insert(free_body.len() - 1, returning_loop(Some(int(7))));
+
+    unit_of(
+        vec![
+            function(
+                "effectful",
+                vec![],
+                Ty::Unit,
+                vec![returning_loop(None), Stmt::ReturnUnit],
+            ),
+            function("everywhere", vec![], Ty::Int, free_body),
+        ],
+        vec![class],
+    )
+}
+
 /// The corpus, by name.
 fn corpus() -> Vec<(&'static str, Unit)> {
     vec![
@@ -511,6 +723,7 @@ fn corpus() -> Vec<(&'static str, Unit)> {
         ("control-flow", control_flow()),
         ("classes", classes()),
         ("calls", calls()),
+        ("positions", positions()),
     ]
 }
 
@@ -638,6 +851,175 @@ struct IrVariant {
     name: String,
     /// Whether the variant carries a payload, which decides how serde writes it.
     carries_data: bool,
+}
+
+/// Where in a unit a statement appears.
+///
+/// These are the positions a backend renders through *different code*, which is the only
+/// distinction that matters for coverage. Methods differ from free functions in their receiver,
+/// constructors are rendered by a bespoke path entirely, and a loop body goes through the loop
+/// emitters. Two methods differing only in receiver mutability share a statement path, so they are
+/// one position here and are covered separately by the corpus holding both kinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Position {
+    FreeFunction,
+    Constructor,
+    Method,
+    Loop,
+}
+
+impl Position {
+    fn name(self) -> &'static str {
+        match self {
+            Self::FreeFunction => "a free function's body",
+            Self::Constructor => "a constructor's body",
+            Self::Method => "a method's body",
+            Self::Loop => "a loop body",
+        }
+    }
+
+    /// Whether a statement form can legally appear here.
+    ///
+    /// Coverage is only required where the combination is legal; demanding the impossible would
+    /// make the check unsatisfiable rather than informative.
+    fn admits(self, form: &str) -> bool {
+        match (self, form) {
+            // Loop control needs an enclosing loop.
+            (Self::Loop, _) => true,
+            (_, "Break" | "Continue") => false,
+            // A free function has no receiver to assign an attribute of.
+            (Self::FreeFunction, "SetAttr") => false,
+            // A constructor produces the instance it builds, so it may not return at all.
+            (Self::Constructor, "Return" | "ReturnUnit") => false,
+            _ => true,
+        }
+    }
+}
+
+/// Every `(statement form, position)` pair the corpus exercises.
+fn covered_pairs() -> BTreeMap<String, Vec<Position>> {
+    fn walk(stmts: &[Stmt], position: Position, seen: &mut BTreeMap<String, Vec<Position>>) {
+        for stmt in stmts {
+            let form = statement_form(stmt);
+            let positions = seen.entry(form).or_default();
+            if !positions.contains(&position) {
+                positions.push(position);
+            }
+            match stmt {
+                Stmt::If {
+                    then, otherwise, ..
+                } => {
+                    walk(then, position, seen);
+                    walk(otherwise, position, seen);
+                }
+                Stmt::While { body, .. } | Stmt::For { body, .. } => {
+                    walk(body, Position::Loop, seen);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut seen = BTreeMap::new();
+    for (_, unit) in corpus() {
+        for function in unit.functions() {
+            walk(&function.body, Position::FreeFunction, &mut seen);
+        }
+        for class in unit.classes() {
+            walk(&class.init.body, Position::Constructor, &mut seen);
+            for method in class.methods.values() {
+                walk(&method.body, Position::Method, &mut seen);
+            }
+        }
+    }
+    seen
+}
+
+fn statement_form(stmt: &Stmt) -> String {
+    match stmt {
+        Stmt::Return(_) => "Return",
+        Stmt::ReturnUnit => "ReturnUnit",
+        Stmt::Bind { .. } => "Bind",
+        Stmt::Assign { .. } => "Assign",
+        Stmt::Effect(_) => "Effect",
+        Stmt::SetAttr { .. } => "SetAttr",
+        Stmt::SetItem { .. } => "SetItem",
+        Stmt::Append { .. } => "Append",
+        Stmt::If { .. } => "If",
+        Stmt::While { .. } => "While",
+        Stmt::For { .. } => "For",
+        Stmt::Break => "Break",
+        Stmt::Continue => "Continue",
+    }
+    .to_string()
+}
+
+/// Every statement form must be exercised in every position it is legal in.
+///
+/// Forms alone are not enough, and the corpus proved it: `Stmt::ReturnUnit` was covered — in a
+/// function — while the defect was its behaviour in a **constructor**, which is rendered by its
+/// own emitter. Checking pairs rather than forms is what turns "the corpus is complete" from a
+/// claim about the IR into a claim about the backend's code paths.
+///
+/// Running this check for the first time found four defects, three of them reachable from ordinary
+/// Python: an attribute assigned below the top level of a constructor, a local reassigned in one,
+/// a `continue` in a counted loop that skipped the cursor increment and hung, and a constructor
+/// that returned early.
+#[test]
+fn the_corpus_covers_every_statement_form_in_every_position_it_is_legal_in() {
+    let covered = covered_pairs();
+    let positions = [
+        Position::FreeFunction,
+        Position::Constructor,
+        Position::Method,
+        Position::Loop,
+    ];
+
+    let forms: Vec<String> = ir_variants()
+        .into_iter()
+        .filter(|variant| variant.enum_name == "Stmt")
+        .map(|variant| variant.name)
+        .collect();
+    assert!(forms.len() >= 13, "the statement scan has probably broken");
+
+    let mut missing = Vec::new();
+    for form in &forms {
+        for position in positions {
+            if !position.admits(form) {
+                continue;
+            }
+            let seen = covered.get(form).is_some_and(|at| at.contains(&position));
+            if !seen {
+                missing.push(format!("Stmt::{form} in {}", position.name()));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "these (form, position) pairs are not exercised by any corpus entry:\n  {}",
+        missing.join("\n  ")
+    );
+}
+
+/// Both receiver kinds must be rendered, since they differ in signature rather than in body.
+#[test]
+fn the_corpus_covers_both_method_receivers() {
+    let mut shared = 0;
+    let mut mutable = 0;
+    for (_, unit) in corpus() {
+        for class in unit.classes() {
+            let mutating = compylr_backend_rust::rust::mutating_methods(class);
+            for name in class.methods.keys() {
+                if mutating.contains(name) {
+                    mutable += 1;
+                } else {
+                    shared += 1;
+                }
+            }
+        }
+    }
+    assert!(mutable > 0, "no method takes a mutable receiver");
+    assert!(shared > 0, "no method takes a shared receiver");
 }
 
 /// The variants of the IR's four central enums, read from its source.

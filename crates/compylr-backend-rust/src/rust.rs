@@ -414,37 +414,26 @@ fn emit_constructor(class: &Class, unit: &Unit) -> Result<String, BackendError> 
         "    pub fn __compylr_new({params}) -> Result<Self, RuntimeError> {{"
     );
 
-    // The constructor body is a sequence of attribute assignments against a `self` that does not
-    // exist yet, so each is evaluated into a local of the attribute's name and the struct is built
-    // from them at the end. That also means an attribute's initialiser may read one declared
-    // before it, which is what a reader of the Python would expect.
+    // The constructor body runs against a `self` that does not exist yet, so every attribute is
+    // evaluated into a local of the attribute's name and the struct is built from them at the end.
+    // That also means an attribute's initialiser may read one declared before it, which is what a
+    // reader of the Python would expect.
+    //
+    // The rewrite below is what makes that true at *any* depth. Handling only the top level
+    // emitted `(self).count = i` for an assignment inside a loop or an `if` — perfectly ordinary
+    // Python, and generated code that does not compile, reported as a complaint about Rust rather
+    // than as a diagnostic.
+    let body = attributes_as_locals(&class.init.body, true);
+
     let mut emitter = Emitter {
         function: &class.init,
         unit,
         out: String::new(),
     };
-    for stmt in &class.init.body {
-        match stmt {
-            Stmt::SetAttr {
-                name, ty, value, ..
-            } => {
-                let value = emit_expr(value, unit, ty)?;
-                let _ = writeln!(
-                    emitter.out,
-                    "        let {}: {} = {value};",
-                    rust_ident(name),
-                    rust_ty(ty)
-                );
-            }
-            // A constructor's "return" is the struct literal below, so a bare unit return in the
-            // body has nothing to do. Emitting it produced `return Ok(())` inside a function
-            // whose return type is `Self`, which does not compile — a defect no Python program
-            // could reach, because lowering never appends one to `__init__`. A frontend that
-            // treats a constructor like any other unit-returning function would.
-            Stmt::ReturnUnit => {}
-            other => emitter.stmts(std::slice::from_ref(other), 2)?,
-        }
-    }
+    // The whole body in one call, never a statement at a time. `Stmt::Bind` decides `mut` by
+    // looking for a later assignment *in the slice it is given*, so feeding it one statement at a
+    // time made every local immutable and any reassignment a compile error in generated code.
+    emitter.stmts(&body, 2)?;
     out.push_str(&emitter.out);
 
     let fields = class
@@ -456,6 +445,193 @@ fn emit_constructor(class: &Class, unit: &Unit) -> Result<String, BackendError> 
     let _ = writeln!(out, "        Ok(Self {{ {fields} }})");
     out.push_str("    }\n");
     Ok(out)
+}
+
+/// Rewrite a constructor body so that `self.x` is the local `x`.
+///
+/// The instance does not exist inside its own constructor, so every mention of an attribute has to
+/// become a mention of the local the struct is eventually built from. Doing it as a rewrite rather
+/// than as a mode on the emitter keeps every other emission path unaware that constructors are
+/// special: what reaches the emitter is a body over locals, which is what it already knows how to
+/// render.
+///
+/// `top_level` marks the statements that *declare* an attribute: those become [`Stmt::Bind`], and
+/// an assignment anywhere below becomes [`Stmt::Assign`] against that local.
+fn attributes_as_locals(stmts: &[Stmt], top_level: bool) -> Vec<Stmt> {
+    stmts
+        .iter()
+        .map(|stmt| match stmt {
+            Stmt::SetAttr {
+                object,
+                name,
+                ty,
+                value,
+            } if targets_self(object) => {
+                let value = attribute_reads_as_locals(value);
+                if top_level {
+                    // The statement that *declares* the attribute becomes the declaration of the
+                    // local, which the emitter renders as a `let` — with `mut` when something
+                    // below assigns it, which it can only work out from the whole body.
+                    Stmt::Bind {
+                        name: name.clone(),
+                        ty: ty.clone(),
+                        value,
+                    }
+                } else {
+                    Stmt::Assign {
+                        name: name.clone(),
+                        ty: ty.clone(),
+                        value,
+                    }
+                }
+            }
+            Stmt::SetAttr {
+                object,
+                name,
+                ty,
+                value,
+            } => Stmt::SetAttr {
+                object: attribute_reads_as_locals(object),
+                name: name.clone(),
+                ty: ty.clone(),
+                value: attribute_reads_as_locals(value),
+            },
+            Stmt::Return(value) => Stmt::Return(attribute_reads_as_locals(value)),
+            Stmt::Effect(value) => Stmt::Effect(attribute_reads_as_locals(value)),
+            Stmt::Bind { name, ty, value } => Stmt::Bind {
+                name: name.clone(),
+                ty: ty.clone(),
+                value: attribute_reads_as_locals(value),
+            },
+            Stmt::Assign { name, ty, value } => Stmt::Assign {
+                name: name.clone(),
+                ty: ty.clone(),
+                value: attribute_reads_as_locals(value),
+            },
+            Stmt::SetItem {
+                collection,
+                index,
+                value,
+            } => Stmt::SetItem {
+                collection: attribute_reads_as_locals(collection),
+                index: attribute_reads_as_locals(index),
+                value: attribute_reads_as_locals(value),
+            },
+            Stmt::Append { sequence, value } => Stmt::Append {
+                sequence: attribute_reads_as_locals(sequence),
+                value: attribute_reads_as_locals(value),
+            },
+            Stmt::If {
+                test,
+                then,
+                otherwise,
+            } => Stmt::If {
+                test: attribute_reads_as_locals(test),
+                then: attributes_as_locals(then, false),
+                otherwise: attributes_as_locals(otherwise, false),
+            },
+            Stmt::While { test, body } => Stmt::While {
+                test: attribute_reads_as_locals(test),
+                body: attributes_as_locals(body, false),
+            },
+            Stmt::For {
+                name,
+                ty,
+                iter,
+                body,
+            } => Stmt::For {
+                name: name.clone(),
+                ty: ty.clone(),
+                iter: attribute_reads_as_locals(iter),
+                body: attributes_as_locals(body, false),
+            },
+            Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => stmt.clone(),
+        })
+        .collect()
+}
+
+/// Rewrite `self.x` reads inside an expression into the local `x`.
+fn attribute_reads_as_locals(expr: &Expr) -> Expr {
+    let boxed = |inner: &Expr| Box::new(attribute_reads_as_locals(inner));
+    match expr {
+        Expr::Attribute { object, name } if targets_self(object) => Expr::Name(name.clone()),
+        Expr::Attribute { object, name } => Expr::Attribute {
+            object: boxed(object),
+            name: name.clone(),
+        },
+        Expr::Literal(_) | Expr::Name(_) => expr.clone(),
+        Expr::Neg(inner) => Expr::Neg(boxed(inner)),
+        Expr::ToFloat(inner) => Expr::ToFloat(boxed(inner)),
+        Expr::Not(inner) => Expr::Not(boxed(inner)),
+        Expr::Len { value, units } => Expr::Len {
+            value: boxed(value),
+            units: *units,
+        },
+        Expr::Binary { op, left, right } => Expr::Binary {
+            op: *op,
+            left: boxed(left),
+            right: boxed(right),
+        },
+        Expr::ListLit(items) => {
+            Expr::ListLit(items.iter().map(attribute_reads_as_locals).collect())
+        }
+        Expr::SetLit(items) => Expr::SetLit(items.iter().map(attribute_reads_as_locals).collect()),
+        Expr::TupleLit(items) => {
+            Expr::TupleLit(items.iter().map(attribute_reads_as_locals).collect())
+        }
+        Expr::DictLit(entries) => Expr::DictLit(
+            entries
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        attribute_reads_as_locals(key),
+                        attribute_reads_as_locals(value),
+                    )
+                })
+                .collect(),
+        ),
+        Expr::TupleIndex { base, position } => Expr::TupleIndex {
+            base: boxed(base),
+            position: *position,
+        },
+        Expr::Subscript {
+            base,
+            index,
+            origin,
+        } => Expr::Subscript {
+            base: boxed(base),
+            index: boxed(index),
+            origin: *origin,
+        },
+        Expr::Contains { value, container } => Expr::Contains {
+            value: boxed(value),
+            container: boxed(container),
+        },
+        Expr::Range { start, stop, step } => Expr::Range {
+            start: boxed(start),
+            stop: boxed(stop),
+            step: boxed(step),
+        },
+        Expr::Call { callee, args } => Expr::Call {
+            callee: callee.clone(),
+            args: args.iter().map(attribute_reads_as_locals).collect(),
+        },
+        Expr::Construct { class, args } => Expr::Construct {
+            class: class.clone(),
+            args: args.iter().map(attribute_reads_as_locals).collect(),
+        },
+        Expr::MethodCall {
+            receiver,
+            class,
+            method,
+            args,
+        } => Expr::MethodCall {
+            receiver: boxed(receiver),
+            class: class.clone(),
+            method: method.clone(),
+            args: args.iter().map(attribute_reads_as_locals).collect(),
+        },
+    }
 }
 
 /// Emit one method, with the receiver its body requires.
@@ -546,16 +722,20 @@ pub fn mutating_methods(class: &Class) -> BTreeSet<String> {
     }
 }
 
+/// Whether an expression names `self`, directly or through an attribute of it.
+///
+/// `self.entries[k] = v` mutates through an attribute, so the chain has to be followed rather than
+/// only its head inspected.
+fn targets_self(expr: &Expr) -> bool {
+    match expr {
+        Expr::Name(name) => name == "self",
+        Expr::Attribute { object, .. } => targets_self(object),
+        _ => false,
+    }
+}
+
 /// Whether a body assigns an attribute of `self`, or mutates a collection held in one.
 fn mutates_self_directly(stmts: &[Stmt]) -> bool {
-    fn targets_self(expr: &Expr) -> bool {
-        match expr {
-            Expr::Name(name) => name == "self",
-            // `self.entries[k] = v` mutates through an attribute of self.
-            Expr::Attribute { object, .. } => targets_self(object),
-            _ => false,
-        }
-    }
     stmts.iter().any(|stmt| match stmt {
         Stmt::SetAttr { object, .. } => targets_self(object),
         Stmt::SetItem { collection, .. } => targets_self(collection),
@@ -880,12 +1060,18 @@ impl Emitter<'_> {
             self.out,
             "{pad}        let {mutable}{bound}: i64 = __compylr_cursor;"
         );
-        self.stmts(body, depth + 2)?;
+        // Advanced *before* the body, not after. `continue` jumps straight to the loop condition,
+        // so an increment below the body is one `continue` can skip — and skipping it leaves the
+        // cursor where it was, which is not a wrong answer but a hang. `for i in range(n): if ...:
+        // continue` is ordinary Python, and the loop variable is already bound above, so moving
+        // the increment up changes nothing else. The body cannot disturb the cursor either way.
+        //
         // Checked, because a range whose stop is near i64::MAX would otherwise wrap and run again.
         let _ = writeln!(
             self.out,
             "{pad}        __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;"
         );
+        self.stmts(body, depth + 2)?;
         let _ = writeln!(self.out, "{pad}    }}");
         let _ = writeln!(self.out, "{pad}}}");
         Ok(())

@@ -49,12 +49,13 @@
 
 ## 6. Corpus coverage by emission position
 
-- [ ] 6.1 Extend the corpus with entries placing each context-sensitive statement form in a
+- [x] 6.1 Extend the corpus with entries placing each context-sensitive statement form in a
       constructor, both method receiver kinds, and both loop kinds
-- [ ] 6.2 Replace the string-matching coverage check with a Rust walk recording `(form, position)`
+- [x] 6.2 Replace the string-matching coverage check with a Rust walk recording `(form, position)`
       pairs, against a table of which forms are legal in which position
-- [ ] 6.3 Verify by deletion that the new check reports the specific missing pairs, the way the
-      current one was verified
+- [x] 6.3 Verify by deletion that the new check reports the specific missing pairs, the way the
+      current one was verified. Its first real run found four backend defects, three of them
+      reachable from ordinary Python — see the commit
 
 ## 7. Precompile imports packages the way the runtime does
 

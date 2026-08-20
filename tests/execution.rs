@@ -1397,3 +1397,135 @@ mod modes_python_cannot_write {
         }
     }
 }
+
+/// Programs the conformance corpus found the backend rendering wrongly.
+///
+/// Every case here is ordinary Python that produced generated Rust which did not compile, or in
+/// one case a program that ran forever. None was reachable from `python/fixtures/accepted/`,
+/// because a fixture only covers a form *somewhere* and every one of these is about a form's
+/// behaviour in a particular **position**. They are executed rather than emitted, because for the
+/// loop case reading the text is what missed it in the first place.
+mod positions_the_backend_rendered_wrongly {
+    use super::*;
+
+    /// `continue` inside `for i in range(...)` used to skip the cursor increment.
+    ///
+    /// Not a wrong answer — a hang. The increment was emitted after the body, and `continue` jumps
+    /// straight to the loop condition, so the cursor stayed where it was and the same iteration
+    /// repeated forever.
+    #[test]
+    fn continue_in_a_range_loop_still_advances() {
+        let out = run(
+            "position_continue_range",
+            "def count_odd(n: int) -> int:\n\
+             \x20   total = 0\n\
+             \x20   for i in range(n):\n\
+             \x20       if i % 2 == 0:\n\
+             \x20           continue\n\
+             \x20       total = total + 1\n\
+             \x20   return total\n",
+            "    println!(\"{}\", count_odd(10).unwrap());",
+        );
+        assert_eq!(out.trim(), "5");
+    }
+
+    /// An attribute assigned inside an `if` in `__init__` used to emit `(self).count`.
+    ///
+    /// The instance does not exist inside its own constructor, so that never compiled. Only
+    /// top-level attribute assignments were rewritten into locals.
+    #[test]
+    fn an_attribute_assigned_in_a_branch_of_a_constructor() {
+        let out = run(
+            "position_attr_in_branch",
+            "class Gate:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       self.count: int = 0\n\
+             \x20       if n > 0:\n\
+             \x20           self.count = n\n\
+             \n\
+             def build(n: int) -> int:\n\
+             \x20   g = Gate(n)\n\
+             \x20   return g.count\n",
+            "    println!(\"{} {}\", build(7).unwrap(), build(-1).unwrap());",
+        );
+        assert_eq!(out.trim(), "7 0");
+    }
+
+    #[test]
+    fn an_attribute_assigned_in_a_loop_of_a_constructor() {
+        let out = run(
+            "position_attr_in_loop",
+            "class Counter:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       self.count: int = 0\n\
+             \x20       for i in range(n):\n\
+             \x20           self.count = i\n\
+             \n\
+             def build(n: int) -> int:\n\
+             \x20   c = Counter(n)\n\
+             \x20   return c.count\n",
+            "    println!(\"{}\", build(4).unwrap());",
+        );
+        assert_eq!(out.trim(), "3");
+    }
+
+    /// A collection attribute mutated inside a constructor's loop.
+    #[test]
+    fn an_attribute_collection_appended_to_in_a_constructor() {
+        let out = run(
+            "position_append_in_loop",
+            "class Log:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       self.seen: list[int] = []\n\
+             \x20       for i in range(n):\n\
+             \x20           self.seen.append(i)\n\
+             \n\
+             def size(n: int) -> int:\n\
+             \x20   log = Log(n)\n\
+             \x20   return len(log.seen)\n",
+            "    println!(\"{}\", size(3).unwrap());",
+        );
+        assert_eq!(out.trim(), "3");
+    }
+
+    /// A local reassigned inside a constructor used to be emitted without `mut`.
+    ///
+    /// The constructor fed the emitter one statement at a time, and `Stmt::Bind` decides
+    /// mutability by looking for a later assignment in the slice it is handed — which was always
+    /// a slice of one.
+    #[test]
+    fn a_local_reassigned_inside_a_constructor() {
+        let out = run(
+            "position_local_reassigned",
+            "class Total:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       running = 0\n\
+             \x20       running = running + n\n\
+             \x20       self.value: int = running\n\
+             \n\
+             def build(n: int) -> int:\n\
+             \x20   t = Total(n)\n\
+             \x20   return t.value\n",
+            "    println!(\"{}\", build(5).unwrap());",
+        );
+        assert_eq!(out.trim(), "5");
+    }
+
+    /// A trailing bare `return` in `__init__` means nothing and is dropped, not refused.
+    #[test]
+    fn a_trailing_return_in_a_constructor_is_accepted() {
+        let out = run(
+            "position_trailing_return",
+            "class Thing:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       self.count: int = n\n\
+             \x20       return\n\
+             \n\
+             def build(n: int) -> int:\n\
+             \x20   t = Thing(n)\n\
+             \x20   return t.count\n",
+            "    println!(\"{}\", build(9).unwrap());",
+        );
+        assert_eq!(out.trim(), "9");
+    }
+}

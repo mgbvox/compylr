@@ -48,13 +48,13 @@ pub fn evens_below(limit: i64) -> Result<Vec<i64>, RuntimeError> {
             || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
         {
             let n: i64 = __compylr_cursor;
+            __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
             if ((&(PyNum::rem_floor(&(n), &(2i64))?)) == (&(0i64))) {
                 {
                     let __compylr_value = n.clone();
                     (found).push(__compylr_value);
                 }
             }
-            __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
         }
     }
     Ok(found.clone())

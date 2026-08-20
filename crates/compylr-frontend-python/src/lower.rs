@@ -80,6 +80,47 @@ use compylr_ir::{
     Rounding, Stmt, TextUnits, Ty, returns_on_all_paths,
 };
 
+/// Remove a trailing bare `return` from a constructor, and reject one anywhere else.
+///
+/// An instance is built from the *whole* constructor: every attribute becomes a field, and the
+/// struct is assembled once the body has run. An early return would leave the attributes below it
+/// unassigned, which the model has no way to represent — there is no such thing as a half-built
+/// instance here.
+///
+/// A trailing `return` is a different matter. It does nothing in Python either, so it is dropped
+/// rather than refused; refusing it would reject a program whose meaning is unambiguous over a
+/// stylistic habit.
+///
+/// Caught here rather than left to the backend, which emitted `return Ok(())` from a function
+/// returning `Self` — generated code that does not compile, reported as a complaint about Rust
+/// rather than about the class.
+fn strip_constructor_return(body: &mut Vec<Stmt>, node: &impl Ranged) -> Result<(), LowerError> {
+    if matches!(body.last(), Some(Stmt::ReturnUnit)) {
+        body.pop();
+    }
+    if body.iter().any(returns_anywhere) {
+        return Err(err(
+            LowerErrorKind::UnsupportedConstruct,
+            "'__init__' cannot return early: every attribute becomes a field of the instance, so \
+             a return before the end would leave part of it unassigned",
+            node,
+        ));
+    }
+    Ok(())
+}
+
+/// Whether a statement, or anything nested in it, returns.
+fn returns_anywhere(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return(_) | Stmt::ReturnUnit => true,
+        Stmt::If {
+            then, otherwise, ..
+        } => then.iter().any(returns_anywhere) || otherwise.iter().any(returns_anywhere),
+        Stmt::While { body, .. } | Stmt::For { body, .. } => body.iter().any(returns_anywhere),
+        _ => false,
+    }
+}
+
 /// Names visible inside a function body, with the type each was bound at.
 ///
 /// A stack of frames rather than one map, because a block is a scope: a name bound inside a branch
@@ -644,7 +685,7 @@ pub fn lower_class(
     };
 
     let name = def.name.to_string();
-    let init = lower_function_in(init_def, names, Some(&name), true)?;
+    let mut init = lower_function_in(init_def, names, Some(&name), true)?;
     if init.ret != Ty::Unit {
         return Err(err(
             LowerErrorKind::TypeMismatch,
@@ -652,6 +693,7 @@ pub fn lower_class(
             init_def,
         ));
     }
+    strip_constructor_return(&mut init.body, init_def)?;
 
     // Read back from the lowered constructor rather than from the annotations again, so the
     // declared shape and the code that initialises it cannot disagree.

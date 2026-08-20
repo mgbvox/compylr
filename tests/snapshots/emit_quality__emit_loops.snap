@@ -24,8 +24,8 @@ pub fn countdown(n: i64) -> Result<i64, RuntimeError> {
             || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
         {
             let i: i64 = __compylr_cursor;
-            steps = PyAdd::py_add(&(steps), &(1i64))?;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+            steps = PyAdd::py_add(&(steps), &(1i64))?;
         }
     }
     Ok(steps)
@@ -94,8 +94,8 @@ pub fn stepped(n: i64) -> Result<i64, RuntimeError> {
             || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
         {
             let i: i64 = __compylr_cursor;
-            seen = PyAdd::py_add(&(seen), &(i))?;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+            seen = PyAdd::py_add(&(seen), &(i))?;
         }
     }
     Ok(seen)
@@ -114,8 +114,8 @@ pub fn total(n: i64) -> Result<i64, RuntimeError> {
             || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
         {
             let i: i64 = __compylr_cursor;
-            running = PyAdd::py_add(&(running), &(i))?;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+            running = PyAdd::py_add(&(running), &(i))?;
         }
     }
     Ok(running)

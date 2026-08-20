@@ -66,16 +66,12 @@ pub fn verify(unit: &Unit) -> Result<(), VerificationError> {
         // A constructor produces the instance itself, so a value-returning statement in one is
         // meaningless — and a backend that emitted it would produce a function returning two
         // different types. Caught here rather than by the target's compiler.
-        if class
-            .init
-            .body
-            .iter()
-            .any(|stmt| matches!(stmt, Stmt::Return(_)))
-        {
+        if class.init.body.iter().any(returns_anywhere) {
             return Err(VerificationError {
                 member: format!("the constructor of {}", class.name),
-                detail: "a constructor returns the instance it builds, so its body may not \
-                         return a value"
+                detail: "a constructor produces the instance it builds, so its body may not \
+                         return — at any depth. An early return would leave the attributes below \
+                         it unassigned, and a returned value would be a second thing to return"
                     .to_string(),
             });
         }
@@ -94,8 +90,53 @@ pub fn verify(unit: &Unit) -> Result<(), VerificationError> {
                 ),
             });
         }
+        // A valueless return from a function that declares a value is not a program that computes
+        // something odd; it is a function with two return types, which no target can render.
+        if function.ret != compylr_ir::Ty::Unit && returns_without_a_value(&function.body) {
+            return Err(VerificationError {
+                member: function.name.clone(),
+                detail: format!(
+                    "it declares a return type of {} but returns without a value somewhere in its \
+                     body",
+                    function.ret
+                ),
+            });
+        }
     }
     Ok(())
+}
+
+/// Whether a statement, or anything nested in it, returns at all.
+fn returns_anywhere(stmt: &Stmt) -> bool {
+    nested_returns(stmt, &|stmt| {
+        matches!(stmt, Stmt::Return(_) | Stmt::ReturnUnit)
+    })
+}
+
+/// Whether a body returns with no value anywhere.
+fn returns_without_a_value(stmts: &[Stmt]) -> bool {
+    stmts
+        .iter()
+        .any(|stmt| nested_returns(stmt, &|stmt| matches!(stmt, Stmt::ReturnUnit)))
+}
+
+/// Apply `matches` to a statement and everything nested inside it.
+fn nested_returns(stmt: &Stmt, matches: &dyn Fn(&Stmt) -> bool) -> bool {
+    if matches(stmt) {
+        return true;
+    }
+    match stmt {
+        Stmt::If {
+            then, otherwise, ..
+        } => {
+            then.iter().any(|s| nested_returns(s, matches))
+                || otherwise.iter().any(|s| nested_returns(s, matches))
+        }
+        Stmt::While { body, .. } | Stmt::For { body, .. } => {
+            body.iter().any(|s| nested_returns(s, matches))
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
