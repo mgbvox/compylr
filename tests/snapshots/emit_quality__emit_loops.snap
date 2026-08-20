@@ -1,15 +1,14 @@
 ---
 source: tests/emit_quality.rs
-assertion_line: 125
 expression: functions.trim()
 ---
-//! Translated from Python by compylr.
+//! Translated by compylr.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
-    py_truediv,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_subscript,
 };
 
 pub fn countdown(n: i64) -> Result<i64, RuntimeError> {
@@ -25,8 +24,8 @@ pub fn countdown(n: i64) -> Result<i64, RuntimeError> {
             || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
         {
             let i: i64 = __compylr_cursor;
-            steps = PyAdd::py_add(&(steps), &(1i64))?;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+            steps = PyAdd::py_add(&(steps), &(1i64))?;
         }
     }
     Ok(steps)
@@ -46,11 +45,11 @@ pub fn first_over(xs: Vec<i64>, limit: i64) -> Result<i64, RuntimeError> {
 }
 
 pub fn halve_until_odd(mut n: i64) -> Result<i64, RuntimeError> {
-    while ((&(PyNum::py_mod(&(n), &(2i64))?)) == (&(0i64))) {
+    while ((&(PyNum::rem_floor(&(n), &(2i64))?)) == (&(0i64))) {
         if ((&(n)) == (&(0i64))) {
             break;
         }
-        n = PyNum::py_floordiv(&(n), &(2i64))?;
+        n = PyNum::div_floor(&(n), &(2i64))?;
     }
     Ok(n)
 }
@@ -61,7 +60,7 @@ pub fn key_lengths(d: HashMap<String, i64>) -> Result<i64, RuntimeError> {
         let __compylr_iter = &d;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let k: String = __compylr_item;
-            total_length = PyAdd::py_add(&(total_length), &(PyLen::py_len(&(k))))?;
+            total_length = PyAdd::py_add(&(total_length), &(PyLen::py_len(&(k), TextUnits::CodePoints)))?;
         }
     }
     Ok(total_length)
@@ -95,8 +94,8 @@ pub fn stepped(n: i64) -> Result<i64, RuntimeError> {
             || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
         {
             let i: i64 = __compylr_cursor;
-            seen = PyAdd::py_add(&(seen), &(i))?;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+            seen = PyAdd::py_add(&(seen), &(i))?;
         }
     }
     Ok(seen)
@@ -115,8 +114,8 @@ pub fn total(n: i64) -> Result<i64, RuntimeError> {
             || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
         {
             let i: i64 = __compylr_cursor;
-            running = PyAdd::py_add(&(running), &(i))?;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+            running = PyAdd::py_add(&(running), &(i))?;
         }
     }
     Ok(running)

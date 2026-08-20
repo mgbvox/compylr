@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "fingerprint": "cfd1e60aa377d578",
+  "version": 3,
+  "fingerprint": "7fe11da0cf06cf93",
   "functions": [
     {
       "name": "iterative_not_divisible",
@@ -112,7 +112,8 @@
                     }
                   }
                 }
-              }
+              },
+              "origin": "FromEitherEnd"
             }
           }
         }
@@ -160,7 +161,10 @@
                 "op": "Lt",
                 "left": {
                   "Len": {
-                    "Name": "found"
+                    "value": {
+                      "Name": "found"
+                    },
+                    "units": "CodePoints"
                   }
                 },
                 "right": {
@@ -222,7 +226,11 @@
                             "op": "Eq",
                             "left": {
                               "Binary": {
-                                "op": "Mod",
+                                "op": {
+                                  "Rem": {
+                                    "sign": "Divisor"
+                                  }
+                                },
                                 "left": {
                                   "Name": "candidate"
                                 },
@@ -392,7 +400,11 @@
                       "op": "Eq",
                       "left": {
                         "Binary": {
-                          "op": "Mod",
+                          "op": {
+                            "Rem": {
+                              "sign": "Divisor"
+                            }
+                          },
                           "left": {
                             "Name": "n"
                           },
@@ -848,7 +860,11 @@
                           "op": "Eq",
                           "left": {
                             "Binary": {
-                              "op": "Mod",
+                              "op": {
+                                "Rem": {
+                                  "sign": "Divisor"
+                                }
+                              },
                               "left": {
                                 "Name": "n"
                               },
@@ -915,12 +931,15 @@
             {
               "Return": {
                 "Len": {
-                  "Attribute": {
-                    "object": {
-                      "Name": "self"
-                    },
-                    "name": "known"
-                  }
+                  "value": {
+                    "Attribute": {
+                      "object": {
+                        "Name": "self"
+                      },
+                      "name": "known"
+                    }
+                  },
+                  "units": "CodePoints"
                 }
               }
             }
@@ -1022,7 +1041,8 @@
                         },
                         "index": {
                           "Name": "n"
-                        }
+                        },
+                        "origin": "FromEitherEnd"
                       }
                     }
                   }
@@ -1157,5 +1177,13 @@
       },
       "doc": "An nth-prime that remembers what it has already computed."
     }
-  ]
+  ],
+  "origin": {
+    "frontend": "python",
+    "requires": [
+      "IntegerOverflowReported",
+      "DivisionByZeroReported",
+      "FloatOrderPreserved"
+    ]
+  }
 }

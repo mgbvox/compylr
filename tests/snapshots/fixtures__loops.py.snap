@@ -1,6 +1,5 @@
 ---
 source: tests/fixtures.rs
-assertion_line: 52
 expression: functions
 ---
 [
@@ -374,11 +373,12 @@ expression: functions
                             left: Name(
                                 "total_length",
                             ),
-                            right: Len(
-                                Name(
+                            right: Len {
+                                value: Name(
                                     "k",
                                 ),
-                            ),
+                                units: CodePoints,
+                            },
                         },
                     },
                 ],
@@ -409,7 +409,9 @@ expression: functions
                 test: Binary {
                     op: Eq,
                     left: Binary {
-                        op: Mod,
+                        op: Rem {
+                            sign: Divisor,
+                        },
                         left: Name(
                             "n",
                         ),
@@ -447,7 +449,11 @@ expression: functions
                         name: "n",
                         ty: Int,
                         value: Binary {
-                            op: FloorDiv,
+                            op: Div {
+                                mode: Integer(
+                                    TowardNegInf,
+                                ),
+                            },
                             left: Name(
                                 "n",
                             ),

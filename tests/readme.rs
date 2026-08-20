@@ -14,7 +14,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use compylr::ir::{BinOp, Ty};
+use compylr::ir::{BinOp, DivMode, RemSign, Rounding, Ty};
+use compylr_frontend_python::{PythonOperator, PythonTypeName};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -38,6 +39,11 @@ fn readme_documents_every_type() {
 }
 
 /// Every supported operator must appear in the README, spelled as inline code.
+///
+/// Spelled the way a Python programmer writes it, which since the operators started carrying
+/// their semantics is the frontend's rendering rather than the IR's — the IR now says "integer
+/// division rounding toward negative infinity", which is right for a diagnostic in no particular
+/// language and wrong for a README about Python.
 #[test]
 fn readme_documents_every_operator() {
     let text = readme();
@@ -45,9 +51,15 @@ fn readme_documents_every_operator() {
         BinOp::Add,
         BinOp::Sub,
         BinOp::Mul,
-        BinOp::TrueDiv,
-        BinOp::FloorDiv,
-        BinOp::Mod,
+        BinOp::Div {
+            mode: DivMode::Exact,
+        },
+        BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardNegInf),
+        },
+        BinOp::Rem {
+            sign: RemSign::Divisor,
+        },
         BinOp::Eq,
         BinOp::NotEq,
         BinOp::Lt,
@@ -88,22 +100,31 @@ fn readme_lists_every_capability() {
     }
 }
 
-/// Every library module must appear in the layout section.
+/// Every workspace crate must appear in the layout section.
+///
+/// The unit that matters is the crate, not the file: a crate is where a dependency edge is
+/// declared, and the edges are what keep languages out of shared code. A reader who cannot see
+/// the full set from the README cannot tell which crate a new language would touch.
 #[test]
-fn readme_layout_covers_every_module() {
+fn readme_layout_covers_every_crate() {
     let text = readme();
-    let src = repo_root().join("src");
-    for entry in std::fs::read_dir(&src).expect("src must exist").flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        // lib.rs and main.rs are plumbing, not concepts a reader needs the layout to explain.
-        if !name.ends_with(".rs") || name == "lib.rs" || name == "main.rs" {
+    let crates = repo_root().join("crates");
+    let mut seen = 0;
+    for entry in std::fs::read_dir(&crates)
+        .expect("crates must exist")
+        .flatten()
+    {
+        if !entry.path().join("Cargo.toml").exists() {
             continue;
         }
+        let name = entry.file_name().to_string_lossy().into_owned();
         assert!(
             text.contains(&name),
-            "README layout does not mention src/{name}; add it or drop the module"
+            "README layout does not mention crates/{name}; add it or drop the crate"
         );
+        seen += 1;
     }
+    assert!(seen >= 5, "expected several crates, found {seen}");
 }
 
 /// Every repo path the README points at must exist.
@@ -115,6 +136,7 @@ fn readme_references_only_paths_that_exist() {
     let text = readme();
     let roots = [
         "src/",
+        "crates/",
         "scripts/",
         "python/",
         "openspec/",
@@ -153,14 +175,13 @@ fn readme_references_only_paths_that_exist() {
 /// single most damaging thing it could get wrong.
 ///
 /// This originally asserted only that a missing backend was disclosed, which meant it fell silent
-/// the moment `src/backend/` landed — going quiet exactly when the README first became wrong. A
+/// the moment a backend landed — going quiet exactly when the README first became wrong. A
 /// one-directional check protects nothing after the transition it was written for, so the
 /// existing-backend case is asserted too.
 #[test]
 fn readme_status_matches_reality() {
     let text = readme();
-    let backend_exists =
-        repo_root().join("src/codegen.rs").exists() || repo_root().join("src/backend").exists();
+    let backend_exists = repo_root().join("crates/compylr-backend-rust").exists();
 
     if backend_exists {
         assert!(

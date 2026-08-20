@@ -7,7 +7,7 @@
 
 use compylr::backend::lookup;
 use compylr::frontend::parse_source;
-use compylr::ir::{BinOp, Expr, Function, Param, Stmt, Ty, Unit};
+use compylr::ir::{BinOp, DivMode, Expr, Function, Param, Stmt, Ty, Unit};
 use compylr::lower::lower_source;
 use compylr::span::Span;
 
@@ -76,7 +76,7 @@ fn a_unit_returning_function_can_still_report_failure() {
     let emitted = functions_only(&emit("def nothing(a: int) -> None:\n    b = a // 0\n"));
     assert!(emitted.contains("Result<(), RuntimeError>"));
     assert!(
-        emitted.contains("py_floordiv"),
+        emitted.contains("div_floor"),
         "the failing operation must go through the checked helper:\n{emitted}"
     );
 }
@@ -95,9 +95,13 @@ fn emission_leaves_the_ir_unchanged() {
 
 #[test]
 fn the_ir_module_names_no_rust_types() {
-    // The mapping belongs to the backend. If a Rust spelling appears in `src/ir.rs`, a second
+    // The mapping belongs to the backend. If a Rust spelling appears in the IR, a second
     // backend has already been made harder to write.
-    let ir = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ir.rs")).unwrap();
+    let ir = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/crates/compylr-ir/src/ir.rs"
+    ))
+    .unwrap();
     let code: String = ir
         .lines()
         .filter(|line| !line.trim_start().starts_with("//"))
@@ -111,7 +115,7 @@ fn the_ir_module_names_no_rust_types() {
     }
     assert!(
         !code.contains("\"i64\"") && !code.contains("\"String\"") && !code.contains("\"f64\""),
-        "src/ir.rs must not spell target types"
+        "the IR must not spell target types"
     );
 }
 
@@ -261,14 +265,19 @@ fn arithmetic_inside_a_comparison_inside_a_call_argument() {
 }
 
 #[test]
-fn true_division_emits_a_plain_division_because_lowering_already_promoted() {
+fn exact_division_emits_a_plain_division_because_lowering_already_promoted() {
     // The backend must not re-derive promotion. Lowering hands it
-    // `TrueDiv(ToFloat(a), ToFloat(b))`, so both operands are already `f64`.
+    // `Div{Exact}(ToFloat(a), ToFloat(b))`, so both operands are already `f64`.
     let unit = unit_from("def ratio(a: int, b: int) -> float:\n    return a / b\n");
     let function = unit.get("ratio").unwrap();
     match &function.body[0] {
         Stmt::Return(Expr::Binary { op, left, right }) => {
-            assert_eq!(*op, BinOp::TrueDiv);
+            assert_eq!(
+                *op,
+                BinOp::Div {
+                    mode: DivMode::Exact
+                }
+            );
             assert!(
                 matches!(**left, Expr::ToFloat(_)) && matches!(**right, Expr::ToFloat(_)),
                 "lowering is expected to have wrapped both operands"
@@ -278,7 +287,7 @@ fn true_division_emits_a_plain_division_because_lowering_already_promoted() {
     }
 
     let emitted = functions_only(&functions_of(&unit));
-    assert!(emitted.contains("py_truediv"), "{emitted}");
+    assert!(emitted.contains("div_exact"), "{emitted}");
     assert_eq!(
         emitted.matches("as f64").count(),
         2,

@@ -34,9 +34,26 @@ of the source text, so comments and reformatting cost nothing.
 The pipeline is complete end to end for the supported subset.
 
 ```
-source text ──frontend──> ruff AST ──lower──> IR ──backend──> Rust ──maturin──> extension
-     ✓                       ✓            ✓          ✓             ✓
+source text ──frontend──> tree ──lower──> IR ──verify──> passes ──backend──> Rust ──bridge──> extension
+     ✓                      ✓          ✓        ✓          ✓          ✓                ✓
 ```
+
+Each stage is a separate crate, and each end of the pipeline is a *named component* rather than
+the only implementation present:
+
+* a **frontend** turns source text into IR (`python`; `typescript`, `go`, and `cpp` reserved),
+* a **backend** turns IR into target source (`rust`; the same three reserved),
+* a **host bridge** makes the result callable, and belongs to the `(source, target)` **pair** —
+  `(python, rust)` today.
+
+The third one is where compylr stops resembling LLVM. LLVM's frontends and backends compose
+N + M because it emits object code and never calls back into the source language. compylr's whole
+purpose is that the source language calls the result, and a calling convention is a negotiation
+between two runtimes — who owns the memory, how errors signal, how strings encode. Python→Rust is
+PyO3; Python→Go would be cgo and a C array someone has to free; nothing carries over. So bridges
+cost N × M, and the design's job is to keep that visible rather than pretend otherwise: a pair
+with a backend and no bridge is a specific answer — *compylr can generate Go, and cannot yet call
+it from Python* — not a missing method.
 
 Both intermediates are written to disk on every build, so nothing between your Python and the
 compiled artifact is a black box:
@@ -45,7 +62,7 @@ compiled artifact is a black box:
 .compylr/
   ir/unit.json            the IR, as JSON
   crate/src/generated.rs  your functions, translated — the file worth reading
-  crate/src/compat.rs     Python semantics in Rust; identical in every project
+  crate/src/compat.rs     the semantics the IR declared, in Rust; identical in every project
   crate/src/bindings.rs   the PyO3 boundary
   crate/src/lib.rs        module declarations and the module registration
   state.json              fingerprint of the last successful build
@@ -59,13 +76,15 @@ a single one-line function produced 238 lines and the translation was lines 200�
 | `python-frontend` | Parsing Python source text into a syntax tree, with structured I/O and syntax errors |
 | `ir-lowering` | Translating the syntax tree into IR, enforcing the subset and type rules |
 | `ir` | The program model and type system every backend consumes, and its on-disk artifact |
-| `rust-backend` | IR to Rust source: concrete type spellings, and Python's operator semantics |
+| `rust-backend` | IR to Rust source: concrete type spellings, and the semantics each node declares |
 | `python-bindings` | The PyO3 layer generated onto compiled functions, and how failures become exceptions |
 | `native-bridge` | `compylr._core`, exposing the compiler to Python and its diagnostics as exceptions |
 | `build-pipeline` | The shared crate, the artifacts on disk, and the fingerprint-keyed rebuild decision |
 | `python-api` | `initialize`, the decorator's two forms, settings resolution, and swapping in |
 | `cli` | The command line: precompiling a project, what it emits, and how it reports rejections |
 | `demo` | The worked example: what it must contain, that it compiles, and that this repo verifies it |
+| `pipeline-architecture` | What a frontend, a backend, and a host bridge are, and how each is resolved |
+| `ir-optimization` | Verification and the pass pipeline between lowering and emission |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
@@ -85,7 +104,7 @@ Then the snippet at the top of this file works. There is also a CLI for seeing w
 compiles to, without a build:
 
 ```bash
-cargo run -- python/fixtures/accepted/inference.py
+cargo run -p compylr-cli -- python/fixtures/accepted/inference.py
 ```
 
 ```
@@ -99,9 +118,9 @@ unit fingerprint: bcddf18219a7c991
 gives you a usable file:
 
 ```bash
-cargo run -- --emit ir    python/fixtures/accepted/inference.py   # the IR, as JSON
-cargo run -- --emit rust  python/fixtures/accepted/inference.py   # just the translated code
-cargo run -- --emit crate --out ./out python/fixtures/accepted/inference.py
+cargo run -p compylr-cli -- --emit ir    python/fixtures/accepted/inference.py   # the IR, as JSON
+cargo run -p compylr-cli -- --emit rust  python/fixtures/accepted/inference.py   # just the translated code
+cargo run -p compylr-cli -- --emit crate --out ./out python/fixtures/accepted/inference.py
 ```
 
 Artifacts live in `.compylr/`, found by searching upward from the working directory for a
@@ -210,8 +229,14 @@ Collections support literals, subscripting, `len`, membership, and mutation of *
 def total(xs: list[int]) -> int:
     first = xs[0]        # int
     last = xs[-1]        # counts from the end, as Python does
-    return first + last + len(xs)
+    return first + last + len(xs)   # code points for a string, not bytes
 ```
+
+Both of those are *declared* on the IR rather than assumed, because they are the two container
+operations the supported languages disagree about: Go, C++, and TypeScript all treat a negative
+index as out of range, and `len` counts UTF-8 bytes in Go and UTF-16 units in TypeScript. The
+three readings agree on ASCII, which is exactly what would make a wrong assumption survive a test
+suite.
 
 Two divergences worth knowing. **Collections cross the boundary by value**, so a compiled function
 cannot affect a list its caller still holds — currently unobservable, since nothing in the subset
@@ -453,25 +478,29 @@ The binary prints the unit fingerprint and each function's signature, and report
 with a `line:column` location:
 
 ```
-$ cargo run -- python/fixtures/rejected/boolean_arithmetic.py
+$ cargo run -p compylr-cli -- python/fixtures/rejected/boolean_arithmetic.py
 error: 2:12: operator '+' is not defined for 'bool' and 'bool'; booleans are not numbers in compylr
 ```
 
 ## Layout
 
+A Cargo workspace. The dependency edges between the crates are the enforcement mechanism, not a
+convention: a crate that does not depend on a Python parser cannot name a Python construct, and a
+crate that does not depend on PyO3 cannot quietly grow a Python calling convention.
+
 ```
 src/
-  frontend.rs   parse source text -> ruff AST
-  lower.rs      ruff AST -> IR, plus the type checker
-  ir.rs         the IR: types, expressions, statements, Unit, fingerprints, artifact
-  error.rs      frontend, lowering, and artifact diagnostics
-  span.rs       byte-offset source locations
+  lib.rs        the facade over the workspace crates
   bridge.rs     compylr._core: the compiler, exposed to Python
-  backend/
-    mod.rs      the Backend trait and the name registry
-    rust.rs     IR -> Rust source
-    bindings.rs the PyO3 layer generated onto compiled functions
-    runtime.rs  Python arithmetic semantics, embedded into generated crates
+crates/
+  compylr-diagnostics/         spans and located diagnostics; depends on nothing
+  compylr-ir/                  the IR: types, expressions, statements, Unit, fingerprints, artifact
+  compylr-core/                the Backend trait and the component model; knows no implementation
+  compylr-frontend-python/     ruff parsing and lowering; the only crate that depends on ruff
+  compylr-backend-rust/        IR -> Rust source, plus the runtime shim embedded in generated crates
+  compylr-bridge-python-rust/  the PyO3 layer generated onto compiled functions, for one pair
+  compylr-registry/            where implementations are registered; the one crate that knows them all
+  compylr-cli/                 the `compylr` binary and its --emit surface
 python/
   compylr/      the Python package: initialize, the decorator, the build pipeline
   tests/        pytest suite for the package and the native boundary
@@ -489,8 +518,9 @@ reports/        rendered spec EPUBs
 
 Two different things use PyO3 and conflating them causes lasting confusion. `src/bridge.rs`
 exposes **the compiler** to Python as `compylr._core`, built from this repo.
-`src/backend/bindings.rs` *generates* PyO3 code onto **your** functions, built at runtime into a
-separate crate. Different crates, different lifecycles.
+`crates/compylr-bridge-python-rust/` *generates* PyO3 code onto **your** functions, built at
+runtime into a separate crate. Different crates, different lifecycles — and note that the
+generating crate does not itself depend on PyO3, because it emits PyO3 source as text.
 
 ## Design invariants
 
@@ -500,16 +530,38 @@ Three rules that are easy to break and expensive to discover later:
 `String` — belong to a backend, never to the IR. Rust is the first backend, but Go, C++, and
 TypeScript backends should consume the same tree unchanged.
 
-**Operators carry Python semantics, not the target's.** Floor division rounds toward negative
-infinity and remainder takes the sign of the divisor, where most targets truncate toward zero.
-True division always yields a float, where `/` between two integers is integer division in Rust,
-Go, and C++. Lowering inserts an explicit widening node so a backend never has to re-derive a
-conversion. A backend that maps these operators to same-named native ones is wrong on negative
-and integer operands.
+**Operations carry the semantics a frontend declared, not a language's by default.** `BinOp::Div`
+carries a mode — exact, or integer with a rounding direction — `BinOp::Rem` carries which operand's
+sign the result takes, `Expr::Subscript` carries whether a negative index counts from the end, and
+`Expr::Len` carries what a string is counted in. The Python frontend sets `//` to round toward
+negative infinity, `%` to take the sign of the divisor, `/` to divide exactly, `xs[-1]` to reach
+the last element, and `len` to count code points; Go and TypeScript would set several of them
+otherwise. The backend reads the mode off the node and never the operation's name, which is what
+lets one backend serve both. Lowering inserts an explicit widening node for exact division, so a
+backend never re-derives a conversion.
+
+The IR's own rendering says the mode rather than a symbol — `//` is Python's way of writing one
+particular rounding, not the rounding itself — so quoting a programmer's syntax back at them
+belongs to the frontend that read it.
+
+Three container behaviours deliberately have **no** mode, and the absence is a conclusion rather
+than an omission: reading a mapping with an absent key always reports it, iterating a mapping
+yields keys, and membership in a string tests substrings. The last two are what every language in
+the supported list does. The first is a difference in the *shape* of the operation rather than a
+setting on it — Go's `v, ok := m[k]` is a different expression with a different result type — so a
+frontend that means it lowers to a different form.
 
 **Rebuild decisions key off the IR, not the source text.** `Unit::fingerprint` hashes structure,
 so comments and reformatting do not trigger a recompile, and it is order-independent so
-decoration order does not either.
+decoration order does not either. It also hashes the unit's origin — which frontend produced it
+and what that language requires preserved — because two units with identical bodies and different
+requirements can legitimately emit different code, and a cache that could not tell them apart
+would hand back the wrong build.
+
+> **Upgrading past this release rebuilds every project once.** The IR changed shape — first the
+> arithmetic operators and then subscripting and length — so the artifact format is at version 3
+> and every fingerprint moved. The build state records the compiler version, so this happens
+> automatically rather than as a stale-artifact bug.
 
 ## Development
 
@@ -521,8 +573,17 @@ Planning goes through [OpenSpec](https://github.com/Fission-AI/OpenSpec) before 
 /opsx:archive    # sync deltas into openspec/specs/ and archive the change
 ```
 
-Conventions: tests before implementation; `cargo fmt`, `cargo clippy -- -D warnings`, and
-`cargo test` green before committing; commit at each checkpoint.
+Conventions: tests before implementation; `cargo fmt`, `cargo clippy --workspace --all-targets --
+-D warnings`, and `cargo test --workspace` green before committing; commit at each checkpoint.
 
-`tests/readme.rs` checks this file against the code, so the type table, operator list, and
-referenced paths cannot drift silently.
+Three tests exist to stop documentation and structure drifting apart, and they are worth knowing
+about before a change surprises you:
+
+* `tests/readme.rs` checks this file against the code, so the type table, operator list, crate
+  layout, and referenced paths cannot drift silently.
+* `tests/crate_boundaries.rs` reads the manifests, so an edge that would let a backend name Python
+  or the IR reach a parser fails the suite rather than passing review.
+* `tests/conformance.rs` renders a corpus of hand-built IR through every backend the registry
+  reports as implemented, and fails if any IR node form has no entry. It is authored as IR rather
+  than as Python on purpose: a tree Python cannot express is a tree the fixtures can never
+  contain, and that is exactly where a backend can be silently wrong.

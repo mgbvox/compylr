@@ -97,14 +97,94 @@ dependencies = [
 name = "compylr"
 version = "0.1.0"
 dependencies = [
+ "compylr-backend-rust",
+ "compylr-bridge-python-rust",
+ "compylr-core",
+ "compylr-diagnostics",
+ "compylr-frontend-python",
+ "compylr-ir",
+ "compylr-registry",
  "insta",
  "pyo3",
+ "serde_json",
+]
+
+[[package]]
+name = "compylr-backend-rust"
+version = "0.1.0"
+dependencies = [
+ "compylr-core",
+ "compylr-diagnostics",
+ "compylr-ir",
+]
+
+[[package]]
+name = "compylr-bridge-python-rust"
+version = "0.1.0"
+dependencies = [
+ "compylr-backend-rust",
+ "compylr-core",
+ "compylr-ir",
+]
+
+[[package]]
+name = "compylr-cli"
+version = "0.1.0"
+dependencies = [
+ "compylr-backend-rust",
+ "compylr-bridge-python-rust",
+ "compylr-core",
+ "compylr-diagnostics",
+ "compylr-frontend-python",
+ "compylr-ir",
+ "compylr-registry",
+ "serde_json",
+]
+
+[[package]]
+name = "compylr-core"
+version = "0.1.0"
+dependencies = [
+ "compylr-diagnostics",
+ "compylr-ir",
+]
+
+[[package]]
+name = "compylr-diagnostics"
+version = "0.1.0"
+
+[[package]]
+name = "compylr-frontend-python"
+version = "0.1.0"
+dependencies = [
+ "compylr-core",
+ "compylr-diagnostics",
+ "compylr-ir",
  "ruff_python_ast",
  "ruff_python_parser",
  "ruff_source_file",
  "ruff_text_size",
+]
+
+[[package]]
+name = "compylr-ir"
+version = "0.1.0"
+dependencies = [
+ "compylr-diagnostics",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "compylr-registry"
+version = "0.1.0"
+dependencies = [
+ "compylr-backend-rust",
+ "compylr-bridge-python-rust",
+ "compylr-core",
+ "compylr-diagnostics",
+ "compylr-frontend-python",
+ "compylr-ir",
 ]
 
 [[package]]

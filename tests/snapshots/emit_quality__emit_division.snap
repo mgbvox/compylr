@@ -2,23 +2,23 @@
 source: tests/emit_quality.rs
 expression: functions.trim()
 ---
-//! Translated from Python by compylr.
+//! Translated by compylr.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
-    py_truediv,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_subscript,
 };
 
 pub fn halves(a: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::py_floordiv(&(a), &(2i64))?)
+    Ok(PyNum::div_floor(&(a), &(2i64))?)
 }
 
 pub fn ratio(a: i64, b: i64) -> Result<f64, RuntimeError> {
-    Ok(py_truediv(&(((a) as f64)), &(((b) as f64)))?)
+    Ok(div_exact(&(((a) as f64)), &(((b) as f64)))?)
 }
 
 pub fn remainder(a: i64, b: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::py_mod(&(a), &(b))?)
+    Ok(PyNum::rem_floor(&(a), &(b))?)
 }

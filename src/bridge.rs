@@ -15,13 +15,20 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
 use crate::backend::{self, BackendError, GeneratedFiles};
-use crate::error::{FrontendError, LowerError};
-use crate::frontend::parse_source;
-use crate::ir::Unit;
-use crate::lower::{
-    ClassNames, ClassSignatures, Signatures, collect_class_names, collect_class_signatures,
-    collect_signatures, lower_source_members, lower_source_members_with,
-};
+use crate::bridge_registry::{self, BridgeError};
+use crate::error::{LowerError, SourceError};
+use crate::frontend::{self, FrontendError, LoweringError, parse_source};
+use crate::lower::lower_source_members;
+use compylr_core::bridge::BuildKey;
+use compylr_core::negotiation::{UnmetGuarantee, negotiate};
+use compylr_core::pass::{self, PassConfig};
+use compylr_core::verify::verify;
+
+/// The source language every compilation currently uses.
+///
+/// Named rather than assumed: the frontend is resolved through the registry like the backend is,
+/// so a second source language is a registry entry rather than a branch here.
+const SOURCE_LANGUAGE: &str = "python";
 
 /// Everything a successful compilation produces.
 #[derive(Debug, Clone)]
@@ -41,6 +48,12 @@ pub struct Compiled {
     pub manifest: String,
     /// Names of the functions in the unit, in the unit's deterministic order.
     pub function_names: Vec<String>,
+    /// Names of the passes that ran, in order.
+    ///
+    /// Carried out so that "why is this generated code different?" is answerable about *this*
+    /// build rather than by reading the compiler's pass list, and so that build state can refuse
+    /// to reuse an artifact produced by a different set.
+    pub passes: Vec<String>,
 }
 
 /// Why a compilation did not produce a unit.
@@ -68,6 +81,12 @@ pub enum CompileFailure {
     },
     /// The requested backend cannot be used.
     Backend(BackendError),
+    /// The requested source language cannot be used.
+    Frontend(FrontendError),
+    /// The source and target languages have no bridge between them.
+    Bridge(BridgeError),
+    /// The target cannot preserve something the source language requires.
+    Guarantee(UnmetGuarantee),
 }
 
 impl CompileFailure {
@@ -82,6 +101,34 @@ impl CompileFailure {
     }
 }
 
+/// A frontend's failure is already located, so it maps across without needing the source text.
+impl From<LoweringError> for CompileFailure {
+    fn from(error: LoweringError) -> Self {
+        match error {
+            LoweringError::Syntax {
+                message,
+                line,
+                column,
+            } => Self::Syntax {
+                message,
+                line,
+                column,
+            },
+            LoweringError::Unsupported {
+                message,
+                code,
+                line,
+                column,
+            } => Self::Unsupported {
+                message,
+                code,
+                line,
+                column,
+            },
+        }
+    }
+}
+
 /// Compile Python source texts into a target artifact.
 ///
 /// Sources arrive as **text**, not paths: the decorator obtains them by introspecting a live
@@ -92,81 +139,78 @@ impl CompileFailure {
 /// always produces. Because callee resolution happens over the assembled unit rather than during
 /// lowering, the result does not depend on the order the sources arrive.
 pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, CompileFailure> {
+    compile_with(sources, backend_name, &PassConfig::default())
+}
+
+/// The same, with the pass pipeline configured explicitly.
+///
+/// Separate rather than a defaulted argument so that the common call stays short, and so that a
+/// caller turning optimization off has to say so — the two produce different artifacts, and one
+/// silently standing in for the other is the failure this split prevents.
+pub fn compile_with(
+    sources: &[String],
+    backend_name: &str,
+    config: &PassConfig,
+) -> Result<Compiled, CompileFailure> {
     // Resolved first so that an unusable backend is reported before any parsing work, and so the
     // error is about the backend rather than about whichever source happened to be malformed.
+    //
+    // The value is not used: the files come from the (python, rust) bridge, since a calling
+    // convention belongs to the pair. Resolution is still what rejects an unusable target name.
     let backend = backend::lookup(backend_name).map_err(CompileFailure::Backend)?;
+    let frontend = frontend::lookup(SOURCE_LANGUAGE).map_err(CompileFailure::Frontend)?;
+    // Resolved by pair. A target compylr can generate but not call back from fails here, with a
+    // message naming both languages rather than claiming the target does not exist.
+    let host =
+        bridge_registry::lookup(SOURCE_LANGUAGE, backend_name).map_err(CompileFailure::Bridge)?;
 
-    // Every source is parsed before any is lowered, so signatures can be gathered across all of
-    // them. The decorator submits each function as its own source, which makes a call between two
-    // decorated functions a call *across* sources; without this, such a call could never be typed
-    // and `doubled = double(n)` would demand an annotation in exactly the arrangement the
-    // decorator always produces.
-    let mut parsed_sources = Vec::with_capacity(sources.len());
-    for source in sources {
-        let parsed = parse_source(source).map_err(|error| match error {
-            FrontendError::Syntax { message, span } => {
-                let at = span.line_column(source);
-                CompileFailure::Syntax {
-                    message,
-                    line: at.line,
-                    column: at.column,
-                }
-            }
-            // `parse_source` reads no files, so an I/O variant cannot arise here.
-            FrontendError::Io { path, source } => CompileFailure::Syntax {
-                message: format!("could not read {}: {source}", path.display()),
-                line: 1,
-                column: 1,
-            },
-        })?;
-        parsed_sources.push((source, parsed));
-    }
+    // Parsing, gathering signatures across sources, and lowering are all the frontend's, because
+    // they are Python's typing rules rather than the pipeline's. What comes back is a unit.
+    let mut unit = frontend.lower(sources)?;
 
-    // Names are unioned across every source first. The decorator submits each member as its own
-    // source, so a call or a construction between two marked members is a reference across
-    // sources; without this, the arrangement the decorator always produces would not type.
-    let mut class_names = ClassNames::new();
-    for (_, parsed) in &parsed_sources {
-        class_names.extend(collect_class_names(parsed));
-    }
-    let mut signatures = Signatures::new();
-    let mut class_signatures = ClassSignatures::new();
-    for (_, parsed) in &parsed_sources {
-        signatures.extend(collect_signatures(parsed, &class_names));
-        class_signatures.extend(collect_class_signatures(parsed, &class_names));
-    }
+    // Verification is unconditional and knows no source language. For Python it never fires --
+    // lowering enforces the same invariants -- and it is here for the frontend that will not have.
+    // Reported against line 1 because a unit assembled from many texts has no single source a span
+    // indexes into.
+    verify(&unit).map_err(|error| CompileFailure::Unsupported {
+        message: error.to_string(),
+        code: "malformed_unit",
+        line: 1,
+        column: 1,
+    })?;
 
-    let mut unit = Unit::new();
-    for (source, parsed) in &parsed_sources {
-        let (functions, classes) =
-            lower_source_members_with(parsed, &signatures, &class_signatures)
-                .map_err(|error| CompileFailure::from_lower(&error, source))?;
-        for function in functions {
-            unit.add_function(function)
-                .map_err(|error| CompileFailure::from_lower(&error, source))?;
-        }
-        for class in classes {
-            unit.add_class(class)
-                .map_err(|error| CompileFailure::from_lower(&error, source))?;
-        }
-    }
+    // Taken before optimization, so turning a pass on does not read as a change to the user's
+    // code. What distinguishes two builds of the same program is the pass configuration, which
+    // build state records separately.
+    //
+    // Note that this is deliberately *not* the fingerprint inside `ir_artifact` below. That one
+    // is written after the passes run, because the artifact is the window onto what the backend
+    // actually received, and it has to match its own contents to stay self-checking. Two numbers,
+    // two jobs: this one identifies the program, that one identifies the file.
+    let fingerprint = unit.fingerprint();
 
-    // Resolves calls across every source at once. Reported against the first source because a
-    // unit assembled from many texts has no single source a span indexes into.
-    unit.validate()
-        .map_err(|error| CompileFailure::Unsupported {
-            message: error.message().to_string(),
-            code: error.kind().code(),
-            line: 1,
-            column: 1,
-        })?;
+    // Checked before any target source exists, so a combination that would silently change what
+    // the program means is refused by name rather than discovered as a wrong answer.
+    negotiate(&unit, backend).map_err(CompileFailure::Guarantee)?;
 
-    let target_sources = backend
-        .emit_python_extension(&unit)
-        .map_err(CompileFailure::Backend)?;
-    let manifest = backend
-        .build_manifest(&unit)
-        .map_err(CompileFailure::Backend)?;
+    let directed = compylr_registry::passes::for_pair(SOURCE_LANGUAGE, backend_name);
+    let report = pass::run(&mut unit, config, &directed).map_err(|error| {
+        CompileFailure::Backend(BackendError::Unsupported {
+            detail: error.to_string(),
+        })
+    })?;
+
+    // Generating the target source is the backend's job; making it callable is the bridge's,
+    // because a calling convention belongs to the pair rather than to either language alone.
+    let key = BuildKey {
+        fingerprint,
+        target: backend_name.to_string(),
+        passes: config.optimization.key(),
+    };
+    let artifact = host.emit(&unit, &key).map_err(CompileFailure::Backend)?;
+    // Formatting happens here rather than inside emission, so emission stays a pure function of
+    // the unit and its output stays safe to key a rebuild cache on.
+    let target_sources = backend.post_process(artifact.files);
     let ir_artifact = unit.to_json().map_err(|error| {
         CompileFailure::Backend(BackendError::Unsupported {
             detail: format!("could not serialize the IR: {error}"),
@@ -176,10 +220,11 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     Ok(Compiled {
         target_sources,
         ir_artifact,
-        fingerprint: unit.fingerprint(),
-        module_name: crate::backend::bindings::module_name(&unit),
-        manifest,
+        fingerprint,
+        module_name: artifact.loaded_as,
+        manifest: artifact.manifest,
         function_names: unit.functions().map(|f| f.name.clone()).collect(),
+        passes: report.passes.iter().map(|name| name.to_string()).collect(),
     })
 }
 
@@ -239,6 +284,17 @@ impl CompileFailure {
                 Some((line, column, Some(code))),
             ),
             Self::Backend(error) => (BackendNotAvailableError::new_err(error.to_string()), None),
+            // Rendered as the base type rather than getting one of its own. The source language
+            // is a compiled-in constant that is always implemented, so reaching here means
+            // compylr is misconfigured against itself — not something a user's program caused,
+            // and not worth an exception class nobody can catch meaningfully.
+            Self::Frontend(error) => (CompylrError::new_err(error.to_string()), None),
+            // Same reasoning as the frontend case: the only pair `compile` ever asks for is one
+            // this build registers, so arriving here means compylr disagrees with itself.
+            Self::Bridge(error) => (CompylrError::new_err(error.to_string()), None),
+            // A backend that cannot preserve what Python needs is not a usable backend, which is
+            // what `BackendNotAvailableError` already means. The message names the guarantee.
+            Self::Guarantee(error) => (BackendNotAvailableError::new_err(error.to_string()), None),
         };
 
         if let Some((line, column, code)) = location {
@@ -282,6 +338,13 @@ pub struct PyCompiledUnit {
     /// Names of the functions in the unit.
     #[pyo3(get)]
     pub function_names: Vec<String>,
+    /// Names of the optimization passes that ran, in order.
+    ///
+    /// Recorded in build state so that an artifact built by a different set of passes is not
+    /// reused. The same source under a different pass configuration is a different artifact, and
+    /// the fingerprint alone cannot say so — deliberately, since it identifies the program.
+    #[pyo3(get)]
+    pub passes: Vec<String>,
 }
 
 impl From<Compiled> for PyCompiledUnit {
@@ -293,6 +356,7 @@ impl From<Compiled> for PyCompiledUnit {
             module_name: compiled.module_name,
             manifest: compiled.manifest,
             function_names: compiled.function_names,
+            passes: compiled.passes,
         }
     }
 }
@@ -316,7 +380,7 @@ fn compile_unit(py: Python<'_>, sources: Vec<String>, backend: &str) -> PyResult
 #[pyfunction]
 fn validate_source(py: Python<'_>, source: &str) -> PyResult<Vec<String>> {
     let parsed = parse_source(source).map_err(|error| match error {
-        FrontendError::Syntax { message, span } => {
+        SourceError::Syntax { message, span } => {
             let at = span.line_column(source);
             CompileFailure::Syntax {
                 message,
@@ -325,7 +389,7 @@ fn validate_source(py: Python<'_>, source: &str) -> PyResult<Vec<String>> {
             }
             .into_py_err(py)
         }
-        FrontendError::Io { path, source } => {
+        SourceError::Io { path, source } => {
             SourceSyntaxError::new_err(format!("could not read {}: {source}", path.display()))
         }
     })?;

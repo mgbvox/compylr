@@ -1,13 +1,17 @@
-//! Python semantics, verified by running the emitted code.
+//! Declared semantics, verified by running the emitted code.
 //!
-//! Reading emitted text cannot catch the failure that matters here. A floor-division helper that
-//! adjusts the quotient in the wrong direction still *looks* correct in a string comparison, and
-//! a snapshot of it would be just as wrong as the code. So every test in this file lowers Python,
-//! emits Rust, compiles it with `rustc`, runs the binary, and asserts on what it printed.
+//! Reading emitted text cannot catch the failure that matters here. A flooring-division helper
+//! that adjusts the quotient in the wrong direction still *looks* correct in a string comparison,
+//! and a snapshot of it would be just as wrong as the code. So every test in this file emits
+//! Rust, compiles it with `rustc`, runs the binary, and asserts on what it printed.
 //!
 //! That is slower than a string assertion, and it is the point: these are precisely the cases
-//! where Rust's native operators disagree with Python's, so the only convincing evidence is a
-//! number produced by executing the result.
+//! where Rust's native operators disagree with what the IR declared, so the only convincing
+//! evidence is a number produced by executing the result.
+//!
+//! Most tests start from Python source, because that is the path users take. The ones that do not
+//! build IR by hand, because Python has no syntax for truncating division or a dividend-signed
+//! remainder — and a mode no test can reach is a mode the backend can get wrong indefinitely.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -36,8 +40,14 @@ fn unit_from(source: &str) -> Unit {
 ///
 /// `label` only has to be unique across tests so parallel runs do not fight over a path.
 fn run(label: &str, source: &str, main_body: &str) -> String {
-    let unit = unit_from(source);
-    let emitted = lookup("rust").unwrap().emit(&unit).expect("must emit");
+    run_unit(label, &unit_from(source), main_body)
+}
+
+/// The same, starting from a unit rather than from source.
+///
+/// Separate so that a mode no source language in this repo can produce still gets executed.
+fn run_unit(label: &str, unit: &Unit, main_body: &str) -> String {
+    let emitted = lookup("rust").unwrap().emit(unit).expect("must emit");
 
     // The crate is written out and a `main.rs` added beside it, so the code under test is
     // compiled exactly as it ships rather than concatenated into a shape it never takes.
@@ -1079,4 +1089,443 @@ fn a_reading_method_takes_a_shared_receiver() {
         source.contains("fn set(&mut self"),
         "a mutating method takes a mutable receiver:\n{source}"
     );
+}
+
+/// Folded programs must still run, and still produce what the unfolded ones did.
+///
+/// Folding rewrites the tree the backend receives, so it can produce a literal the backend has
+/// never had to emit before — a float that arrived as a division, say. Checking the pass in
+/// isolation cannot catch that; only compiling and running the result can.
+mod folding {
+    use super::*;
+    use compylr_core::pass::{self, Optimization, PassConfig};
+
+    fn compiled(label: &str, source: &str, main_body: &str, optimization: Optimization) -> String {
+        let mut unit = unit_from(source);
+        pass::run(&mut unit, &PassConfig { optimization }, &[])
+            .expect("passes must not fail on an accepted program");
+        run_unit(label, &unit, main_body)
+    }
+
+    /// The same program, with and without the pass, must print the same thing.
+    #[test]
+    fn folding_does_not_change_what_a_program_computes() {
+        // Every case is one where a wrong fold gives a different answer: flooring on mixed signs,
+        // divisor-signed remainder, and a division that promotes.
+        let source = "def quotient() -> int:\n    return 7 // -2\n\n\
+                      def remainder() -> int:\n    return -7 % 2\n\n\
+                      def ratio() -> float:\n    return 7 / 2\n\n\
+                      def joined() -> str:\n    return \"a\" + \"b\"\n";
+        let main = "    println!(\"{} {} {} {}\", quotient().unwrap(), remainder().unwrap(), \
+                    ratio().unwrap(), joined().unwrap());";
+
+        let folded = compiled("folding_on", source, main, Optimization::Default);
+        let plain = compiled("folding_off", source, main, Optimization::None);
+
+        assert_eq!(folded.trim(), "-4 1 3.5 ab");
+        assert_eq!(folded, plain, "folding must not change the result");
+    }
+
+    /// A failure the program would have reported must survive the pass.
+    #[test]
+    fn a_folded_program_still_reports_the_failures_it_would_have() {
+        let source = "def by_zero() -> int:\n    return 1 // 0\n";
+        let out = compiled(
+            "folding_keeps_errors",
+            source,
+            "    println!(\"{:?}\", by_zero().is_err());",
+            Optimization::Default,
+        );
+        assert_eq!(
+            out.trim(),
+            "true",
+            "the division must still fail at runtime"
+        );
+    }
+}
+
+/// The modes the Python frontend never produces, executed anyway.
+///
+/// Truncating division and a dividend-signed remainder are what C, Go, Rust, and Java mean by `/`
+/// and `%`. No Python program can reach them, so without hand-built IR the backend could emit
+/// flooring for both modes and every test in this repo would still pass — which is precisely the
+/// bug the change is meant to make impossible.
+mod modes_python_cannot_write {
+    use super::*;
+    use compylr::ir::{BinOp, DivMode, Expr, Function, Param, RemSign, Rounding, Stmt, Ty};
+    use compylr::span::Span;
+
+    /// A unit holding one function `op(a, b) -> int` applying `op` to its two parameters.
+    fn binary_unit(op: BinOp) -> Unit {
+        let mut unit = Unit::new();
+        unit.add_function(Function {
+            name: "op".to_string(),
+            params: vec![
+                Param {
+                    name: "a".to_string(),
+                    ty: Ty::Int,
+                },
+                Param {
+                    name: "b".to_string(),
+                    ty: Ty::Int,
+                },
+            ],
+            ret: Ty::Int,
+            body: vec![Stmt::Return(Expr::Binary {
+                op,
+                left: Box::new(Expr::name("a")),
+                right: Box::new(Expr::name("b")),
+            })],
+            doc: None,
+            span: Span::default(),
+        })
+        .unwrap();
+        unit
+    }
+
+    #[test]
+    fn division_rounding_toward_zero_truncates() {
+        let unit = binary_unit(BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardZero),
+        });
+        let out = run_unit(
+            "mode_div_trunc",
+            &unit,
+            "    println!(\"{}\", op(-7, 2).unwrap());\n\
+             \x20   println!(\"{}\", op(7, -2).unwrap());\n\
+             \x20   println!(\"{}\", op(-6, 2).unwrap());",
+        );
+        // Truncation, not flooring: -3 rather than -4 on the first two.
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["-3", "-3", "-3"]);
+    }
+
+    #[test]
+    fn division_rounding_toward_negative_infinity_floors() {
+        let unit = binary_unit(BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardNegInf),
+        });
+        let out = run_unit(
+            "mode_div_floor",
+            &unit,
+            "    println!(\"{}\", op(-7, 2).unwrap());\n\
+             \x20   println!(\"{}\", op(7, -2).unwrap());\n\
+             \x20   println!(\"{}\", op(-6, 2).unwrap());",
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["-4", "-4", "-3"]);
+    }
+
+    #[test]
+    fn remainder_taking_the_sign_of_the_dividend() {
+        let unit = binary_unit(BinOp::Rem {
+            sign: RemSign::Dividend,
+        });
+        let out = run_unit(
+            "mode_rem_trunc",
+            &unit,
+            "    println!(\"{}\", op(-7, 2).unwrap());\n\
+             \x20   println!(\"{}\", op(7, -2).unwrap());",
+        );
+        // The sign follows the dividend, so these are the mirror image of Python's.
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["-1", "1"]);
+    }
+
+    #[test]
+    fn remainder_taking_the_sign_of_the_divisor() {
+        let unit = binary_unit(BinOp::Rem {
+            sign: RemSign::Divisor,
+        });
+        let out = run_unit(
+            "mode_rem_floor",
+            &unit,
+            "    println!(\"{}\", op(-7, 2).unwrap());\n\
+             \x20   println!(\"{}\", op(7, -2).unwrap());",
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["1", "-1"]);
+    }
+
+    /// A sequence read, under each declared origin, executed.
+    #[test]
+    fn indexing_from_the_start_refuses_a_negative_index() {
+        use compylr::ir::IndexOrigin;
+
+        for (label, origin, expected) in [
+            ("mode_index_either", IndexOrigin::FromEitherEnd, "ok 30"),
+            ("mode_index_start", IndexOrigin::FromStart, "out of range"),
+        ] {
+            let mut unit = Unit::new();
+            unit.add_function(Function {
+                name: "read".to_string(),
+                params: vec![
+                    Param {
+                        name: "xs".to_string(),
+                        ty: Ty::List(Box::new(Ty::Int)),
+                    },
+                    Param {
+                        name: "i".to_string(),
+                        ty: Ty::Int,
+                    },
+                ],
+                ret: Ty::Int,
+                body: vec![Stmt::Return(Expr::Subscript {
+                    base: Box::new(Expr::name("xs")),
+                    index: Box::new(Expr::name("i")),
+                    origin,
+                })],
+                doc: None,
+                span: Span::default(),
+            })
+            .unwrap();
+
+            let out = run_unit(
+                label,
+                &unit,
+                "    let xs = vec![10i64, 20, 30];\n\
+                 \x20   match read(xs, -1) {\n\
+                 \x20       Ok(value) => println!(\"ok {value}\"),\n\
+                 \x20       Err(_) => println!(\"out of range\"),\n\
+                 \x20   }",
+            );
+            assert_eq!(out.trim(), expected, "{label}");
+        }
+    }
+
+    /// A length, under each declared reading, executed.
+    ///
+    /// The same string measured three ways gives three answers. A backend that ignored the units
+    /// would return one of them for all three and pass every Python-driven test in this repo,
+    /// because Python only ever declares code points.
+    #[test]
+    fn each_text_unit_reading_measures_differently() {
+        use compylr::ir::TextUnits;
+
+        let mut unit = Unit::new();
+        for (name, units) in [
+            ("code_points", TextUnits::CodePoints),
+            ("utf8_bytes", TextUnits::Utf8Bytes),
+            ("utf16_units", TextUnits::Utf16Units),
+        ] {
+            unit.add_function(Function {
+                name: name.to_string(),
+                params: vec![Param {
+                    name: "s".to_string(),
+                    ty: Ty::Str,
+                }],
+                ret: Ty::Int,
+                body: vec![Stmt::Return(Expr::Len {
+                    value: Box::new(Expr::name("s")),
+                    units,
+                })],
+                doc: None,
+                span: Span::default(),
+            })
+            .unwrap();
+        }
+
+        let out = run_unit(
+            "mode_text_units",
+            &unit,
+            "    let s = \"\u{1f980}\".to_string();\n\
+             \x20   println!(\n\
+             \x20       \"{} {} {}\",\n\
+             \x20       code_points(s.clone()).unwrap(),\n\
+             \x20       utf8_bytes(s.clone()).unwrap(),\n\
+             \x20       utf16_units(s).unwrap(),\n\
+             \x20   );",
+        );
+        // One character outside the basic plane is the only input that separates all three.
+        assert_eq!(out.trim(), "1 4 2");
+    }
+
+    /// Each pair must satisfy `(a / b) * b + (a % b) == a`; mixing halves must not.
+    ///
+    /// This is the property that makes the pairing real rather than a naming convention. A
+    /// backend that emitted flooring division beside a dividend-signed remainder would pass every
+    /// single-operation test above and still compute nonsense.
+    #[test]
+    fn each_division_and_remainder_pair_reconstructs_the_dividend() {
+        for (label, rounding, sign) in [
+            ("pair_floor", Rounding::TowardNegInf, RemSign::Divisor),
+            ("pair_trunc", Rounding::TowardZero, RemSign::Dividend),
+        ] {
+            let mut unit = Unit::new();
+            for (name, op) in [
+                (
+                    "quotient",
+                    BinOp::Div {
+                        mode: DivMode::Integer(rounding),
+                    },
+                ),
+                ("remainder", BinOp::Rem { sign }),
+            ] {
+                unit.add_function(Function {
+                    name: name.to_string(),
+                    params: vec![
+                        Param {
+                            name: "a".to_string(),
+                            ty: Ty::Int,
+                        },
+                        Param {
+                            name: "b".to_string(),
+                            ty: Ty::Int,
+                        },
+                    ],
+                    ret: Ty::Int,
+                    body: vec![Stmt::Return(Expr::Binary {
+                        op,
+                        left: Box::new(Expr::name("a")),
+                        right: Box::new(Expr::name("b")),
+                    })],
+                    doc: None,
+                    span: Span::default(),
+                })
+                .unwrap();
+            }
+
+            let out = run_unit(
+                label,
+                &unit,
+                "    for a in [-7i64, -6, 7, 6, -1, 1] {\n\
+                 \x20       for b in [2i64, -2, 3, -3] {\n\
+                 \x20           let q = quotient(a, b).unwrap();\n\
+                 \x20           let r = remainder(a, b).unwrap();\n\
+                 \x20           assert_eq!(q * b + r, a, \"a={a} b={b} q={q} r={r}\");\n\
+                 \x20       }\n\
+                 \x20   }\n\
+                 \x20   println!(\"consistent\");",
+            );
+            assert_eq!(out.trim(), "consistent", "{label}");
+        }
+    }
+}
+
+/// Programs the conformance corpus found the backend rendering wrongly.
+///
+/// Every case here is ordinary Python that produced generated Rust which did not compile, or in
+/// one case a program that ran forever. None was reachable from `python/fixtures/accepted/`,
+/// because a fixture only covers a form *somewhere* and every one of these is about a form's
+/// behaviour in a particular **position**. They are executed rather than emitted, because for the
+/// loop case reading the text is what missed it in the first place.
+mod positions_the_backend_rendered_wrongly {
+    use super::*;
+
+    /// `continue` inside `for i in range(...)` used to skip the cursor increment.
+    ///
+    /// Not a wrong answer — a hang. The increment was emitted after the body, and `continue` jumps
+    /// straight to the loop condition, so the cursor stayed where it was and the same iteration
+    /// repeated forever.
+    #[test]
+    fn continue_in_a_range_loop_still_advances() {
+        let out = run(
+            "position_continue_range",
+            "def count_odd(n: int) -> int:\n\
+             \x20   total = 0\n\
+             \x20   for i in range(n):\n\
+             \x20       if i % 2 == 0:\n\
+             \x20           continue\n\
+             \x20       total = total + 1\n\
+             \x20   return total\n",
+            "    println!(\"{}\", count_odd(10).unwrap());",
+        );
+        assert_eq!(out.trim(), "5");
+    }
+
+    /// An attribute assigned inside an `if` in `__init__` used to emit `(self).count`.
+    ///
+    /// The instance does not exist inside its own constructor, so that never compiled. Only
+    /// top-level attribute assignments were rewritten into locals.
+    #[test]
+    fn an_attribute_assigned_in_a_branch_of_a_constructor() {
+        let out = run(
+            "position_attr_in_branch",
+            "class Gate:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       self.count: int = 0\n\
+             \x20       if n > 0:\n\
+             \x20           self.count = n\n\
+             \n\
+             def build(n: int) -> int:\n\
+             \x20   g = Gate(n)\n\
+             \x20   return g.count\n",
+            "    println!(\"{} {}\", build(7).unwrap(), build(-1).unwrap());",
+        );
+        assert_eq!(out.trim(), "7 0");
+    }
+
+    #[test]
+    fn an_attribute_assigned_in_a_loop_of_a_constructor() {
+        let out = run(
+            "position_attr_in_loop",
+            "class Counter:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       self.count: int = 0\n\
+             \x20       for i in range(n):\n\
+             \x20           self.count = i\n\
+             \n\
+             def build(n: int) -> int:\n\
+             \x20   c = Counter(n)\n\
+             \x20   return c.count\n",
+            "    println!(\"{}\", build(4).unwrap());",
+        );
+        assert_eq!(out.trim(), "3");
+    }
+
+    /// A collection attribute mutated inside a constructor's loop.
+    #[test]
+    fn an_attribute_collection_appended_to_in_a_constructor() {
+        let out = run(
+            "position_append_in_loop",
+            "class Log:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       self.seen: list[int] = []\n\
+             \x20       for i in range(n):\n\
+             \x20           self.seen.append(i)\n\
+             \n\
+             def size(n: int) -> int:\n\
+             \x20   log = Log(n)\n\
+             \x20   return len(log.seen)\n",
+            "    println!(\"{}\", size(3).unwrap());",
+        );
+        assert_eq!(out.trim(), "3");
+    }
+
+    /// A local reassigned inside a constructor used to be emitted without `mut`.
+    ///
+    /// The constructor fed the emitter one statement at a time, and `Stmt::Bind` decides
+    /// mutability by looking for a later assignment in the slice it is handed — which was always
+    /// a slice of one.
+    #[test]
+    fn a_local_reassigned_inside_a_constructor() {
+        let out = run(
+            "position_local_reassigned",
+            "class Total:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       running = 0\n\
+             \x20       running = running + n\n\
+             \x20       self.value: int = running\n\
+             \n\
+             def build(n: int) -> int:\n\
+             \x20   t = Total(n)\n\
+             \x20   return t.value\n",
+            "    println!(\"{}\", build(5).unwrap());",
+        );
+        assert_eq!(out.trim(), "5");
+    }
+
+    /// A trailing bare `return` in `__init__` means nothing and is dropped, not refused.
+    #[test]
+    fn a_trailing_return_in_a_constructor_is_accepted() {
+        let out = run(
+            "position_trailing_return",
+            "class Thing:\n\
+             \x20   def __init__(self, n: int) -> None:\n\
+             \x20       self.count: int = n\n\
+             \x20       return\n\
+             \n\
+             def build(n: int) -> int:\n\
+             \x20   t = Thing(n)\n\
+             \x20   return t.count\n",
+            "    println!(\"{}\", build(9).unwrap());",
+        );
+        assert_eq!(out.trim(), "9");
+    }
 }

@@ -41,6 +41,66 @@ def fresh() -> None:
     _manager._reset_for_tests()
 
 
+class TestPackages:
+    """A package must import the way it imports at runtime.
+
+    Nothing here was covered before, and that absence is exactly what let the bug ship: every
+    fixture was a flat directory of standalone modules, so no relative import was ever executed.
+    `compylr compyle` could not import a package's `__init__.py` at all, and the demo has been
+    reporting two failures that nothing looked at.
+    """
+
+    def test_a_package_whose_init_imports_a_sibling(self, tmp_path: Path) -> None:
+        write(tmp_path, "pkg/__init__.py", "from . import work\n\n__all__ = ['work']\n")
+        write(tmp_path, "pkg/work.py", MARKED.format(root=str(tmp_path), name="doubled", factor=2))
+
+        report = _precompile.precompile(tmp_path)
+
+        assert report.failures == [], "a relative import inside a package must resolve"
+        assert "doubled" in report.functions
+
+    def test_a_nested_package_resolves_every_ancestor(self, tmp_path: Path) -> None:
+        write(tmp_path, "outer/__init__.py", "from . import inner\n")
+        write(tmp_path, "outer/inner/__init__.py", "from . import leaf\n")
+        write(
+            tmp_path,
+            "outer/inner/leaf.py",
+            MARKED.format(root=str(tmp_path), name="tripled", factor=3),
+        )
+
+        report = _precompile.precompile(tmp_path)
+
+        assert report.failures == []
+        assert "tripled" in report.functions
+
+    def test_enumeration_order_does_not_decide_success(self, tmp_path: Path) -> None:
+        # `Aaa` sorts before `__init__.py`, because `A` is 0x41 and `_` is 0x5F. A fix that only
+        # sorted `__init__.py` first would pass every other test here and fail this one.
+        write(tmp_path, "pkg/__init__.py", "VALUE = 1\n")
+        write(tmp_path, "pkg/Aaa/__init__.py", "from .. import VALUE\n")
+        write(
+            tmp_path,
+            "pkg/Aaa/deep.py",
+            MARKED.format(root=str(tmp_path), name="quadrupled", factor=4),
+        )
+
+        report = _precompile.precompile(tmp_path)
+
+        assert report.failures == []
+        assert "quadrupled" in report.functions
+
+    def test_a_package_that_genuinely_raises_is_still_reported(self, tmp_path: Path) -> None:
+        # The fix must not swallow real failures by making every import succeed vacuously.
+        write(tmp_path, "pkg/__init__.py", "from . import missing_entirely\n")
+        write(tmp_path, "pkg/fine.py", MARKED.format(root=str(tmp_path), name="fine", factor=5))
+
+        report = _precompile.precompile(tmp_path)
+
+        assert len(report.failures) == 1
+        assert "pkg/__init__.py" in report.failures[0].module
+        assert "fine" in report.functions, "one broken module must not stop the rest"
+
+
 class TestDiscovery:
     def test_every_marked_member_across_modules_is_found(self, tmp_path: Path) -> None:
         artifacts = str(tmp_path / ".compylr")

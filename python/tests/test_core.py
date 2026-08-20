@@ -73,7 +73,9 @@ class TestIrArtifact:
     def test_the_ir_is_returned_as_readable_json(self) -> None:
         artifact = json.loads(_core.compile_unit([ADD]).ir_artifact)
 
-        assert artifact["version"] == 1
+        # Bumped whenever the IR's shape changes: 2 when arithmetic operators started carrying
+        # their declared semantics, 3 when subscripting and length did.
+        assert artifact["version"] == 3
         assert [f["name"] for f in artifact["functions"]] == ["add"]
 
     def test_the_artifact_names_no_rust_types(self) -> None:

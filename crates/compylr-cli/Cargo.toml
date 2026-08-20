@@ -1,0 +1,23 @@
+# The `compylr` binary used during compiler development, and its `--emit` surface.
+#
+# Depends on the registry rather than on the `compylr` cdylib, so the CLI does not link PyO3.
+[package]
+name = "compylr-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "compylr"
+path = "src/main.rs"
+
+[dependencies]
+compylr-core.workspace = true
+compylr-ir.workspace = true
+compylr-diagnostics.workspace = true
+compylr-frontend-python.workspace = true
+compylr-registry.workspace = true
+compylr-backend-rust.workspace = true
+compylr-bridge-python-rust.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

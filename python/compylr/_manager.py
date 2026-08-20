@@ -283,7 +283,8 @@ class Manager:
 
         if (
             self._pipeline.cached_fingerprint() == compiled.fingerprint
-            and self._pipeline.cached_module_name() == compiled.module_name
+            and self._pipeline.cached_module_name(list(compiled.passes))
+            == compiled.module_name
         ):
             module = self._import_cached(compiled.module_name)
             if module is not None:

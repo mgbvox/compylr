@@ -1,10 +1,10 @@
-//! Translated from Python by compylr.
+//! Translated by compylr.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
-    py_truediv,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits,
+    div_exact, py_subscript,
 };
 
 /// An nth-prime that remembers what it has already computed.
@@ -32,7 +32,7 @@ impl PrimeCache {
         }
         let mut d: i64 = 2i64;
         while ((&(PyNum::py_mul(&(d), &(d))?)) <= (&(n))) {
-            if ((&(PyNum::py_mod(&(n), &(d))?)) == (&(0i64))) {
+            if ((&(PyNum::rem_floor(&(n), &(d))?)) == (&(0i64))) {
                 return Ok(false);
             }
             d = PyAdd::py_add(&(d), &(1i64))?;
@@ -42,7 +42,10 @@ impl PrimeCache {
 
     /// How many answers are cached.
     pub fn known_count(&self) -> Result<i64, RuntimeError> {
-        Ok(PyLen::py_len(&((self).known.clone())))
+        Ok(PyLen::py_len(
+            &((self).known.clone()),
+            TextUnits::CodePoints,
+        ))
     }
 
     /// The `n`th prime, one-indexed. Returns 0 for `n` below one.
@@ -52,7 +55,11 @@ impl PrimeCache {
         }
         if PyContains::py_contains(&((self).known.clone()), &(n)) {
             (self).hits = PyAdd::py_add(&((self).hits.clone()), &(1i64))?;
-            return Ok(py_subscript(&((self).known.clone()), &(n))?);
+            return Ok(py_subscript(
+                &((self).known.clone()),
+                &(n),
+                IndexOrigin::FromEitherEnd,
+            )?);
         }
         let mut found: i64 = 0i64;
         let mut candidate: i64 = 1i64;
@@ -89,14 +96,18 @@ pub fn iterative_nth_prime(n: i64) -> Result<i64, RuntimeError> {
         return Ok(0i64);
     }
     let found: Vec<i64> = iterative_primes_up_to_count(n)?;
-    Ok(py_subscript(&(found), &(PyNum::py_sub(&(n), &(1i64))?))?)
+    Ok(py_subscript(
+        &(found),
+        &(PyNum::py_sub(&(n), &(1i64))?),
+        IndexOrigin::FromEitherEnd,
+    )?)
 }
 
 /// The first `n` primes, in order.
 pub fn iterative_primes_up_to_count(n: i64) -> Result<Vec<i64>, RuntimeError> {
     let mut found: Vec<i64> = vec![];
     let mut candidate: i64 = 2i64;
-    while ((&(PyLen::py_len(&(found)))) < (&(n))) {
+    while ((&(PyLen::py_len(&(found), TextUnits::CodePoints))) < (&(n))) {
         let mut divisible: bool = false;
         {
             let __compylr_iter = &found;
@@ -105,7 +116,7 @@ pub fn iterative_primes_up_to_count(n: i64) -> Result<Vec<i64>, RuntimeError> {
                 if ((&(PyNum::py_mul(&(p), &(p))?)) > (&(candidate))) {
                     break;
                 }
-                if ((&(PyNum::py_mod(&(candidate), &(p))?)) == (&(0i64))) {
+                if ((&(PyNum::rem_floor(&(candidate), &(p))?)) == (&(0i64))) {
                     divisible = true;
                     break;
                 }
@@ -129,7 +140,7 @@ pub fn recursive_is_prime(n: i64) -> Result<bool, RuntimeError> {
     }
     let mut d: i64 = 2i64;
     while ((&(PyNum::py_mul(&(d), &(d))?)) <= (&(n))) {
-        if ((&(PyNum::py_mod(&(n), &(d))?)) == (&(0i64))) {
+        if ((&(PyNum::rem_floor(&(n), &(d))?)) == (&(0i64))) {
             return Ok(false);
         }
         d = PyAdd::py_add(&(d), &(1i64))?;
@@ -163,6 +174,8 @@ pub fn recursive_nth_prime_from(remaining: i64, current: i64) -> Result<i64, Run
     if ((&(remaining)) < (&(1i64))) {
         return Ok(current);
     }
-    Ok(recursive_nth_prime_from(PyNum::py_sub(&(remaining), &(1i64))?, recursive_next_prime(current)?)?)
+    Ok(recursive_nth_prime_from(
+        PyNum::py_sub(&(remaining), &(1i64))?,
+        recursive_next_prime(current)?,
+    )?)
 }
-

@@ -148,49 +148,34 @@ representable in the IR.
 ### Requirement: Target-language independence
 
 The IR SHALL NOT name, spell, or otherwise encode constructs specific to any single target
-language. Choosing the concrete type spelling, operator syntax, and value representation for
-a target is the responsibility of that target's backend, defined by its own capability. Rust
-is the first backend compylr will implement, but the IR SHALL remain expressible by a
-backend for another imperative target such as Go, C++, or TypeScript.
+language, **nor to any single source language**. Choosing the concrete type spelling, operator
+syntax, and value representation for a target is the responsibility of that target's backend,
+defined by its own capability; choosing how a construct is spelled back to a programmer in
+diagnostics is the responsibility of the frontend that read it. Rust is the first backend compylr
+implements and Python the first frontend, but the IR SHALL remain producible by a frontend for
+another imperative source language and expressible by a backend for another imperative target, such
+as Go, C++, or TypeScript.
 
 #### Scenario: No target syntax in the IR
 
 - **WHEN** the IR type model and node definitions are inspected
 - **THEN** no target language's type spellings or syntax appear in them
 
+#### Scenario: No source syntax in the IR
+
+- **WHEN** the IR type model and node definitions are inspected
+- **THEN** no source language's type spellings, operator spellings, or keywords appear in them
+
 #### Scenario: Backend supplies the mapping
 
 - **WHEN** a backend renders an IR function for a specific target
 - **THEN** it derives every concrete type spelling from the IR's semantic types, without
-  reading the original Python source
+  reading the original source
 
-### Requirement: Operators carry Python semantics
+#### Scenario: Frontend supplies the spelling in diagnostics
 
-Arithmetic and comparison operators in the IR SHALL denote Python's semantics, which differ
-from several target languages' native operators. In particular, integer floor division
-rounds toward negative infinity and the remainder takes the sign of the divisor, whereas
-common target languages truncate toward zero; and true division always produces a
-floating-point result, whereas the same spelling between two integers is integer division in
-many target languages. Backends SHALL be responsible for emitting code that preserves the
-IR's semantics rather than mapping operators to same-named native ones.
-
-#### Scenario: Floor division semantics are specified
-
-- **WHEN** the IR's floor-division operator is interpreted
-- **THEN** it denotes division rounding toward negative infinity, independent of how any
-  target language's division operator behaves
-
-#### Scenario: Remainder semantics are specified
-
-- **WHEN** the IR's remainder operator is interpreted
-- **THEN** it denotes a result taking the sign of the divisor, independent of how any target
-  language's remainder operator behaves
-
-#### Scenario: True division semantics are specified
-
-- **WHEN** the IR's true-division operator is applied to two integer operands
-- **THEN** it denotes a floating-point result, so a backend emitting a native integer
-  division for the same spelling would be wrong
+- **WHEN** a diagnostic needs to quote a type or operator in the programmer's own language
+- **THEN** the spelling comes from the frontend that read the source, not from the IR
 
 ### Requirement: Statement forms
 
@@ -690,3 +675,133 @@ Construction SHALL carry the class name and its arguments, distinct from a call 
 
 - **WHEN** an artifact describing a class is inspected
 - **THEN** it names IR forms only, containing no target-language struct or trait syntax
+
+### Requirement: Operators carry declared semantics
+
+Every arithmetic operator in the IR that admits more than one reasonable interpretation SHALL carry
+its interpretation explicitly on the node, rather than relying on a convention inherited from one
+source language. Specifically: integer division SHALL carry a rounding mode, remainder SHALL carry a
+sign convention, and division that promotes its operands SHALL say so. A frontend SHALL set these to
+whatever its source language means; a backend SHALL reproduce exactly what the node declares,
+without knowing which frontend produced it.
+
+The two rounding modes SHALL be *toward negative infinity* and *toward zero*. The two remainder sign
+conventions SHALL be *sign of the divisor* and *sign of the dividend*. These pairs cover the
+behavior of the languages in compylr's supported list; a source language needing a third SHALL add
+it to the IR rather than encode it in its frontend.
+
+#### Scenario: Rounding mode is explicit
+
+- **WHEN** an integer division node is inspected
+- **THEN** its rounding mode is readable from the node itself
+
+#### Scenario: The same operator can mean either rounding
+
+- **WHEN** two integer division nodes declare different rounding modes
+- **THEN** they are distinguishable, and a backend renders each differently
+
+#### Scenario: Remainder sign convention is explicit
+
+- **WHEN** a remainder node is inspected
+- **THEN** its sign convention is readable from the node itself
+
+#### Scenario: Promotion is explicit
+
+- **WHEN** a division node that yields a floating-point result from integer operands is inspected
+- **THEN** the promotion is declared on the node rather than implied by the operator's name
+
+#### Scenario: No node's meaning depends on the source language
+
+- **WHEN** a unit is interpreted without knowing which frontend produced it
+- **THEN** every operator's meaning is fully determined by the unit
+
+### Requirement: A unit records the frontend that produced it
+
+A unit SHALL record the name of the frontend that lowered it, and the semantic guarantees that
+frontend requires be preserved. This is what allows a pair-directed pass to be selected and a
+backend's post-processing to be gated without any component re-deriving the source language from the
+shape of the tree.
+
+#### Scenario: The producing frontend is recorded
+
+- **WHEN** a unit is produced by lowering source with a named frontend
+- **THEN** the unit reports that frontend's name
+
+#### Scenario: Required guarantees travel with the unit
+
+- **WHEN** a unit is inspected
+- **THEN** the guarantees its frontend requires preserved are readable from it
+
+#### Scenario: The record survives the artifact
+
+- **WHEN** a unit is serialized and read back
+- **THEN** the producing frontend and its required guarantees are unchanged
+
+### Requirement: Container operations carry declared semantics
+
+Reading an element of a sequence and measuring the length of a value each admit more than one
+reasonable interpretation across the languages compylr supports, so each SHALL carry its
+interpretation on the node rather than inherit one from whichever frontend happens to exist.
+
+Specifically: a subscript SHALL carry an **index origin**, and a length SHALL carry the **text
+units** it counts in. A frontend sets these to whatever its source language means; a backend
+reproduces exactly what the node says.
+
+The index origins SHALL be *from either end*, where a negative index counts backwards from the end,
+and *from the start*, where a negative index is out of range. The text units SHALL be *code points*,
+*UTF-8 bytes*, and *UTF-16 units*. These cover Python, Go, C++, and TypeScript; a language needing
+another SHALL add it to the IR rather than encode it in its frontend.
+
+Each mode describes one operand kind and SHALL be inert for the others: an index origin says nothing
+about a mapping, whose index is a key rather than an offset, and text units say nothing about a
+sequence, whose length is a count of elements.
+
+#### Scenario: Index origin is explicit
+
+- **WHEN** a subscript node is inspected
+- **THEN** its index origin is readable from the node itself
+
+#### Scenario: The same subscript can mean either origin
+
+- **WHEN** two subscript nodes declare different index origins
+- **THEN** they are distinguishable, and a backend renders each differently
+
+#### Scenario: Text units are explicit
+
+- **WHEN** a length node is inspected
+- **THEN** the units it counts in are readable from the node itself
+
+#### Scenario: All three unit readings are distinguishable
+
+- **WHEN** three length nodes declare code points, UTF-8 bytes, and UTF-16 units
+- **THEN** each is distinct from the others
+
+#### Scenario: A declared container mode survives the artifact
+
+- **WHEN** a unit containing subscripts and lengths is serialized and read back
+- **THEN** every declared mode is unchanged
+
+#### Scenario: A declared container mode reaches the fingerprint
+
+- **WHEN** two units differ only in a declared index origin, or only in declared text units
+- **THEN** their fingerprints differ, because the mode is part of what the program computes
+
+### Requirement: Container behavior that is not a mode is not parameterized
+
+Where languages differ in the **shape** of an operation rather than in a setting on it, the IR SHALL
+model the difference as a distinct form and SHALL NOT add a mode. In particular, reading a mapping
+with a key that is absent SHALL always be an operation that reports the failure: a language whose
+lookup instead yields a default value is performing a different operation, one that requires a
+notion of a type's zero value the IR does not model, and its frontend SHALL lower it to a different
+form rather than set a flag.
+
+#### Scenario: A missing mapping key is reported
+
+- **WHEN** a mapping is read with a key it does not contain
+- **THEN** the operation reports the missing key, whichever frontend produced the unit
+
+#### Scenario: No mode exists for behavior compylr's languages agree on
+
+- **WHEN** the IR's node definitions are inspected
+- **THEN** no mode is carried for iterating a mapping, testing membership, or assigning a mapping
+  key, because the languages in the supported list agree on all three

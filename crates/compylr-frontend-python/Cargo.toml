@@ -1,0 +1,17 @@
+# The Python frontend: parsing with ruff, and lowering the supported subset to IR.
+#
+# The four vendored ruff crates are dependencies of this crate alone. That is what makes
+# `cargo build -p compylr-backend-rust` free of a Python parser.
+[package]
+name = "compylr-frontend-python"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compylr-diagnostics.workspace = true
+compylr-ir.workspace = true
+compylr-core.workspace = true
+ruff_python_ast.workspace = true
+ruff_python_parser.workspace = true
+ruff_source_file.workspace = true
+ruff_text_size.workspace = true

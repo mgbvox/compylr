@@ -58,12 +58,19 @@ def _compiler_version() -> str:
         return "unknown"
 
 
-def _state_is_current(state: dict[str, object]) -> bool:
-    """Whether recorded build state was written by this layout and this compiler."""
-    return (
-        state.get("version") == _STATE_VERSION
-        and state.get("compylr") == _compiler_version()
-    )
+def _state_is_current(state: dict[str, object], passes: list[str] | None = None) -> bool:
+    """Whether recorded build state was written by this layout, compiler, and pass set.
+
+    ``passes`` is the set the current compilation ran. Left out when the caller only wants to know
+    whether the file is readable at all; supplied when deciding whether an artifact can be reused,
+    because the same program built by a different set of passes is a different artifact and the
+    fingerprint deliberately does not say so -- it identifies the program.
+    """
+    if state.get("version") != _STATE_VERSION:
+        return False
+    if state.get("compylr") != _compiler_version():
+        return False
+    return passes is None or state.get("passes") == passes
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,13 +177,16 @@ class BuildPipeline:
 
     # -- cache ---------------------------------------------------------------------------
 
-    def cached_module_name(self) -> str | None:
-        """The module built by the last successful build, if any."""
+    def cached_module_name(self, passes: list[str] | None = None) -> str | None:
+        """The module built by the last successful build, if any.
+
+        ``passes`` narrows the question to "was it built the way this compilation would build it?"
+        """
         try:
             state = json.loads(self.paths.state.read_text())
         except (OSError, json.JSONDecodeError):
             return None
-        if not _state_is_current(state):
+        if not _state_is_current(state, passes):
             return None
         name = state.get("module_name")
         return name if isinstance(name, str) else None
@@ -203,6 +213,7 @@ class BuildPipeline:
                     "fingerprint": compiled.fingerprint,
                     "module_name": compiled.module_name,
                     "functions": compiled.function_names,
+                    "passes": list(compiled.passes),
                 },
                 indent=2,
             )

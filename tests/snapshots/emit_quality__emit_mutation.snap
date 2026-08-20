@@ -1,15 +1,14 @@
 ---
 source: tests/emit_quality.rs
-assertion_line: 125
 expression: functions.trim()
 ---
-//! Translated from Python by compylr.
+//! Translated by compylr.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
-    py_truediv,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_subscript,
 };
 
 pub fn counts(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeError> {
@@ -20,7 +19,7 @@ pub fn counts(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeError> 
             let word: String = __compylr_item;
             if PyContains::py_contains(&(seen), &(word)) {
                 {
-                    let __compylr_value = PyAdd::py_add(&(py_subscript(&(seen), &(word))?), &(1i64))?;
+                    let __compylr_value = PyAdd::py_add(&(py_subscript(&(seen), &(word), IndexOrigin::FromEitherEnd)?), &(1i64))?;
                     let __compylr_index = word.clone();
                     PySetItem::py_set(&mut (seen), &__compylr_index, __compylr_value)?;
                 }
@@ -49,13 +48,13 @@ pub fn evens_below(limit: i64) -> Result<Vec<i64>, RuntimeError> {
             || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
         {
             let n: i64 = __compylr_cursor;
-            if ((&(PyNum::py_mod(&(n), &(2i64))?)) == (&(0i64))) {
+            __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+            if ((&(PyNum::rem_floor(&(n), &(2i64))?)) == (&(0i64))) {
                 {
                     let __compylr_value = n.clone();
                     (found).push(__compylr_value);
                 }
             }
-            __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
         }
     }
     Ok(found.clone())

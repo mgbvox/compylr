@@ -85,11 +85,11 @@ nth prime, n=500, per call, best of 5 batches
 
 variant                          compiled    interpreted   speedup
 ------------------------------------------------------------------
-reference (never compiled)      1000.13us      1042.54us      1.0x
-recursive                         31.77us      1203.77us     37.9x
-iterative                         16.86us       616.36us     36.6x
-memoized (cold cache)             32.95us      1037.82us     31.5x
-memoized (warm cache)              0.11us         0.08us      0.7x
+reference (never compiled)       778.41us       763.43us      1.0x
+recursive                         28.09us       890.78us     31.7x
+iterative                         12.73us       455.64us     35.8x
+memoized (cold cache)             26.45us       780.21us     29.5x
+memoized (warm cache)              0.09us         0.06us      0.7x
 ```
 
 Three things about how this is measured, because a benchmark nobody can trust is worse than none:

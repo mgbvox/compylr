@@ -1,15 +1,14 @@
 ---
 source: tests/emit_quality.rs
-assertion_line: 121
 expression: functions.trim()
 ---
-//! Translated from Python by compylr.
+//! Translated by compylr.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
-    py_truediv,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_subscript,
 };
 
 pub fn f(a: i64) -> Result<i64, RuntimeError> {

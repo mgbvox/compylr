@@ -1,0 +1,11 @@
+# Spans and located diagnostics, shared by every frontend and every backend.
+#
+# This crate has no dependencies on purpose. It sits below the IR, so anything it pulled in
+# would reach every other crate in the workspace — including a parser, which is exactly what
+# the split exists to keep out of shared code.
+[package]
+name = "compylr-diagnostics"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

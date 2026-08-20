@@ -33,8 +33,22 @@ git submodule update --init
 The pipeline is complete end to end for the supported subset:
 
 ```
-source text ──frontend──> ruff AST ──lower──> IR ──backend──> Rust ──maturin──> extension
+source text ──frontend──> tree ──lower──> IR ──verify──> passes ──backend──> Rust ──bridge──> extension
 ```
+
+The workspace is eight crates, and the dependency edges are the enforcement mechanism rather than
+a convention. `compylr-backend-rust` cannot name Python because no Python parser is reachable
+from it; `compylr-ir` cannot name Rust for the same reason. `tests/crate_boundaries.rs` reads the
+manifests and fails when an edge appears that would make either claim false. If you find yourself
+wanting to add a dependency to `compylr-diagnostics` or `compylr-ir`, that is the signal to stop:
+whatever you pull in there reaches every crate in the workspace.
+
+Both ends of the pipeline are named components resolved through `compylr-registry`, and there is
+a third: a **host bridge**, keyed by the `(source, target)` **pair**. That asymmetry is real and
+deliberate — a calling convention is a negotiation between two runtimes, so it cannot belong to
+either language alone, and bridges cost N × M where frontends and backends cost N + M. See
+`crates/compylr-core/src/bridge.rs` for why, and for the C-ABI escape hatch that is deferred
+rather than foreclosed.
 
 `import compylr` works. `compylr.initialize()` returns a manager; `@c.compyle` marks a function,
 validating it immediately and compiling the whole project on the first call. Both intermediates
@@ -130,6 +144,16 @@ Known gaps worth knowing before you trip on them:
   the package — but during development here the version does not move, so after changing emission
   you must `rm -rf .compylr` (and `demo/.compylr`) or you will benchmark last build's code. This
   cost real time once already.
+* **The IR changed shape twice, so every existing cache is invalid once.** The artifact format is
+  at version 3 — 2 for the arithmetic operators, 3 for subscripting and length. `_state_is_current`
+  compares the recorded compylr version, so a user upgrading rebuilds automatically; there is
+  nothing to do beyond knowing why the first run after upgrading is slow.
+* **A statement's emission depends on where it is, not only on what it is.** The backend renders a
+  constructor body, a method body, a free function body, and a loop body through different code,
+  and `tests/conformance.rs` checks coverage over `(form, position)` pairs for that reason. The
+  first run of that check found four defects, three reachable from ordinary Python — including a
+  `continue` inside `for i in range(n)` that skipped the cursor increment and hung. Adding a
+  statement form means covering it in every position it is legal in, and the test says which.
 * **`COMPYLR_DISABLE=1` turns compilation off for a process**, returning every marked member
   untouched without validating it. That is what makes an interpreted measurement honest: a marked
   function reaches other marked functions through module globals, so `python_function` alone gives
@@ -139,7 +163,12 @@ Known gaps worth knowing before you trip on them:
   registers when it runs; discovery is bounded to the root and skips environments, caches, and build
   output.
 * **`llm_assist` is accepted but refused when enabled**, and `typescript`/`go`/`cpp` are reserved
-  backend names that fail with a message saying they are planned.
+  names on **both** sides — frontend and backend — that fail with a message saying they are
+  planned. A pair with a backend but no bridge is a fourth answer, distinct from an unknown or
+  reserved target: compylr can generate it and cannot yet call it back.
+* **The Rust backend declares one target option it does not implement.** `unchecked-arithmetic`
+  exists so the guarantee negotiation has something real to refuse; permitting it where nothing
+  forbids it fails saying it is reserved rather than silently doing nothing.
 * **Both fixture lists are read from the directory, not hardcoded.** `tests/emit_quality.rs` and
   `tests/fixtures.rs` enumerate `python/fixtures/accepted/`. They were once lists, drifted, and
   hid a real defect: tuple indexing emitted a `py_subscript` call with no tuple impl, so
@@ -150,25 +179,54 @@ Known gaps worth knowing before you trip on them:
 Do not conflate them:
 
 * `src/bridge.rs` exposes **the compiler** to Python as `compylr._core`, built from this repo.
-* `src/backend/bindings.rs` **generates** PyO3 code onto the user's functions, built at runtime
-  into a separate crate (`compylr_generated_<fingerprint>`).
+  This is the only crate in the workspace that links PyO3.
+* `crates/compylr-bridge-python-rust/` **generates** PyO3 code onto the user's functions, built at
+  runtime into a separate crate (`compylr_generated_<fingerprint>_<variant>`). It emits PyO3
+  source as *text* and does not itself depend on PyO3 — `tests/crate_boundaries.rs` asserts that.
 
-The fingerprint is in the generated module's name because CPython cannot reliably re-import an
-extension module under a name already in `sys.modules`.
+The name carries the fingerprint because CPython cannot reliably re-import an extension module
+under a name already in `sys.modules`. It carries a second tag because the fingerprint identifies
+the **program** and not the **build**: the same source compiled for a different target, or under a
+different pass configuration, is a different artifact, and sharing a name meant the second
+silently was the first.
 
 # Conventions
 
-* The IR is independent of Python **and** of any target language. Concrete type spellings
-  (`int` → `i64`) belong to a backend capability, never to the IR — Go/C++/TypeScript
-  backends should consume the same tree.
-* IR operators carry **Python** semantics: `FloorDiv` rounds toward negative infinity, `Mod`
-  takes the sign of the divisor. Most targets' native `/` and `%` disagree on negative
-  operands, so a backend must emit semantics-preserving code rather than map to the
-  same-named native operator.
+* The IR is independent of Python **and** of any target language, and the crate graph is what
+  makes that true rather than a comment. Concrete type spellings (`int` → `i64`) belong to a
+  backend; how a construct is spelled *back to the programmer* belongs to the frontend that read
+  it, which is why `Ty::python_name` and `BinOp::python_symbol` live in
+  `compylr-frontend-python::spelling` as extension traits and not on the IR.
+* IR operations carry the semantics **a frontend declared**, not one language's by default.
+  `BinOp::Div` carries a rounding mode, `BinOp::Rem` a sign convention, `Expr::Subscript` an index
+  origin, and `Expr::Len` the units a string is counted in. The Python frontend sets all five in
+  named constants at the top of `lower.rs`; the backend matches on the mode and never on the
+  operation's name. A backend that read the name would be silently wrong for any frontend meaning
+  the other thing, and there is no way for a test written in Python to catch that — which is why
+  `tests/conformance.rs` and the hand-built entries in `tests/execution.rs` exist.
+* **Three container behaviours deliberately have no mode**, and the reason is recorded in the IR's
+  module doc, the runtime's, and the spec: a missing mapping key always reports, mapping iteration
+  yields keys, and string membership tests substrings. The last two are universal across the
+  supported languages. The first is a difference in the *shape* of the operation — Go's
+  `v, ok := m[k]` is a different expression — so a frontend that means it lowers to a different
+  form, the way `Expr::Range` is a distinct form rather than a mode on a call.
+* A **guarantee** is what a source language needs preserved for a translation to still mean what
+  the source meant: overflow reported, division by zero reported, float order preserved. The
+  frontend declares what it requires, the backend what it preserves, and core refuses the
+  combination by name before any target source exists.
 * Rebuild decisions key off `Unit::fingerprint()` (over the IR), not source text, so comments
-  and reformatting do not trigger recompiles.
-* TDD: write tests before implementation. Run `cargo fmt`, `cargo clippy -- -D warnings`, and
-  `cargo test` before committing. Commit at each checkpoint rather than batching.
+  and reformatting do not trigger recompiles. It is taken **before** the optimization passes:
+  turning a pass on must not look like the user editing their code. What distinguishes two builds
+  of one program is the pass configuration, recorded in build state beside the compiler version.
+  Note the two fingerprints — the one in `Compiled.fingerprint` identifies the program and is
+  pre-pass; the one inside the written artifact is post-pass, so the file stays self-checking
+  against its own contents.
+* **Emission is a pure function of the unit.** No I/O, no environment, no shelling out. That is
+  what makes its output byte-reproducible and therefore safe to key a cache on. Formatting is
+  `Backend::post_process`, applied by whoever writes the files out.
+* TDD: write tests before implementation. Run `cargo fmt --all`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before
+  committing. Commit at each checkpoint rather than batching.
 * **Keep `README.md` in sync.** It is the entry point for anyone who has not read the specs, so
   it must never describe a state the code is not in. `tests/readme.rs` enforces the mechanical
   half — the type table, operator list, capability list, module layout, and every referenced
@@ -185,13 +243,15 @@ extension module under a name already in `sys.modules`.
 compylr compyle path/to/project
 
 # Rust
-cargo test
-cargo clippy -p compylr --all-targets -- -D warnings
-cargo llvm-cov -p compylr --ignore-filename-regex '(vendored/|/main\.rs)' --summary-only
-cargo run -- python/fixtures/accepted/aliases.py            # summary
-cargo run -- --emit ir   python/fixtures/accepted/aliases.py   # the IR as JSON
-cargo run -- --emit rust python/fixtures/accepted/aliases.py   # translated code only
-cargo run -- --emit crate --out ./out python/fixtures/accepted/aliases.py
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo llvm-cov --workspace --ignore-filename-regex '(vendored/|/main\.rs)' --summary-only
+
+# The binary lives in `compylr-cli` now, so a bare `cargo run` has no target to pick.
+cargo run -p compylr-cli -- python/fixtures/accepted/aliases.py            # summary
+cargo run -p compylr-cli -- --emit ir   python/fixtures/accepted/aliases.py   # the IR as JSON
+cargo run -p compylr-cli -- --emit rust python/fixtures/accepted/aliases.py  # translated code only
+cargo run -p compylr-cli -- --emit crate --out ./out python/fixtures/accepted/aliases.py
 
 # Python (needs the venv; `maturin develop` rebuilds compylr._core after Rust changes)
 uv venv && source .venv/bin/activate

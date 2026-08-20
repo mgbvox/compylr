@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
+from compylr import _core
 from compylr._build import BuildPipeline, discover_root
 from compylr._errors import BuildError, ToolchainMissingError
 
@@ -187,3 +188,37 @@ class TestCache:
         pipeline.paths.state.write_text(json.dumps(_state(compylr="0.0.0-not-this-one")))
         assert pipeline.cached_fingerprint() is None
         assert pipeline.cached_module_name() is None
+
+
+class TestPassConfiguration:
+    """The same program built by a different set of passes is a different artifact.
+
+    The fingerprint identifies the *program* and deliberately does not move when a pass is turned
+    on -- otherwise enabling one would look exactly like the user editing their code. That leaves
+    the pass set as the thing build state has to record, or an artifact built by an older compylr
+    with a different default would be reused forever.
+    """
+
+    def test_state_records_the_passes_that_ran(self, tmp_path: Path) -> None:
+        pipeline = BuildPipeline(tmp_path)
+        compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])
+        pipeline._record_success(compiled)
+
+        state = json.loads((tmp_path / "state.json").read_text())
+        assert state["passes"] == list(compiled.passes)
+        assert state["passes"], "the default configuration runs at least one pass"
+
+    def test_a_build_by_a_different_pass_set_is_not_reused(self, tmp_path: Path) -> None:
+        pipeline = BuildPipeline(tmp_path)
+        compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])
+        pipeline._record_success(compiled)
+
+        assert pipeline.cached_module_name(list(compiled.passes)) == compiled.module_name
+        assert pipeline.cached_module_name(["some-other-pass"]) is None
+
+    def test_asking_without_a_pass_set_still_reads_the_name(self, tmp_path: Path) -> None:
+        # The narrower question is for reuse decisions; the broader one is for reporting.
+        pipeline = BuildPipeline(tmp_path)
+        compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])
+        pipeline._record_success(compiled)
+        assert pipeline.cached_module_name() == compiled.module_name

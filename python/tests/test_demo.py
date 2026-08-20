@@ -52,6 +52,32 @@ def run_in_demo(env: dict[str, str], code: str) -> str:
     return result.stdout
 
 
+class TestPrecompilingTheDemo:
+    """Precompiling the demo must import all of it.
+
+    The demo is the only real package this repository builds, so it is the only place a package's
+    `__init__.py` gets exercised end to end. It reported two import failures for as long as the
+    command existed, and nothing was looking: the modules defining compiled functions imported
+    fine, so the count of what was found was right and the failure list was never asserted on.
+    """
+
+    def test_precompiling_reports_no_import_failures(
+        self, demo_env: dict[str, str], tmp_path: Path
+    ) -> None:
+        report = run_in_demo(
+            demo_env,
+            "from compylr import _precompile;"
+            f" r = _precompile.precompile({str(DEMO / 'src')!r});"
+            " print(len(r.failures));"
+            " print([f.module for f in r.failures]);"
+            " print(r.modules_imported)",
+        ).splitlines()
+
+        assert report[0] == "0", f"a module of the demo did not import: {report[1]}"
+        # Every file under `src/`, `__init__.py` and `__main__.py` included.
+        assert int(report[2]) == len(list((DEMO / "src").rglob("*.py")))
+
+
 class TestTheDemoWorks:
     def test_all_three_variants_agree_with_the_reference(self, demo_env: dict[str, str]) -> None:
         out = run_in_demo(

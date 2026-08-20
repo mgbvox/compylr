@@ -1,15 +1,14 @@
 ---
 source: tests/emit_quality.rs
-assertion_line: 121
 expression: functions.trim()
 ---
-//! Translated from Python by compylr.
+//! Translated by compylr.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, py_subscript,
-    py_truediv,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_subscript,
 };
 
 pub fn build() -> Result<Vec<i64>, RuntimeError> {
@@ -18,15 +17,15 @@ pub fn build() -> Result<Vec<i64>, RuntimeError> {
 }
 
 pub fn characters(s: String) -> Result<i64, RuntimeError> {
-    Ok(PyLen::py_len(&(s)))
+    Ok(PyLen::py_len(&(s), TextUnits::CodePoints))
 }
 
 pub fn from_end(xs: Vec<i64>) -> Result<i64, RuntimeError> {
-    Ok(py_subscript(&(xs), &(PyNum::py_neg(&(1i64))?))?)
+    Ok(py_subscript(&(xs), &(PyNum::py_neg(&(1i64))?), IndexOrigin::FromEitherEnd)?)
 }
 
 pub fn lookup(d: HashMap<String, i64>, key: String) -> Result<i64, RuntimeError> {
-    Ok(py_subscript(&(d), &(key))?)
+    Ok(py_subscript(&(d), &(key), IndexOrigin::FromEitherEnd)?)
 }
 
 pub fn mapping() -> Result<HashMap<String, i64>, RuntimeError> {
@@ -34,8 +33,8 @@ pub fn mapping() -> Result<HashMap<String, i64>, RuntimeError> {
 }
 
 pub fn nested(d: HashMap<String, Vec<i64>>, key: String) -> Result<i64, RuntimeError> {
-    let inner: Vec<i64> = py_subscript(&(d), &(key))?;
-    Ok(py_subscript(&(inner), &(0i64))?)
+    let inner: Vec<i64> = py_subscript(&(d), &(key), IndexOrigin::FromEitherEnd)?;
+    Ok(py_subscript(&(inner), &(0i64), IndexOrigin::FromEitherEnd)?)
 }
 
 pub fn pair() -> Result<String, RuntimeError> {
@@ -44,8 +43,8 @@ pub fn pair() -> Result<String, RuntimeError> {
 }
 
 pub fn total(xs: Vec<i64>) -> Result<i64, RuntimeError> {
-    let first: i64 = py_subscript(&(xs), &(0i64))?;
-    let count: i64 = PyLen::py_len(&(xs));
+    let first: i64 = py_subscript(&(xs), &(0i64), IndexOrigin::FromEitherEnd)?;
+    let count: i64 = PyLen::py_len(&(xs), TextUnits::CodePoints);
     Ok(PyAdd::py_add(&(first), &(count))?)
 }
 
