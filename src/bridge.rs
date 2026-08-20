@@ -19,6 +19,7 @@ use crate::bridge_registry::{self, BridgeError};
 use crate::error::{LowerError, SourceError};
 use crate::frontend::{self, FrontendError, LoweringError, parse_source};
 use crate::lower::lower_source_members;
+use compylr_core::negotiation::{UnmetGuarantee, negotiate};
 use compylr_core::pass::{self, PassConfig};
 use compylr_core::verify::verify;
 
@@ -82,6 +83,8 @@ pub enum CompileFailure {
     Frontend(FrontendError),
     /// The source and target languages have no bridge between them.
     Bridge(BridgeError),
+    /// The target cannot preserve something the source language requires.
+    Guarantee(UnmetGuarantee),
 }
 
 impl CompileFailure {
@@ -152,7 +155,7 @@ pub fn compile_with(
     //
     // The value is not used: the files come from the (python, rust) bridge, since a calling
     // convention belongs to the pair. Resolution is still what rejects an unusable target name.
-    let _backend = backend::lookup(backend_name).map_err(CompileFailure::Backend)?;
+    let backend = backend::lookup(backend_name).map_err(CompileFailure::Backend)?;
     let frontend = frontend::lookup(SOURCE_LANGUAGE).map_err(CompileFailure::Frontend)?;
     // Resolved by pair. A target compylr can generate but not call back from fails here, with a
     // message naming both languages rather than claiming the target does not exist.
@@ -184,6 +187,10 @@ pub fn compile_with(
     // two jobs: this one identifies the program, that one identifies the file.
     let fingerprint = unit.fingerprint();
 
+    // Checked before any target source exists, so a combination that would silently change what
+    // the program means is refused by name rather than discovered as a wrong answer.
+    negotiate(&unit, backend).map_err(CompileFailure::Guarantee)?;
+
     let directed = compylr_registry::passes::for_pair(SOURCE_LANGUAGE, backend_name);
     let report = pass::run(&mut unit, config, &directed).map_err(|error| {
         CompileFailure::Backend(BackendError::Unsupported {
@@ -194,6 +201,9 @@ pub fn compile_with(
     // Generating the target source is the backend's job; making it callable is the bridge's,
     // because a calling convention belongs to the pair rather than to either language alone.
     let artifact = host.emit(&unit).map_err(CompileFailure::Backend)?;
+    // Formatting happens here rather than inside emission, so emission stays a pure function of
+    // the unit and its output stays safe to key a rebuild cache on.
+    let target_sources = backend.post_process(artifact.files);
     let ir_artifact = unit.to_json().map_err(|error| {
         CompileFailure::Backend(BackendError::Unsupported {
             detail: format!("could not serialize the IR: {error}"),
@@ -201,7 +211,7 @@ pub fn compile_with(
     })?;
 
     Ok(Compiled {
-        target_sources: artifact.files,
+        target_sources,
         ir_artifact,
         fingerprint,
         module_name: artifact.loaded_as,
@@ -275,6 +285,9 @@ impl CompileFailure {
             // Same reasoning as the frontend case: the only pair `compile` ever asks for is one
             // this build registers, so arriving here means compylr disagrees with itself.
             Self::Bridge(error) => (CompylrError::new_err(error.to_string()), None),
+            // A backend that cannot preserve what Python needs is not a usable backend, which is
+            // what `BackendNotAvailableError` already means. The message names the guarantee.
+            Self::Guarantee(error) => (BackendNotAvailableError::new_err(error.to_string()), None),
         };
 
         if let Some((line, column, code)) = location {

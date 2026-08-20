@@ -23,7 +23,9 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
-use compylr_ir::Unit;
+use compylr_ir::{Guarantee, Unit};
+
+use crate::negotiation::TargetOption;
 
 /// The files of a generated crate, keyed by path relative to the crate root.
 ///
@@ -38,6 +40,36 @@ pub type GeneratedFiles = BTreeMap<String, String>;
 pub trait Backend: fmt::Debug + Send + Sync {
     /// The registry name this backend is selected by.
     fn name(&self) -> &'static str;
+
+    /// The semantic guarantees this backend preserves.
+    ///
+    /// Required rather than defaulted, because a default of "none" would make every backend
+    /// unusable with every frontend and a default of "everything" would make the check
+    /// meaningless. A new backend has to answer the question.
+    fn preserves(&self) -> &'static [Guarantee];
+
+    /// Transformations this backend offers that cost a guarantee.
+    ///
+    /// Defaulted to none: a backend that trades nothing for speed is a coherent backend, and the
+    /// empty answer is the safe one.
+    fn options(&self) -> &'static [TargetOption] {
+        &[]
+    }
+
+    /// Apply meaning-preserving cleanup to emitted files.
+    ///
+    /// Separate from [`Backend::emit`] and applied by whoever writes the files out, because
+    /// emission must stay a pure function of the unit — that is what makes its output
+    /// byte-reproducible and therefore safe to key a rebuild cache on. Shelling out to a
+    /// formatter inside it would make the result depend on which formatter happens to be
+    /// installed.
+    ///
+    /// Unconditional by contract: anything here changes how source reads and not what it does, so
+    /// there is nothing for a frontend to object to. A transformation that would change meaning
+    /// belongs in [`Backend::options`], where it can be refused.
+    fn post_process(&self, files: GeneratedFiles) -> GeneratedFiles {
+        files
+    }
 
     /// Render a unit as the files of a crate, keyed by relative path.
     ///

@@ -102,15 +102,15 @@
 
 ## 7. Guarantee negotiation and post-processing
 
-- [ ] 7.1 Write tests for a covered combination compiling and an uncovered one failing before
+- [x] 7.1 Write tests for a covered combination compiling and an uncovered one failing before
       emission with the missing guarantee named
-- [ ] 7.2 Implement `RequiredGuarantees` / `PreservedGuarantees` with the initial three members and
+- [x] 7.2 Implement `RequiredGuarantees` / `PreservedGuarantees` with the initial three members and
       the pre-emission check in `compylr-core`
-- [ ] 7.3 Declare Python's requirements on the Python frontend and Rust's preservation on the Rust
+- [x] 7.3 Declare Python's requirements on the Python frontend and Rust's preservation on the Rust
       backend, asserting the Python/Rust pair is covered by test rather than by inspection
-- [ ] 7.4 Move formatting out of emission into an explicit post-processing hook, keeping it
+- [x] 7.4 Move formatting out of emission into an explicit post-processing hook, keeping it
       unconditional, keeping the missing-formatter fallback, and keeping emission free of I/O
-- [ ] 7.5 Add a test that a guarantee-violating build setting (wrapping arithmetic) is not applied by
+- [x] 7.5 Add a test that a guarantee-violating build setting (wrapping arithmetic) is not applied by
       default and is reportable when withheld
 
 ## 8. Conformance corpus

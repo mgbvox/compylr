@@ -22,7 +22,9 @@
 
 use std::fmt::Write as _;
 
-use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
+use compylr_core::backend::{Backend, BackendError, GeneratedFiles, format_source};
+use compylr_core::negotiation::TargetOption;
+use compylr_ir::Guarantee;
 use std::collections::BTreeSet;
 
 use compylr_ir::{
@@ -148,9 +150,63 @@ fn int_literal(value: i64) -> String {
 #[derive(Debug)]
 pub struct RustBackend;
 
+/// What this backend preserves, and therefore which frontends it can serve.
+///
+/// All three, and each is earned by something concrete: the emitted arithmetic goes through
+/// `checked_*` and reports overflow rather than wrapping; every division and remainder checks its
+/// divisor, including for floats where IEEE-754 would hand back infinity; and nothing in emission
+/// reorders a floating-point expression, which is why `(a + 1.0) + 2.0` survives as written.
+const PRESERVES: &[Guarantee] = &[
+    Guarantee::IntegerOverflowReported,
+    Guarantee::DivisionByZeroReported,
+    Guarantee::FloatOrderPreserved,
+];
+
+/// Transformations this backend offers that would cost a guarantee.
+///
+/// `unchecked-arithmetic` is **declared, not implemented**. It is here because the negotiation
+/// exists to answer a question that is otherwise invisible — "why is compylr not emitting the
+/// fast thing?" — and that question needs something real to point at. Permitting it fails with a
+/// message saying it is reserved, the same three-way honesty the registries use for a planned
+/// backend, rather than silently doing nothing and letting a caller believe it took effect.
+const OPTIONS: &[TargetOption] = &[TargetOption {
+    name: "unchecked-arithmetic",
+    breaks: &[
+        Guarantee::IntegerOverflowReported,
+        Guarantee::DivisionByZeroReported,
+    ],
+    implemented: false,
+}];
+
 impl Backend for RustBackend {
     fn name(&self) -> &'static str {
         "rust"
+    }
+
+    fn preserves(&self) -> &'static [Guarantee] {
+        PRESERVES
+    }
+
+    fn options(&self) -> &'static [TargetOption] {
+        OPTIONS
+    }
+
+    /// Format every emitted file, and leave anything unformattable exactly as it was.
+    ///
+    /// A missing `rustfmt` costs readability and nothing else — unformatted source compiles
+    /// identically — so it is not worth failing a build over.
+    fn post_process(&self, files: GeneratedFiles) -> GeneratedFiles {
+        files
+            .into_iter()
+            .map(|(path, contents)| {
+                let formatted = if path.ends_with(".rs") {
+                    format_source(&contents)
+                } else {
+                    contents
+                };
+                (path, formatted)
+            })
+            .collect()
     }
 
     fn emit(&self, unit: &Unit) -> Result<GeneratedFiles, BackendError> {

@@ -202,7 +202,8 @@ fn run(options: &Options) -> Result<String, String> {
             //
             // The backend alone, with no bridge: seeing what your Python became is a question
             // about the target, and it stays answerable for a target no host can call yet.
-            let files = backend.emit(&unit).map_err(|error| error.to_string())?;
+            let files =
+                backend.post_process(backend.emit(&unit).map_err(|error| error.to_string())?);
             files
                 .get(compylr_backend_rust::rust::GENERATED_PATH)
                 .cloned()
@@ -214,7 +215,9 @@ fn run(options: &Options) -> Result<String, String> {
             let host = bridges::lookup(DEFAULT_FRONTEND, &options.backend)
                 .map_err(|error| error.to_string())?;
             let artifact = host.emit(&unit).map_err(|error| error.to_string())?;
-            let files = artifact.files;
+            // Written for a person to read, so it is formatted. Outside emission, which stays a
+            // pure function of the unit.
+            let files = backend.post_process(artifact.files);
             let root = options
                 .out
                 .as_ref()

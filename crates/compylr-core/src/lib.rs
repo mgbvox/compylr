@@ -8,6 +8,7 @@ pub mod backend;
 pub mod bridge;
 pub mod folding;
 pub mod frontend;
+pub mod negotiation;
 pub mod pass;
 pub mod verify;
 
@@ -16,5 +17,6 @@ pub use bridge::{BridgeError, HostArtifact, HostBridge};
 pub use compylr_ir::Guarantee;
 pub use folding::ConstantFolding;
 pub use frontend::{Frontend, FrontendError, LoweringError};
+pub use negotiation::{TargetOption, UnmetGuarantee, WithheldOption, negotiate};
 pub use pass::{DirectedPass, Optimization, Pass, PassConfig, PipelineReport};
 pub use verify::{VerificationError, verify};

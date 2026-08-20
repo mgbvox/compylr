@@ -3,8 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact,
-    py_subscript,
+    PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, div_exact, py_subscript,
 };
 
 /// An nth-prime that remembers what it has already computed.
@@ -163,6 +162,8 @@ pub fn recursive_nth_prime_from(remaining: i64, current: i64) -> Result<i64, Run
     if ((&(remaining)) < (&(1i64))) {
         return Ok(current);
     }
-    Ok(recursive_nth_prime_from(PyNum::py_sub(&(remaining), &(1i64))?, recursive_next_prime(current)?)?)
+    Ok(recursive_nth_prime_from(
+        PyNum::py_sub(&(remaining), &(1i64))?,
+        recursive_next_prime(current)?,
+    )?)
 }
-

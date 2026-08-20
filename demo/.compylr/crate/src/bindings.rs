@@ -33,7 +33,9 @@ pub struct __compylr_class_0 {
 impl __compylr_class_0 {
     #[new]
     fn __compylr_init() -> PyResult<Self> {
-        Ok(Self { inner: generated::PrimeCache::__compylr_new().map_err(__compylr_to_py_err)? })
+        Ok(Self {
+            inner: generated::PrimeCache::__compylr_new().map_err(__compylr_to_py_err)?,
+        })
     }
 
     /// How many requests were answered from the cache.
