@@ -17,6 +17,8 @@ use compylr::backend::bindings::{cargo_manifest, emit_extension, module_name};
 use compylr::frontend::parse_source;
 use compylr::ir::Unit;
 use compylr::lower::lower_source;
+use compylr_core::bridge::BuildKey;
+use compylr_core::pass::Optimization;
 
 /// PyO3 version the generated crate depends on. Matches this crate's own pin.
 const PYO3_VERSION: &str = "0.29.2";
@@ -33,18 +35,32 @@ fn unit_from(source: &str) -> Unit {
     unit
 }
 
+/// The build key for a unit compiled the way `compile` compiles it.
+///
+/// The pass configuration is part of the key because two builds of the same source under
+/// different settings are different artifacts, and CPython cannot re-import one under a name the
+/// other already holds.
+fn key_for(unit: &Unit) -> BuildKey {
+    BuildKey {
+        fingerprint: unit.fingerprint(),
+        target: "rust".to_string(),
+        passes: Optimization::Default.key(),
+    }
+}
+
 /// Build `source` into an importable extension module.
 ///
 /// Returns the directory the module can be imported from, and the module's name.
 fn build_extension(label: &str, source: &str) -> (PathBuf, String) {
     let unit = unit_from(source);
-    let name = module_name(&unit);
-    let emitted = emit_extension(&unit).expect("must emit");
+    let key = key_for(&unit);
+    let name = module_name(&key);
+    let emitted = emit_extension(&unit, &key).expect("must emit");
 
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(label);
     let _ = std::fs::remove_dir_all(root.join("src"));
     std::fs::create_dir_all(&root).expect("crate directory");
-    std::fs::write(root.join("Cargo.toml"), cargo_manifest(&unit, PYO3_VERSION)).unwrap();
+    std::fs::write(root.join("Cargo.toml"), cargo_manifest(&key, PYO3_VERSION)).unwrap();
     for (relative, contents) in &emitted {
         let path = root.join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -295,7 +311,7 @@ print(m.add(40, 2))
 #[test]
 fn the_module_name_carries_the_fingerprint() {
     let unit = unit_from("def add(a: int, b: int) -> int:\n    return a + b\n");
-    let name = module_name(&unit);
+    let name = module_name(&key_for(&unit));
     assert!(
         name.contains(&format!("{:016x}", unit.fingerprint())),
         "the module name must encode build identity so a rebuild can load beside its predecessor"
@@ -303,10 +319,36 @@ fn the_module_name_carries_the_fingerprint() {
 
     // A different unit compiles to a differently named module...
     let other = unit_from("def add(a: int, b: int) -> int:\n    return a - b\n");
-    assert_ne!(name, module_name(&other));
+    assert_ne!(name, module_name(&key_for(&other)));
 
     // ...while a cosmetic change does not, because the fingerprint is over the IR.
     let reformatted =
         unit_from("# a comment\ndef add(a: int, b: int) -> int:\n\n        return a + b\n");
-    assert_eq!(name, module_name(&reformatted));
+    assert_eq!(name, module_name(&key_for(&reformatted)));
+}
+
+/// Two builds of the same program that are not interchangeable must not share a name.
+///
+/// CPython cannot reliably re-import an extension module under a name already in `sys.modules`,
+/// so a collision here means the second artifact silently *is* the first. Encoding only the
+/// fingerprint let that happen for two builds of one source under different settings.
+#[test]
+fn builds_that_differ_only_in_configuration_do_not_collide() {
+    let unit = unit_from("def add(a: int, b: int) -> int:\n    return a + b\n");
+    let optimized = key_for(&unit);
+    let plain = BuildKey {
+        passes: Optimization::None.key(),
+        ..optimized.clone()
+    };
+    let other_target = BuildKey {
+        target: "go".to_string(),
+        ..optimized.clone()
+    };
+
+    assert_ne!(module_name(&optimized), module_name(&plain));
+    assert_ne!(module_name(&optimized), module_name(&other_target));
+    // The program is the same in all three, and the name still says so.
+    for key in [&optimized, &plain, &other_target] {
+        assert!(module_name(key).contains(&format!("{:016x}", unit.fingerprint())));
+    }
 }

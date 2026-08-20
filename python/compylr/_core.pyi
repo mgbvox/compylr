@@ -14,6 +14,9 @@ class CompiledUnit:
     module_name: str
     manifest: str
     function_names: list[str]
+    #: Optimization passes that ran, in order. Recorded in build state, so that an artifact
+    #: produced by a different set is rebuilt rather than reused.
+    passes: list[str]
 
 class CompylrError(Exception):
     """Base class for every compylr failure."""

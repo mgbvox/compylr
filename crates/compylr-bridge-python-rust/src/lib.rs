@@ -10,7 +10,7 @@ pub mod bindings;
 pub use bindings::{cargo_manifest, emit_extension, module_name};
 
 use compylr_core::backend::{BackendError, GeneratedFiles};
-use compylr_core::bridge::{HostArtifact, HostBridge};
+use compylr_core::bridge::{BuildKey, HostArtifact, HostBridge};
 use compylr_ir::Unit;
 
 /// The `(python, rust)` bridge.
@@ -26,11 +26,11 @@ impl HostBridge for PythonRustBridge {
         "rust"
     }
 
-    fn emit(&self, unit: &Unit) -> Result<HostArtifact, BackendError> {
+    fn emit(&self, unit: &Unit, key: &BuildKey) -> Result<HostArtifact, BackendError> {
         Ok(HostArtifact {
-            files: emit_extension(unit)?,
-            manifest: cargo_manifest(unit, PYO3_VERSION),
-            loaded_as: module_name(unit),
+            files: emit_extension(unit, key)?,
+            manifest: cargo_manifest(key, PYO3_VERSION),
+            loaded_as: module_name(key),
         })
     }
 }
@@ -50,11 +50,11 @@ pub const BINDINGS_PATH: &str = "src/bindings.rs";
 pub const PYO3_VERSION: &str = "0.29.2";
 
 /// Generate the extension module that exposes `unit` to Python.
-pub fn emit_python_extension(unit: &Unit) -> Result<GeneratedFiles, BackendError> {
-    emit_extension(unit)
+pub fn emit_python_extension(unit: &Unit, key: &BuildKey) -> Result<GeneratedFiles, BackendError> {
+    emit_extension(unit, key)
 }
 
 /// The build manifest for the generated crate.
-pub fn build_manifest(unit: &Unit) -> String {
-    cargo_manifest(unit, PYO3_VERSION)
+pub fn build_manifest(key: &BuildKey) -> String {
+    cargo_manifest(key, PYO3_VERSION)
 }

@@ -58,9 +58,11 @@ fn the_default_pipeline_reports_what_ran() {
 
 /// Turning optimization off must not change what the program computes.
 ///
-/// `DOUBLE` has no constant to fold, so the emitted source is byte-identical — which is the
-/// strongest form this assertion can take. Where folding does apply, the emitted source differs
-/// and only the *result* is required to match; that is what the execution tests check.
+/// Compared on the *translated* file. The crate around it embeds the module name, which encodes
+/// the pass configuration on purpose — two builds of one source under different settings are
+/// different artifacts, and CPython cannot hold two under one name. `DOUBLE` has no constant to
+/// fold, so the translation is byte-identical; where folding does apply only the result is
+/// required to match, which is what the execution tests check.
 #[test]
 fn optimization_off_produces_the_same_program() {
     let optimized = compile_with(&[DOUBLE.to_string()], "rust", &PassConfig::default()).unwrap();
@@ -73,9 +75,32 @@ fn optimization_off_produces_the_same_program() {
     )
     .unwrap();
 
-    assert_eq!(optimized.target_sources, plain.target_sources);
+    assert_eq!(
+        optimized.target_sources["src/generated.rs"],
+        plain.target_sources["src/generated.rs"]
+    );
     assert!(plain.passes.is_empty());
     assert_eq!(optimized.passes, ["constant-folding"]);
+}
+
+/// The two builds are the same program and different artifacts, and the names say both.
+#[test]
+fn builds_under_different_configurations_load_under_different_names() {
+    let optimized = compile_with(&[DOUBLE.to_string()], "rust", &PassConfig::default()).unwrap();
+    let plain = compile_with(
+        &[DOUBLE.to_string()],
+        "rust",
+        &PassConfig {
+            optimization: Optimization::None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(optimized.fingerprint, plain.fingerprint, "the same program");
+    assert_ne!(
+        optimized.module_name, plain.module_name,
+        "different artifacts, which must not collide in one process"
+    );
 }
 
 /// Folding is visible in the artifact, which is the window a reader has into what ran.

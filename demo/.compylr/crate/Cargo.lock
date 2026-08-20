@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "compylr_generated_6b1fc4a74dfb4334"
+name = "compylr_generated_6b1fc4a74dfb4334_a0cdd1db"
 version = "0.1.0"
 dependencies = [
  "pyo3",

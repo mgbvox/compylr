@@ -13,7 +13,7 @@ pub mod pass;
 pub mod verify;
 
 pub use backend::{Backend, BackendError, GeneratedFiles, format_source};
-pub use bridge::{BridgeError, HostArtifact, HostBridge};
+pub use bridge::{BridgeError, BuildKey, HostArtifact, HostBridge};
 pub use compylr_ir::Guarantee;
 pub use folding::ConstantFolding;
 pub use frontend::{Frontend, FrontendError, LoweringError};

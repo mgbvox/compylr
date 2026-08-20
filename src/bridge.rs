@@ -19,6 +19,7 @@ use crate::bridge_registry::{self, BridgeError};
 use crate::error::{LowerError, SourceError};
 use crate::frontend::{self, FrontendError, LoweringError, parse_source};
 use crate::lower::lower_source_members;
+use compylr_core::bridge::BuildKey;
 use compylr_core::negotiation::{UnmetGuarantee, negotiate};
 use compylr_core::pass::{self, PassConfig};
 use compylr_core::verify::verify;
@@ -50,7 +51,8 @@ pub struct Compiled {
     /// Names of the passes that ran, in order.
     ///
     /// Carried out so that "why is this generated code different?" is answerable about *this*
-    /// build rather than by reading the compiler's pass list.
+    /// build rather than by reading the compiler's pass list, and so that build state can refuse
+    /// to reuse an artifact produced by a different set.
     pub passes: Vec<String>,
 }
 
@@ -200,7 +202,12 @@ pub fn compile_with(
 
     // Generating the target source is the backend's job; making it callable is the bridge's,
     // because a calling convention belongs to the pair rather than to either language alone.
-    let artifact = host.emit(&unit).map_err(CompileFailure::Backend)?;
+    let key = BuildKey {
+        fingerprint,
+        target: backend_name.to_string(),
+        passes: config.optimization.key(),
+    };
+    let artifact = host.emit(&unit, &key).map_err(CompileFailure::Backend)?;
     // Formatting happens here rather than inside emission, so emission stays a pure function of
     // the unit and its output stays safe to key a rebuild cache on.
     let target_sources = backend.post_process(artifact.files);
@@ -331,6 +338,13 @@ pub struct PyCompiledUnit {
     /// Names of the functions in the unit.
     #[pyo3(get)]
     pub function_names: Vec<String>,
+    /// Names of the optimization passes that ran, in order.
+    ///
+    /// Recorded in build state so that an artifact built by a different set of passes is not
+    /// reused. The same source under a different pass configuration is a different artifact, and
+    /// the fingerprint alone cannot say so — deliberately, since it identifies the program.
+    #[pyo3(get)]
+    pub passes: Vec<String>,
 }
 
 impl From<Compiled> for PyCompiledUnit {
@@ -342,6 +356,7 @@ impl From<Compiled> for PyCompiledUnit {
             module_name: compiled.module_name,
             manifest: compiled.manifest,
             function_names: compiled.function_names,
+            passes: compiled.passes,
         }
     }
 }

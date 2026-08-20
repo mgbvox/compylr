@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use compylr_core::backend::BackendError;
+use compylr_core::bridge::BuildKey;
 use compylr_core::pass::{self, PassConfig};
 use compylr_core::verify::verify;
 // The summary quotes types back in the language of the file being inspected, so it uses the
@@ -214,7 +215,12 @@ fn run(options: &Options) -> Result<String, String> {
             // this form, unlike `--emit rust`, needs the pair to be bridged.
             let host = bridges::lookup(DEFAULT_FRONTEND, &options.backend)
                 .map_err(|error| error.to_string())?;
-            let artifact = host.emit(&unit).map_err(|error| error.to_string())?;
+            let key = BuildKey {
+                fingerprint: unit.fingerprint(),
+                target: options.backend.clone(),
+                passes: PassConfig::default().optimization.key(),
+            };
+            let artifact = host.emit(&unit, &key).map_err(|error| error.to_string())?;
             // Written for a person to read, so it is formatted. Outside emission, which stays a
             // pure function of the unit.
             let files = backend.post_process(artifact.files);

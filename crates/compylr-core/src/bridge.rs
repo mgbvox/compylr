@@ -19,12 +19,48 @@
 //!   could be implemented *behind* it later, collapsing N x M back to N + M at the cost of a
 //!   marshalling layer. That trade is deferred, not foreclosed.
 
+use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use compylr_ir::Unit;
 
 use crate::backend::{BackendError, GeneratedFiles};
+
+/// What distinguishes one build of a program from another.
+///
+/// The fingerprint identifies the *program*. Everything else here identifies the *build*: the
+/// same program compiled for a different target, or under a different pass configuration, is a
+/// different artifact and must not be mistaken for this one.
+///
+/// This matters more than it looks. CPython cannot reliably re-import an extension module under
+/// a name already in `sys.modules`, so the name has to encode enough that two artifacts a process
+/// might hold at once do not collide. Encoding only the fingerprint meant two builds of the same
+/// source under different settings shared a name, and the second would silently be the first.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BuildKey {
+    /// Fingerprint of the program, before optimization.
+    pub fingerprint: u64,
+    /// Registry name of the target language.
+    pub target: String,
+    /// Stable key of the pass configuration.
+    pub passes: String,
+}
+
+impl BuildKey {
+    /// A short tag over everything except the fingerprint.
+    ///
+    /// Separate from the fingerprint rather than mixed into it, so that a name still shows which
+    /// program it came from. `compylr_generated_<fingerprint>_<variant>` is readable in a
+    /// traceback; a single opaque hash of everything is not.
+    pub fn variant_tag(&self) -> String {
+        let mut hasher = DefaultHasher::new();
+        self.target.hash(&mut hasher);
+        self.passes.hash(&mut hasher);
+        format!("{:08x}", hasher.finish() as u32)
+    }
+}
 
 /// Everything a host needs to build and load a compiled unit.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +88,11 @@ pub trait HostBridge: fmt::Debug + Send + Sync {
     fn target(&self) -> &'static str;
 
     /// Generate everything needed to build and load the unit from the source language.
-    fn emit(&self, unit: &Unit) -> Result<HostArtifact, BackendError>;
+    ///
+    /// `key` is what the loadable name is derived from. Passed in rather than computed here
+    /// because a bridge knows the pair but not the pass configuration, and a name that ignored it
+    /// would let two artifacts collide.
+    fn emit(&self, unit: &Unit, key: &BuildKey) -> Result<HostArtifact, BackendError>;
 }
 
 /// Why a callable artifact could not be produced.

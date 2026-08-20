@@ -12,6 +12,16 @@
 use compylr::bridge_registry;
 use compylr::ir::{Expr, Function, Literal, Param, Stmt, Ty, Unit};
 use compylr::span::Span;
+use compylr_core::bridge::BuildKey;
+use compylr_core::pass::Optimization;
+
+fn key_for(unit: &Unit) -> BuildKey {
+    BuildKey {
+        fingerprint: unit.fingerprint(),
+        target: "rust".to_string(),
+        passes: Optimization::Default.key(),
+    }
+}
 
 fn unit_with_one_function() -> Unit {
     let mut unit = Unit::new();
@@ -40,8 +50,9 @@ fn the_python_rust_pair_is_bridged() {
 #[test]
 fn a_bridged_pair_produces_a_loadable_artifact() {
     let bridge = bridge_registry::lookup("python", "rust").unwrap();
+    let unit = unit_with_one_function();
     let artifact = bridge
-        .emit(&unit_with_one_function())
+        .emit(&unit, &key_for(&unit))
         .expect("the unit is inside the supported subset");
 
     assert!(
@@ -111,9 +122,10 @@ fn a_binding_layer_is_the_same_from_a_deserialized_unit() {
     let bridge = bridge_registry::lookup("python", "rust").unwrap();
     let unit = unit_with_one_function();
 
-    let from_memory = bridge.emit(&unit).unwrap();
+    let key = key_for(&unit);
+    let from_memory = bridge.emit(&unit, &key).unwrap();
     let round_tripped = Unit::from_json(&unit.to_json().unwrap()).unwrap();
-    let from_artifact = bridge.emit(&round_tripped).unwrap();
+    let from_artifact = bridge.emit(&round_tripped, &key).unwrap();
 
     assert_eq!(from_memory.files, from_artifact.files);
     assert_eq!(from_memory.manifest, from_artifact.manifest);

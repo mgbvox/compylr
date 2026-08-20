@@ -124,17 +124,20 @@
 
 ## 9. Build state and Python package
 
-- [ ] 9.1 Record the pass configuration in build state alongside the compiler version, and rebuild
+- [x] 9.1 Record the pass configuration in build state alongside the compiler version, and rebuild
       when it differs
-- [ ] 9.2 Include the target language and pass configuration in the generated module's name so two
+- [x] 9.2 Include the target language and pass configuration in the generated module's name so two
       configurations can be loaded in one process without colliding
-- [ ] 9.3 Confirm `compylr.initialize`, `@c.compyle`, `COMPYLR_DISABLE`, `compylr compyle`, and
-      `_core.pyi` are unchanged; run `pytest`, `ruff check python/`, and `mypy python/compylr`
-- [ ] 9.4 Rebuild and run the demo end to end (`uv sync`, `uv run compylr compyle src`, `uv run
+- [x] 9.3 Confirm `compylr.initialize`, `@c.compyle`, `COMPYLR_DISABLE`, `compylr compyle`, and
+      `_core.pyi` are unchanged; run `pytest`, `ruff check python/`, and `mypy python/compylr`.
+      `_core.pyi` gained one field, `CompiledUnit.passes` — the build state has to record what
+      ran, and the stub is the declaration of what the Rust side promises. No behaviour moved
+- [x] 9.4 Rebuild and run the demo end to end (`uv sync`, `uv run compylr compyle src`, `uv run
       python -m nth_prime 25`, `uv run pytest`) after `rm -rf demo/.compylr`, and re-run the
       benchmark to confirm no performance regression from the split
-- [ ] 9.5 Re-commit the regenerated `demo/.compylr/{ir,crate}` artifacts, keeping `target/` and
-      `dist/` excluded
+- [x] 9.5 Re-commit the regenerated `demo/.compylr/{ir,crate}` artifacts, keeping `target/` and
+      `dist/` excluded. Most were already current: the group-4 and group-7 commits picked them up
+      when the Python suite rebuilt the demo. Only the module name moved here
 
 ## 10. Documentation and close-out
 
