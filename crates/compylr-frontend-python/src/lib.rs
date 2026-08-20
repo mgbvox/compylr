@@ -3,11 +3,13 @@
 //! The only crate in the workspace that depends on a Python parser, which is what makes
 //! "a backend cannot name Python" a property of the build rather than a convention.
 
+pub mod component;
 pub mod error;
 pub mod frontend;
 pub mod lower;
 
-pub use error::FrontendError;
+pub use component::PythonFrontend;
+pub use error::SourceError;
 pub use frontend::{parse_file, parse_source};
 
 use compylr_diagnostics::span::Span;

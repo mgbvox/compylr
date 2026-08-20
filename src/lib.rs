@@ -25,12 +25,14 @@ pub use compylr_ir as ir;
 /// Diagnostics: the shared located-error type, plus the Python frontend's parse failures.
 pub mod error {
     pub use compylr_diagnostics::error::{LowerError, LowerErrorKind};
-    pub use compylr_frontend_python::error::FrontendError;
+    pub use compylr_frontend_python::error::SourceError;
 }
 
-/// Parsing Python source into a tree.
+/// Source language frontends, their registry, and the Python parser.
 pub mod frontend {
+    pub use compylr_core::frontend::{Frontend, FrontendError, LoweringError};
     pub use compylr_frontend_python::frontend::*;
+    pub use compylr_registry::frontends::{implemented_names, lookup, names};
 }
 
 /// Lowering a Python tree into IR.
@@ -40,8 +42,8 @@ pub mod lower {
 
 /// Target backends, their registry, and the code they generate.
 pub mod backend {
-    pub use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
-    pub use compylr_registry::{format_source, implemented_names, lookup, names};
+    pub use compylr_core::backend::{Backend, BackendError, GeneratedFiles, format_source};
+    pub use compylr_registry::backends::{implemented_names, lookup, names};
 
     /// The Rust backend.
     pub mod rust {
@@ -56,7 +58,8 @@ pub mod backend {
 
 pub mod bridge;
 
+pub use compylr_core::Guarantee;
 pub use compylr_diagnostics::error::LowerError;
 pub use compylr_diagnostics::span::Span;
-pub use compylr_frontend_python::error::FrontendError;
+pub use compylr_frontend_python::error::SourceError;
 pub use compylr_ir::{ArtifactError, BinOp, Expr, Function, Literal, Param, Stmt, Ty, Unit};

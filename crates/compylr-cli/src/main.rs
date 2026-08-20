@@ -14,10 +14,15 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use compylr_frontend_python::frontend::parse_file;
-use compylr_frontend_python::lower::lower_source;
-use compylr_ir::Unit;
-use compylr_registry::{self as backend, BackendError};
+use compylr_core::backend::BackendError;
+use compylr_registry::{backends, frontends};
+
+/// The source language, until there is a second one to choose between.
+///
+/// A constant rather than a hardcoded call: the name goes through the registry like any other,
+/// so adding a `--frontend` flag later is a change to argument parsing rather than to how a
+/// frontend is reached.
+const DEFAULT_FRONTEND: &str = "python";
 
 const USAGE: &str = "\
 usage: compylr [--emit summary|ir|rust|crate] [--out DIR] [--backend NAME] <file.py>
@@ -142,25 +147,26 @@ fn main() -> ExitCode {
 fn run(options: &Options) -> Result<String, String> {
     // Resolved first, so asking for an unusable backend reports the backend rather than whichever
     // part of the file happened to be wrong.
+    //
     // The value is not used: the files come from the (python, rust) bridge, because making
     // generated code callable belongs to the pair rather than to the target. Resolution is still
     // what rejects an unusable target name.
-    let _backend = backend::lookup(&options.backend).map_err(|error: BackendError| {
+    let _backend = backends::lookup(&options.backend).map_err(|error: BackendError| {
         // A reserved target reads as planned; an unrecognized one as a typo. Collapsing them would
         // tell someone asking for TypeScript that no such target exists.
         error.to_string()
     })?;
+    let frontend = frontends::lookup(DEFAULT_FRONTEND).map_err(|error| error.to_string())?;
 
-    let parsed = parse_file(&options.path).map_err(|error| error.to_string())?;
     let source = std::fs::read_to_string(&options.path)
         .map_err(|error| format!("could not read {}: {error}", options.path.display()))?;
 
-    let functions = lower_source(&parsed).map_err(|error| error.render(&source))?;
-    let mut unit = Unit::new();
-    for function in functions {
-        unit.add_function(function)
-            .map_err(|error| error.render(&source))?;
-    }
+    // The frontend does the parsing and the assembly. Reading the file is this crate's business
+    // because the trait takes text: the decorator's sources come from a live function object and
+    // may correspond to no file at all.
+    let unit = frontend
+        .lower(std::slice::from_ref(&source))
+        .map_err(|error| error.to_string())?;
     unit.validate().map_err(|error| error.render(&source))?;
 
     match options.emit {

@@ -180,6 +180,29 @@ fn the_rust_backend_knows_no_host_language() {
     }
 }
 
+/// The component model may not spell a source language's constructs either.
+///
+/// Core defines what a frontend *is*. A Python keyword appearing here would mean the interface
+/// had been shaped around one implementation of itself, which is the failure this crate exists
+/// to prevent.
+#[test]
+fn core_names_no_source_language_syntax() {
+    let source = strip_comments(&read_crate_source("compylr-core"));
+    for spelling in [
+        "\"def \"",
+        "\"elif\"",
+        "ruff_",
+        "\"lambda\"",
+        "\"__init__\"",
+    ] {
+        assert!(
+            !source.contains(spelling),
+            "compylr-core mentions {spelling}; the component model must not be shaped around \
+             one source language"
+        );
+    }
+}
+
 /// The IR's own source may not spell a Python construct.
 ///
 /// The manifest check above makes this impossible to do by *calling* a parser; this catches the

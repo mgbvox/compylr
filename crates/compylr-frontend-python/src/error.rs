@@ -4,6 +4,11 @@
 //! outside the supported subset. These describe the input never becoming a tree at all, and they
 //! wrap the parser's own error type — which is why they live in the frontend rather than in the
 //! shared diagnostics crate.
+//!
+//! Named `SourceError` rather than `FrontendError` because the latter now means "no such
+//! frontend" in [`compylr_core`], symmetrically with `BackendError`. Two types with one name,
+//! one of them about a missing component and the other about a malformed file, is a confusion
+//! worth a rename.
 
 use std::error::Error;
 use std::fmt;
@@ -18,7 +23,7 @@ use crate::span_of;
 
 /// A failure while turning Python source into a parse tree.
 #[derive(Debug)]
-pub enum FrontendError {
+pub enum SourceError {
     /// The source could not be read from disk.
     Io {
         /// Path that was requested.
@@ -35,7 +40,7 @@ pub enum FrontendError {
     },
 }
 
-impl FrontendError {
+impl SourceError {
     /// Build an I/O failure that remembers which path was requested.
     ///
     /// The path cannot come from [`io::Error`] itself, so it is threaded in here rather than
@@ -75,7 +80,7 @@ impl FrontendError {
     }
 }
 
-impl fmt::Display for FrontendError {
+impl fmt::Display for SourceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // `source` is rendered via Display, not Debug, so the message stays readable.
@@ -89,7 +94,7 @@ impl fmt::Display for FrontendError {
     }
 }
 
-impl Error for FrontendError {
+impl Error for SourceError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
@@ -98,7 +103,7 @@ impl Error for FrontendError {
     }
 }
 
-impl From<ParseError> for FrontendError {
+impl From<ParseError> for SourceError {
     fn from(error: ParseError) -> Self {
         Self::Syntax {
             message: error.error.to_string(),
@@ -113,7 +118,7 @@ mod tests {
 
     #[test]
     fn io_failure_names_the_path_and_is_distinguishable() {
-        let error = FrontendError::io(
+        let error = SourceError::io(
             "/tmp/missing.py",
             io::Error::new(io::ErrorKind::NotFound, "no such file"),
         );
@@ -126,7 +131,7 @@ mod tests {
 
     #[test]
     fn io_display_uses_the_causes_display_not_debug() {
-        let error = FrontendError::io(
+        let error = SourceError::io(
             "/tmp/x.py",
             io::Error::new(io::ErrorKind::PermissionDenied, "permission denied"),
         );
@@ -138,7 +143,7 @@ mod tests {
 
     #[test]
     fn syntax_failure_carries_a_span_and_is_distinguishable() {
-        let error = FrontendError::Syntax {
+        let error = SourceError::Syntax {
             message: "unexpected token".to_string(),
             span: Span::new(4, 7),
         };

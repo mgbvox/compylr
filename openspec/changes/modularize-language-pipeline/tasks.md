@@ -27,15 +27,17 @@
 
 ## 2. Frontend as a component
 
-- [ ] 2.1 Write tests for frontend-name resolution covering implemented, reserved, and unknown, and
+- [x] 2.1 Write tests for frontend-name resolution covering implemented, reserved, and unknown, and
       for branching on the failure kind without matching message text
-- [ ] 2.2 Define the `Frontend` trait in `compylr-core`: source text in, `Unit` out, plus the
+- [x] 2.2 Define the `Frontend` trait in `compylr-core`: source text in, `Unit` out, plus the
       frontend's name and its required guarantees
-- [ ] 2.3 Add the frontend registry with `python` implemented and no reserved names yet, mirroring
-      the backend registry's `Entry { name, impl: Option<..> }` shape
-- [ ] 2.4 Implement `Frontend` for the Python frontend and route `compylr::compile` and the CLI
+- [x] 2.3 Add the frontend registry with `python` implemented, mirroring the backend registry's
+      `Entry { name, impl: Option<..> }` shape. `typescript`, `go`, and `cpp` are reserved here
+      too, rather than "no reserved names yet" as first written: the spec requires the reserved
+      answer to be one of three, and with no reserved name it could not be exercised
+- [x] 2.4 Implement `Frontend` for the Python frontend and route `compylr::compile` and the CLI
       through the registry instead of calling lowering directly
-- [ ] 2.5 Assert that `compylr-core`, `compylr-ir`, and `compylr-backend-rust` contain no Python
+- [x] 2.5 Assert that `compylr-core`, `compylr-ir`, and `compylr-backend-rust` contain no Python
       keyword, spelling, or parser dependency
 
 ## 3. Host bridge as a pair

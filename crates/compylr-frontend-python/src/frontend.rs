@@ -11,11 +11,11 @@ use std::path::Path;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::{Parsed, parse_module};
 
-use crate::error::FrontendError;
+use crate::error::SourceError;
 
 /// Parse Python source text into a module parse tree.
-pub fn parse_source(source: &str) -> Result<Parsed<ModModule>, FrontendError> {
-    // `?` converts ParseError into FrontendError via the From impl in `error`.
+pub fn parse_source(source: &str) -> Result<Parsed<ModModule>, SourceError> {
+    // `?` converts ParseError into SourceError via the From impl in `error`.
     Ok(parse_module(source)?)
 }
 
@@ -23,8 +23,8 @@ pub fn parse_source(source: &str) -> Result<Parsed<ModModule>, FrontendError> {
 ///
 /// I/O and syntax failures stay distinguishable, so a caller can tell "I could not find your
 /// file" from "your file is not valid Python".
-pub fn parse_file(path: &Path) -> Result<Parsed<ModModule>, FrontendError> {
-    let source = fs::read_to_string(path).map_err(|error| FrontendError::io(path, error))?;
+pub fn parse_file(path: &Path) -> Result<Parsed<ModModule>, SourceError> {
+    let source = fs::read_to_string(path).map_err(|error| SourceError::io(path, error))?;
     parse_source(&source)
 }
 

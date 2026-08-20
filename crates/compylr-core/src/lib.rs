@@ -2,8 +2,12 @@
 //!
 //! This crate defines interfaces and knows no implementation of them. The concrete tables live
 //! in `compylr-registry`, which may depend on both this crate and every implementation — putting
-//! them here would require core to depend on the crates that depend on core.
+//! them here would make core depend on the crates that depend on core.
 
 pub mod backend;
+pub mod frontend;
+pub mod guarantee;
 
 pub use backend::{Backend, BackendError, GeneratedFiles, format_source};
+pub use frontend::{Frontend, FrontendError, LoweringError};
+pub use guarantee::Guarantee;
