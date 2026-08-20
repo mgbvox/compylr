@@ -182,8 +182,15 @@ class TestArtifacts:
         assert first_fn < 10, f"translated code should be near the top, found at line {first_fn}"
 
     def test_the_crate_root_does_not_grow_with_the_program(self, project: compylr.Manager) -> None:
-        root = (project.paths.src / "lib.rs").read_text().splitlines()
-        assert len(root) < 20, "the crate root must stay lean regardless of function count"
+        # Asserted as "contains nothing per-function" rather than as a line count. The count is a
+        # proxy, and a proxy that formatting can move measures the formatter rather than the
+        # property: rustfmt expands the crate root's `#![allow(...)]` across eight lines.
+        root = (project.paths.src / "lib.rs").read_text()
+        assert "pub fn" not in root, "the crate root must hold no translated code"
+
+        state = json.loads(project.paths.state.read_text())
+        for name in state["functions"]:
+            assert name not in root, f"{name} reached the crate root, which must not grow"
 
     def test_all_generated_files_share_one_root(self, project: compylr.Manager) -> None:
         root = project.paths.root
