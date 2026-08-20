@@ -16,6 +16,7 @@ packages, skipping the directories that hold environments, caches, and build out
 
 from __future__ import annotations
 
+import importlib.machinery
 import importlib.util
 import sys
 from dataclasses import dataclass, field
@@ -76,31 +77,93 @@ class Report:
 
 
 def _module_files(root: Path) -> list[Path]:
-    """Every importable module beneath `root`, in a stable order."""
+    """Every importable module beneath `root`, in the order Python would import them.
+
+    A package's own `__init__.py` comes before anything inside the package, and before any
+    subpackage. That is not cosmetic: importing `pkg.sub` at runtime runs `pkg/__init__.py` first,
+    so a subpackage reading `from .. import VALUE` sees a package whose module has executed. Walking
+    in plain sorted order gets this right by accident for lowercase names and wrong for a directory
+    like `Aaa`, which sorts before `__init__.py` because `A` is 0x41 and `_` is 0x5F.
+    """
     found: list[Path] = []
 
     def walk(directory: Path) -> None:
-        for entry in sorted(directory.iterdir()):
-            if entry.is_dir():
-                if entry.name not in SKIPPED_DIRECTORIES and not entry.name.startswith("."):
-                    walk(entry)
-            elif entry.suffix == ".py" and entry.name != "setup.py":
+        entries = sorted(directory.iterdir())
+
+        initializer = directory / "__init__.py"
+        if initializer.is_file():
+            found.append(initializer)
+
+        for entry in entries:
+            if entry.is_file() and entry.suffix == ".py" and entry.name not in _NOT_MODULES:
                 found.append(entry)
+
+        # Subdirectories last, so this package exists before anything below it is imported.
+        for entry in entries:
+            skipped = entry.name in SKIPPED_DIRECTORIES or entry.name.startswith(".")
+            if entry.is_dir() and not skipped:
+                walk(entry)
 
     walk(root)
     return found
+
+
+#: Files that are not modules to import in their own right.
+#:
+#: `__init__.py` is excluded here because it is appended first, ahead of its siblings, rather than
+#: in name order; `setup.py` because running it is a packaging action, not a discovery one.
+_NOT_MODULES = frozenset({"__init__.py", "setup.py"})
 
 
 def _module_name(path: Path, root: Path) -> str:
     """A unique, importable name for a file, derived from its path below the root."""
     relative = path.relative_to(root).with_suffix("")
     parts = [part for part in relative.parts if part != "__init__"]
-    return ".".join(["_compylr_precompile", *parts]) if parts else "_compylr_precompile"
+    return ".".join([PRIVATE_ROOT, *parts]) if parts else PRIVATE_ROOT
+
+
+#: The private prefix every discovered module is imported under.
+#:
+#: Private so that importing a project's `utils.py` cannot shadow an installed `utils`, and so a
+#: project cannot be affected by whatever else the precompiling process has imported.
+PRIVATE_ROOT = "_compylr_precompile"
+
+
+def _ensure_ancestors(name: str) -> None:
+    """Make every package above `name` exist, so a relative import inside it can resolve.
+
+    A module imported as `_compylr_precompile.pkg.mod` resolves `from . import sibling` by looking
+    up `_compylr_precompile.pkg` in `sys.modules`. If nothing put it there, the import fails with a
+    `ModuleNotFoundError` naming a package the user never wrote — which is what happened to every
+    package's `__init__.py` until this existed.
+
+    Ancestors are created on demand rather than by importing `__init__.py` files first. Relying on
+    order would work today and break the first time a directory's name sorts before `__init__.py`,
+    which `Aaa` does: `A` is 0x41 and `_` is 0x5F. A placeholder created here is replaced by the
+    real module when its own file is imported; a submodule already bound stays reachable, because
+    relative imports resolve through `sys.modules` rather than through the parent's attributes.
+    """
+    parts = name.split(".")
+    for depth in range(1, len(parts)):
+        ancestor = ".".join(parts[:depth])
+        if ancestor in sys.modules:
+            continue
+        package = importlib.util.module_from_spec(
+            importlib.machinery.ModuleSpec(ancestor, loader=None, is_package=True)
+        )
+        sys.modules[ancestor] = package
 
 
 def _import_file(path: Path, name: str) -> None:
     """Import one file under a private name, so it cannot collide with the caller's modules."""
-    spec = importlib.util.spec_from_file_location(name, path)
+    _ensure_ancestors(name)
+
+    # An `__init__.py` has to be loaded as a *package*, not as a plain module. Without a search
+    # location its `__package__` resolves to its parent, so `from . import sibling` inside
+    # `_compylr_precompile.pkg` would look for `_compylr_precompile.sibling` — a name nothing ever
+    # binds. With one, `__package__` is the package's own name and the lookup is right.
+    locations = [str(path.parent)] if path.name == "__init__.py" else None
+    spec = importlib.util.spec_from_file_location(name, path, submodule_search_locations=locations)
     if spec is None or spec.loader is None:  # pragma: no cover - only for unreadable files
         raise ImportError(f"could not load {path}")
     module = importlib.util.module_from_spec(spec)

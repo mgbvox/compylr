@@ -1,10 +1,12 @@
 //! The semantics the IR declares, in Rust.
 //!
-//! This file has two lives. It is compiled as part of compylr, so its behavior is unit-tested
-//! natively; and it is embedded verbatim into every generated crate via `include_str!`, so
-//! generated code carries the same helpers without depending on compylr at build time. That is
-//! why it must stay **self-contained**: no `use crate::...`, no external crates, nothing that
-//! would fail to compile once pasted into somebody else's project.
+//! This file has two lives. It is compiled as part of this crate, so its behavior is unit-tested
+//! natively — see `tests/runtime.rs`, which lives outside this file precisely so that a
+//! `#[cfg(test)]` module here does not get embedded into every user's `compat.rs`; and it is
+//! embedded verbatim into every generated crate via `include_str!`, so generated code carries the
+//! same helpers without depending on compylr at build time. That is why it must stay
+//! **self-contained**: no `use crate::...`, no external crates, nothing that would fail to
+//! compile once pasted into somebody else's project.
 //!
 //! Everything here exists because Rust's native operators are one choice among several, and the
 //! IR says which choice the source language made:

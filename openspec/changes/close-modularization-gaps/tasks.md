@@ -58,12 +58,15 @@
 
 ## 7. Precompile imports packages the way the runtime does
 
-- [ ] 7.1 Write failing tests: a package whose `__init__.py` imports a sibling relatively; a nested
+- [x] 7.1 Write failing tests: a package whose `__init__.py` imports a sibling relatively; a nested
       subpackage; and a subpackage whose name sorts before `__init__.py`
-- [ ] 7.2 Register a synthetic `_compylr_precompile` root package, and load `__init__.py` with
+- [x] 7.2 Register a synthetic `_compylr_precompile` root package, and load `__init__.py` with
       `submodule_search_locations` so it becomes a genuine package
-- [ ] 7.3 Create every missing ancestor on demand, removing the dependency on enumeration order
-- [ ] 7.4 Assert in `python/tests/test_demo.py` that precompiling the demo reports zero import
+- [x] 7.3 Create every missing ancestor on demand, removing the dependency on enumeration order.
+      Both halves were needed: on-demand ancestors make the *name* resolve, and `_module_files`
+      importing a package's own module before anything below it makes the *contents* exist. The
+      ordering test failed with only the first
+- [x] 7.4 Assert in `python/tests/test_demo.py` that precompiling the demo reports zero import
       failures, which it currently reports two of with nothing noticing
 
 ## 8. Documentation and close-out
