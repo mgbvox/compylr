@@ -12,7 +12,9 @@
 
 use std::fmt::Write as _;
 
-use compylr_backend_rust::rust::{BINDINGS_PATH, LIB_PATH, RustBackend, rust_ident, rust_ty};
+use compylr_backend_rust::rust::{LIB_PATH, RustBackend, rust_ident, rust_ty};
+
+use crate::BINDINGS_PATH;
 use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
 use compylr_ir::{Class, Ty, Unit};
 

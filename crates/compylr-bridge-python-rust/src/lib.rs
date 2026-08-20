@@ -10,7 +10,36 @@ pub mod bindings;
 pub use bindings::{cargo_manifest, emit_extension, module_name};
 
 use compylr_core::backend::{BackendError, GeneratedFiles};
+use compylr_core::bridge::{HostArtifact, HostBridge};
 use compylr_ir::Unit;
+
+/// The `(python, rust)` bridge.
+#[derive(Debug)]
+pub struct PythonRustBridge;
+
+impl HostBridge for PythonRustBridge {
+    fn source(&self) -> &'static str {
+        "python"
+    }
+
+    fn target(&self) -> &'static str {
+        "rust"
+    }
+
+    fn emit(&self, unit: &Unit) -> Result<HostArtifact, BackendError> {
+        Ok(HostArtifact {
+            files: emit_extension(unit)?,
+            manifest: cargo_manifest(unit, PYO3_VERSION),
+            loaded_as: module_name(unit),
+        })
+    }
+}
+
+/// Path of the file holding the Python-boundary wrappers.
+///
+/// Owned here rather than by the Rust backend: the file exists because Python is calling, and a
+/// target that no Python ever calls has no such file to name.
+pub const BINDINGS_PATH: &str = "src/bindings.rs";
 
 /// PyO3 version generated crates depend on.
 ///

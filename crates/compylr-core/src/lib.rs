@@ -5,9 +5,11 @@
 //! them here would make core depend on the crates that depend on core.
 
 pub mod backend;
+pub mod bridge;
 pub mod frontend;
 pub mod guarantee;
 
 pub use backend::{Backend, BackendError, GeneratedFiles, format_source};
+pub use bridge::{BridgeError, HostArtifact, HostBridge};
 pub use frontend::{Frontend, FrontendError, LoweringError};
 pub use guarantee::Guarantee;

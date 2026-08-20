@@ -56,6 +56,16 @@ pub mod backend {
     }
 }
 
+/// Host bridges, keyed by `(source, target)`, and their registry.
+///
+/// Named `bridge_registry` rather than `bridge` because [`bridge`] is already the PyO3 layer that
+/// exposes *the compiler* to Python. The two are different things and sharing a name would keep
+/// the confusion alive.
+pub mod bridge_registry {
+    pub use compylr_core::bridge::{BridgeError, HostArtifact, HostBridge};
+    pub use compylr_registry::bridges::{lookup, pairs};
+}
+
 pub mod bridge;
 
 pub use compylr_core::Guarantee;

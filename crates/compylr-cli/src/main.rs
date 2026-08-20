@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use compylr_core::backend::BackendError;
-use compylr_registry::{backends, frontends};
+use compylr_registry::{backends, bridges, frontends};
 
 /// The source language, until there is a second one to choose between.
 ///
@@ -147,11 +147,7 @@ fn main() -> ExitCode {
 fn run(options: &Options) -> Result<String, String> {
     // Resolved first, so asking for an unusable backend reports the backend rather than whichever
     // part of the file happened to be wrong.
-    //
-    // The value is not used: the files come from the (python, rust) bridge, because making
-    // generated code callable belongs to the pair rather than to the target. Resolution is still
-    // what rejects an unusable target name.
-    let _backend = backends::lookup(&options.backend).map_err(|error: BackendError| {
+    let backend = backends::lookup(&options.backend).map_err(|error: BackendError| {
         // A reserved target reads as planned; an unrecognized one as a typo. Collapsing them would
         // tell someone asking for TypeScript that no such target exists.
         error.to_string()
@@ -190,16 +186,22 @@ fn run(options: &Options) -> Result<String, String> {
             // Only the translated functions. Printing every file as one stream would produce
             // something that no longer compiles when redirected to a single `.rs`, quietly
             // breaking the obvious use of the flag.
-            let files = compylr_bridge_python_rust::emit_python_extension(&unit)
-                .map_err(|error| error.to_string())?;
+            //
+            // The backend alone, with no bridge: seeing what your Python became is a question
+            // about the target, and it stays answerable for a target no host can call yet.
+            let files = backend.emit(&unit).map_err(|error| error.to_string())?;
             files
                 .get(compylr_backend_rust::rust::GENERATED_PATH)
                 .cloned()
                 .ok_or_else(|| "this backend emits no translated-code file".to_string())
         }
         Emit::Crate => {
-            let files = compylr_bridge_python_rust::emit_python_extension(&unit)
+            // A buildable crate, which means the host boundary as well as the translation — so
+            // this form, unlike `--emit rust`, needs the pair to be bridged.
+            let host = bridges::lookup(DEFAULT_FRONTEND, &options.backend)
                 .map_err(|error| error.to_string())?;
+            let artifact = host.emit(&unit).map_err(|error| error.to_string())?;
+            let files = artifact.files;
             let root = options
                 .out
                 .as_ref()
@@ -215,7 +217,7 @@ fn run(options: &Options) -> Result<String, String> {
                     .map_err(|e| format!("could not write {}: {e}", path.display()))?;
                 written.push(relative.clone());
             }
-            let manifest = compylr_bridge_python_rust::build_manifest(&unit);
+            let manifest = artifact.manifest;
             std::fs::write(root.join("Cargo.toml"), manifest)
                 .map_err(|e| format!("could not write the manifest: {e}"))?;
             written.push("Cargo.toml".to_string());

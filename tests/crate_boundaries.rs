@@ -180,6 +180,28 @@ fn the_rust_backend_knows_no_host_language() {
     }
 }
 
+/// The `(python, rust)` bridge generates PyO3 source; it does not parse Python and does not
+/// link PyO3.
+///
+/// Both are easy to reach for and both would be wrong. Reading the user's Python here would mean
+/// the binding layer depended on something the IR does not carry, which is exactly what would
+/// not survive a second frontend; linking PyO3 would confuse generating a boundary with being
+/// one.
+#[test]
+fn the_python_rust_bridge_neither_parses_python_nor_links_pyo3() {
+    let deps = direct_dependencies("compylr-bridge-python-rust");
+    for parser in PARSERS {
+        assert!(
+            !deps.contains(parser),
+            "the bridge depends on {parser}; it reads the IR, not the user's source"
+        );
+    }
+    assert!(
+        !deps.contains("pyo3"),
+        "the bridge emits PyO3 source as text and has no reason to link it"
+    );
+}
+
 /// The component model may not spell a source language's constructs either.
 ///
 /// Core defines what a frontend *is*. A Python keyword appearing here would mean the interface

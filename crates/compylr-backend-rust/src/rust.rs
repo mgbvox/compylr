@@ -177,8 +177,6 @@ pub const LIB_PATH: &str = "src/lib.rs";
 pub const GENERATED_PATH: &str = "src/generated.rs";
 /// Path of the file holding the Python-semantics helpers.
 pub const COMPAT_PATH: &str = "src/compat.rs";
-/// Path of the file holding the Python-boundary wrappers.
-pub const BINDINGS_PATH: &str = "src/bindings.rs";
 
 /// The crate root: lint allowances and module declarations, and nothing that grows.
 ///

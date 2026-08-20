@@ -15,6 +15,7 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
 use crate::backend::{self, BackendError, GeneratedFiles};
+use crate::bridge_registry::{self, BridgeError};
 use crate::error::{LowerError, SourceError};
 use crate::frontend::{self, FrontendError, LoweringError, parse_source};
 use crate::lower::lower_source_members;
@@ -72,6 +73,8 @@ pub enum CompileFailure {
     Backend(BackendError),
     /// The requested source language cannot be used.
     Frontend(FrontendError),
+    /// The source and target languages have no bridge between them.
+    Bridge(BridgeError),
 }
 
 impl CompileFailure {
@@ -131,6 +134,10 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     // convention belongs to the pair. Resolution is still what rejects an unusable target name.
     let _backend = backend::lookup(backend_name).map_err(CompileFailure::Backend)?;
     let frontend = frontend::lookup(SOURCE_LANGUAGE).map_err(CompileFailure::Frontend)?;
+    // Resolved by pair. A target compylr can generate but not call back from fails here, with a
+    // message naming both languages rather than claiming the target does not exist.
+    let host =
+        bridge_registry::lookup(SOURCE_LANGUAGE, backend_name).map_err(CompileFailure::Bridge)?;
 
     // Parsing, gathering signatures across sources, and lowering are all the frontend's, because
     // they are Python's typing rules rather than the pipeline's. What comes back is a unit.
@@ -146,12 +153,9 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
             column: 1,
         })?;
 
-    // Generating the target source is the backend's job; making it callable from Python is the
-    // (python, rust) bridge's, because a calling convention belongs to the pair rather than to
-    // either language alone.
-    let target_sources = compylr_bridge_python_rust::emit_python_extension(&unit)
-        .map_err(CompileFailure::Backend)?;
-    let manifest = compylr_bridge_python_rust::build_manifest(&unit);
+    // Generating the target source is the backend's job; making it callable is the bridge's,
+    // because a calling convention belongs to the pair rather than to either language alone.
+    let artifact = host.emit(&unit).map_err(CompileFailure::Backend)?;
     let ir_artifact = unit.to_json().map_err(|error| {
         CompileFailure::Backend(BackendError::Unsupported {
             detail: format!("could not serialize the IR: {error}"),
@@ -159,11 +163,11 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     })?;
 
     Ok(Compiled {
-        target_sources,
+        target_sources: artifact.files,
         ir_artifact,
         fingerprint: unit.fingerprint(),
-        module_name: crate::backend::bindings::module_name(&unit),
-        manifest,
+        module_name: artifact.loaded_as,
+        manifest: artifact.manifest,
         function_names: unit.functions().map(|f| f.name.clone()).collect(),
     })
 }
@@ -229,6 +233,9 @@ impl CompileFailure {
             // compylr is misconfigured against itself — not something a user's program caused,
             // and not worth an exception class nobody can catch meaningfully.
             Self::Frontend(error) => (CompylrError::new_err(error.to_string()), None),
+            // Same reasoning as the frontend case: the only pair `compile` ever asks for is one
+            // this build registers, so arriving here means compylr disagrees with itself.
+            Self::Bridge(error) => (CompylrError::new_err(error.to_string()), None),
         };
 
         if let Some((line, column, code)) = location {

@@ -6,7 +6,9 @@
 //! it is both.
 
 pub mod backends;
+pub mod bridges;
 pub mod frontends;
 
 pub use compylr_core::backend::{BackendError, GeneratedFiles, format_source};
+pub use compylr_core::bridge::{BridgeError, HostArtifact, HostBridge};
 pub use compylr_core::frontend::{Frontend, FrontendError, LoweringError};

@@ -42,15 +42,16 @@
 
 ## 3. Host bridge as a pair
 
-- [ ] 3.1 Write tests for pair resolution: a bridged pair succeeds, an unbridged pair fails naming
+- [x] 3.1 Write tests for pair resolution: a bridged pair succeeds, an unbridged pair fails naming
       both languages, and the failure is distinguishable by kind from an unimplemented target
-- [ ] 3.2 Define the `HostBridge` trait in `compylr-core`, keyed by `(source, target)`, and a
+- [x] 3.2 Define the `HostBridge` trait in `compylr-core`, keyed by `(source, target)`, and a
       registry for it
-- [ ] 3.3 Move `Backend::emit_python_extension` off the `Backend` trait and re-home it as the
-      `(python, rust)` bridge implementation
-- [ ] 3.4 Update `compylr::compile`, `src/bridge.rs`, and the CLI's crate emission to resolve the
+- [x] 3.3 Move `Backend::emit_python_extension` off the `Backend` trait and re-home it as the
+      `(python, rust)` bridge implementation. The removal happened in group 1, where the crate
+      graph forced it; this is the re-homing behind `HostBridge`
+- [x] 3.4 Update `compylr::compile`, `src/bridge.rs`, and the CLI's crate emission to resolve the
       bridge by pair; confirm `--emit rust` still works with no bridge involved
-- [ ] 3.5 Assert the bridge crate does not depend on a Python parser, and that generating a binding
+- [x] 3.5 Assert the bridge crate does not depend on a Python parser, and that generating a binding
       layer from a deserialized unit is identical to generating it from one in memory
 
 ## 4. Declared semantics on IR nodes (fingerprint-changing)
