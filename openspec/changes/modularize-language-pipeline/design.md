@@ -78,8 +78,13 @@ already uses, so "reserved" stays a first-class answer everywhere.
 ```
 Frontend:   &str            -> impl Frontend    (source text -> Unit)
 Backend:    &str            -> impl Backend     (Unit -> GeneratedFiles)
-HostBridge: (&str, &str)    -> impl HostBridge  (Unit + backend output -> callable artifact)
+HostBridge: (&str, &str)    -> impl HostBridge  (Unit + BuildKey -> callable artifact)
 ```
+
+The `BuildKey` is not decoration. A bridge knows the pair but not the pass configuration, and the
+name a host loads the artifact under has to distinguish builds a process might hold at once —
+otherwise two builds of one source under different settings collide and the second silently *is*
+the first.
 
 *Alternative considered: fold bridging into `Backend::emit_python_extension`, which is where it lives
 today.* Rejected — that method's name already says what is wrong with it. A Go backend would need
@@ -95,8 +100,8 @@ rework. Recorded as the intended escape hatch if the matrix ever exceeds a handf
 
 ### D3. Guarantee negotiation is a declared set, checked before emission
 
-A frontend returns `RequiredGuarantees`; a backend returns `PreservedGuarantees`; core intersects
-them and fails with the missing member's name. The initial set is
+A frontend returns the guarantees it requires; a backend returns those it preserves; core
+intersects them and fails with the missing member's name. The initial set is
 `{ IntegerOverflowReported, DivisionByZeroReported, FloatOrderPreserved }`.
 
 This exists for the note's last line — "Y: post-generation Y-specific optimizations (if compatible
@@ -131,16 +136,24 @@ code, and disabling one would silently reuse an optimized artifact.
 
 ```
 compylr-diagnostics   spans, located-error scaffolding          (no deps)
-compylr-ir            types, nodes, semantics, fingerprint,     -> diagnostics
-                      serialization
-compylr-core          registries, traits, passes, pipeline,     -> ir, diagnostics
+compylr-ir            types, nodes, semantics, guarantees,      -> diagnostics
+                      fingerprint, serialization
+compylr-core          traits, passes, pipeline, verification,   -> ir, diagnostics
                       guarantee negotiation
+compylr-registry      the tables: which frontends, backends,    -> core + every implementation
+                      bridges, and directed passes exist
 compylr-frontend-python  ruff parse + lowering                  -> core, ir, diagnostics, ruff
 compylr-backend-rust     rust emission + emitted runtime        -> core, ir, diagnostics
 compylr-bridge-python-rust  PyO3 generation onto user code      -> core, ir  (+ backend-rust)
-compylr-cli              the `compylr` binary, --emit           -> all of the above
+compylr-cli              the `compylr` binary, --emit           -> registry and below; no PyO3
 compylr (cdylib)         `compylr._core`, PyO3 bridge           -> all of the above
 ```
+
+The registry is a crate of its own for a reason that only becomes visible once you try to write the
+table: a crate that *defines* what a backend is cannot name the crates implementing that trait, or
+the dependency is a cycle. So core holds the interfaces and knows no implementation, and one crate
+above it is allowed to know them all. That crate is also the single place a new language is
+registered, which is the property the whole design is for.
 
 The graph is the enforcement mechanism, not a convention: `compylr-backend-rust` cannot mention
 Python because it does not depend on anything Python, and `compylr-ir` cannot grow a `python_name`
@@ -245,3 +258,41 @@ irreversible one for caches, but reverting it only causes one more rebuild.
 - The `Instance(String)` nominal type is the one place the type model is not structural. A second
   frontend with different class semantics may need it parameterized, but nothing in this change
   depends on the answer.
+
+## What changed during implementation
+
+The decisions above are as written before the work started. Four of them moved, and the reasons are
+worth keeping — each was forced by the dependency graph rather than chosen, which is itself evidence
+that the crate split does the job it was introduced to do.
+
+**The registry became its own crate (D5).** The design put registries in `compylr-core`. Writing the
+table showed that impossible: core defines what a backend *is*, so it cannot name the crates that
+implement the trait. `compylr-registry` sits above core and below nothing else, and is now the
+single place a language is registered — a better outcome than planned, but not the planned one.
+
+**`LowerError` went to `compylr-diagnostics`, not to the Python frontend.** The task list assumed
+the whole of `error.rs` was Python's. It is not: every kind — missing annotation, unresolved name,
+arity mismatch, type mismatch — is a category any frontend for an annotated subset produces, and
+`Unit::validate` raises two of them itself. Putting them in the frontend would have pointed the IR
+at Python, which is the exact edge the split exists to remove. Only `SourceError`, which wraps
+ruff's `ParseError`, is genuinely Python's.
+
+**`Span` lost its parser dependency.** It used ruff's `LineIndex` to resolve a line and column.
+Diagnostics sits below the IR, so anything it pulls in reaches every crate in the workspace —
+including a Python parser, which would have made "a backend cannot name Python" untestable.
+`line_column` is a dozen lines of plain Rust now, and the parser conversion lives in the frontend as
+`span_of`.
+
+**`Guarantee` lives in `compylr-ir`, not `compylr-core` (D3).** A unit records what its frontend
+requires, so the type has to sit at or below the IR. Core re-exports it, so a frontend or backend
+declaring guarantees still names one type.
+
+**`emit_python_extension` came off the `Backend` trait in step 1 rather than step 3.** The bridge
+crate sits downstream of the backend, so the call could not point upward; the removal happened where
+the graph forced it, and D2's `HostBridge` was built around the already-removed method rather than
+removing it itself.
+
+**`typescript`, `go`, and `cpp` are reserved as frontends too.** The task list said "no reserved
+names yet" for the frontend registry. That left the spec's three-way-resolution scenario with no
+reserved name to exercise, and a language compylr supports in one direction and not the other is not
+a language compylr supports.

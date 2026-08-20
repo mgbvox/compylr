@@ -225,6 +225,45 @@ fn core_names_no_source_language_syntax() {
     }
 }
 
+/// Emission must not touch the filesystem or run anything.
+///
+/// Turning IR into text is a pure function of the unit, and that is not a style preference: it is
+/// what makes the output byte-reproducible, which is what makes it safe to key a rebuild cache on.
+/// A formatter invoked inside `emit` would make the result depend on which rustfmt is installed,
+/// and two machines would disagree about whether a project needs rebuilding.
+///
+/// Asserted structurally, because the property is "cannot", not "did not on this run". The
+/// exception is `format_source` and `post_process`, which are the *post*-emission hook and are
+/// applied by whoever writes the files out.
+#[test]
+fn emission_reads_and_writes_nothing() {
+    let source = strip_comments(&read_crate_source("compylr-backend-rust"));
+
+    // `format_source` lives in core and is called only from `post_process`; everything else that
+    // could reach the outside world would have to appear here.
+    for escape in [
+        "std::fs",
+        "File::",
+        "Command::new",
+        "std::env::",
+        "include_str!(\"/",
+    ] {
+        assert!(
+            !source.contains(escape),
+            "the Rust backend mentions {escape}; emission is a pure function of the unit, and a \
+             backend that reads the environment cannot have byte-reproducible output"
+        );
+    }
+
+    // The one filesystem-adjacent thing it does is embed the runtime at *compile* time, which
+    // happens once when compylr is built rather than when a unit is emitted.
+    assert!(
+        source.contains("include_str!"),
+        "the runtime is embedded at compile time; if that stopped being true this test is checking \
+         the wrong thing"
+    );
+}
+
 /// The IR's own source may not spell a Python construct.
 ///
 /// The manifest check above makes this impossible to do by *calling* a parser; this catches the

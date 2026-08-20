@@ -20,9 +20,11 @@ against a Python-flavoured IR is another one to re-derive when the seam finally 
   semantics it needs; a backend reproduces exactly those semantics; neither names the other's
   language. This changes the serialized IR, so every existing `.compylr` cache rebuilds once.
 - **BREAKING (Rust API).** The single `compylr` crate becomes a Cargo workspace: `compylr-ir`,
-  `compylr-diagnostics`, `compylr-core`, `compylr-frontend-python`, `compylr-backend-rust`,
-  `compylr-bridge-python-rust`, `compylr-cli`, and the `compylr` cdylib that stays the Python
-  extension. Adding a language becomes adding a crate and a registry entry, with no edit to core.
+  `compylr-diagnostics`, `compylr-core`, `compylr-registry`, `compylr-frontend-python`,
+  `compylr-backend-rust`, `compylr-bridge-python-rust`, `compylr-cli`, and the `compylr` cdylib
+  that stays the Python extension. Adding a language becomes adding a crate and a registry entry,
+  with no edit to core — see design.md's closing section for why the registry ended up a crate of
+  its own rather than part of core, as first planned.
 - Python spellings (`Ty::python_name`, `BinOp::python_symbol`) move off the IR and onto the Python
   frontend, which owns how a Python programmer's own syntax is quoted back at them.
 - A **frontend registry** appears alongside the backend registry, with the same three-way answer
