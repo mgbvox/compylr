@@ -318,6 +318,74 @@ mod sequence_indexing {
     }
 }
 
+mod writing_through_a_place {
+    use compylr_backend_rust::runtime::{IndexOrigin, PyPlace, RuntimeError};
+
+    // A place is a borrow, and the whole reason it exists is that the read helpers hand back a
+    // clone. These assert the borrow reaches the original -- which is the property, and the one a
+    // test that only checked the returned value would miss entirely.
+
+    #[test]
+    fn a_sequence_place_writes_into_the_original() {
+        let mut rows = vec![vec![0i64, 0], vec![0, 0]];
+        *PyPlace::py_place(&mut rows, &1i64, IndexOrigin::FromEitherEnd).unwrap() = vec![7, 8];
+        assert_eq!(rows, vec![vec![0, 0], vec![7, 8]]);
+    }
+
+    #[test]
+    fn a_sequence_place_resolves_the_index_the_declared_way() {
+        let mut items = vec![1i64, 2, 3];
+        *PyPlace::py_place(&mut items, &(-1i64), IndexOrigin::FromEitherEnd).unwrap() = 9;
+        assert_eq!(items, vec![1, 2, 9], "a negative index counts from the end");
+
+        // Under `FromStart` the same index is simply out of range, rather than counting back --
+        // the reading helper has always said so, and a place that disagreed would let a frontend
+        // write where it could not read.
+        assert_eq!(
+            PyPlace::py_place(&mut items, &(-1i64), IndexOrigin::FromStart).err(),
+            Some(RuntimeError::IndexOutOfRange)
+        );
+    }
+
+    #[test]
+    fn a_sequence_place_past_either_end_reports() {
+        let mut items = vec![1i64];
+        assert_eq!(
+            PyPlace::py_place(&mut items, &5i64, IndexOrigin::FromEitherEnd).err(),
+            Some(RuntimeError::IndexOutOfRange)
+        );
+        assert_eq!(
+            PyPlace::py_place(&mut items, &(-2i64), IndexOrigin::FromEitherEnd).err(),
+            Some(RuntimeError::IndexOutOfRange)
+        );
+    }
+
+    #[test]
+    fn a_mapping_place_writes_into_the_entry_that_is_there() {
+        let mut map = std::collections::HashMap::from([(String::from("k"), vec![0i64])]);
+        PyPlace::py_place(&mut map, &String::from("k"), IndexOrigin::FromEitherEnd)
+            .unwrap()
+            .push(1);
+        assert_eq!(map[&String::from("k")], vec![0, 1]);
+    }
+
+    #[test]
+    fn a_mapping_place_for_a_missing_key_reports_rather_than_creating_one() {
+        // The asymmetry with `PySetItem` is deliberate. `d[k] = v` creates the key; `d[k][0] = v`
+        // needs it to be there already, because inserting an empty container would invent a value
+        // the program never wrote and then quietly succeed at storing into it.
+        let mut map: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
+        let failure = PyPlace::py_place(&mut map, &String::from("absent"), IndexOrigin::FromStart);
+        assert!(
+            matches!(failure.err(), Some(RuntimeError::MissingKey(key)) if key.contains("absent"))
+        );
+        assert!(
+            map.is_empty(),
+            "a failed place must not have inserted anything"
+        );
+    }
+}
+
 mod text_length {
     use compylr_backend_rust::runtime::{PyLen, TextUnits, py_str_len};
 

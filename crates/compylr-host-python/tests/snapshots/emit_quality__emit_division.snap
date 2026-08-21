@@ -1,5 +1,5 @@
 ---
-source: tests/emit_quality.rs
+source: crates/compylr-host-python/tests/emit_quality.rs
 expression: functions.trim()
 ---
 //! Translated by compylr.
@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
     IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
-    TextUnits, div_exact, py_subscript,
+    TextUnits, div_exact, py_place, py_subscript,
 };
 
 pub fn halves(a: i64) -> Result<i64, RuntimeError> {

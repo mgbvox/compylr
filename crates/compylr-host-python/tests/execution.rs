@@ -816,6 +816,123 @@ fn an_element_assignment_is_observed_by_a_later_read() {
 }
 
 #[test]
+fn a_write_through_a_nested_collection_reaches_the_original() {
+    // The ordinary rule clones a collection wherever it is consumed, and the base of a mutation
+    // is the one place that is actively wrong. It was already handled for an attribute --
+    // `self.entries[k] = v` -- and not for a subscript, so `table[i][j] = v` wrote into a clone of
+    // the row and every write was lost.
+    //
+    // The failure mode is why this is executed rather than read: nothing about the emitted text
+    // looks wrong, no error is raised, and a dynamic-programming table simply comes back full of
+    // the value it was initialised with. That is a plausible answer, which is what makes it the
+    // worst kind of defect.
+    let out = run(
+        "mut_nested_setitem",
+        concat!(
+            "def zeros(rows: int, columns: int) -> list[list[int]]:\n",
+            "    out: list[list[int]] = []\n",
+            "    for _r in range(rows):\n",
+            "        line: list[int] = []\n",
+            "        for _c in range(columns):\n",
+            "            line.append(0)\n",
+            "        out.append(line)\n",
+            "    return out\n\n",
+            "def diagonal(size: int) -> list[list[int]]:\n",
+            "    out = zeros(size, size)\n",
+            "    for i in range(size):\n",
+            "        out[i][i] = 1\n",
+            "    return out\n\n",
+            "def through_a_mapping(k: str, v: int) -> dict[str, list[int]]:\n",
+            "    d: dict[str, list[int]] = {}\n",
+            "    row: list[int] = [0, 0]\n",
+            "    d[k] = row\n",
+            "    d[k][1] = v\n",
+            "    return d\n\n",
+            "def appended_through(k: str, v: int) -> dict[str, list[int]]:\n",
+            "    d: dict[str, list[int]] = {}\n",
+            "    row: list[int] = []\n",
+            "    d[k] = row\n",
+            "    d[k].append(v)\n",
+            "    return d\n\n",
+            "def deeper(v: int) -> list[list[list[int]]]:\n",
+            "    out: list[list[list[int]]] = [[[0, 0]]]\n",
+            "    out[0][0][1] = v\n",
+            "    return out\n\n",
+            "def missing_row(k: str) -> dict[str, list[int]]:\n",
+            "    d: dict[str, list[int]] = {}\n",
+            "    d[k][0] = 1\n",
+            "    return d\n",
+        ),
+        r#"
+    println!("{:?}", diagonal(3).unwrap());
+    println!("{:?}", through_a_mapping(String::from("k"), 7).unwrap());
+    println!("{:?}", appended_through(String::from("k"), 7).unwrap());
+    println!("{:?}", deeper(7).unwrap());
+    println!("{}", missing_row(String::from("k")).is_err());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(
+        lines[0], "[[1, 0, 0], [0, 1, 0], [0, 0, 1]]",
+        "a write through a row must reach the table, not a copy of the row"
+    );
+    assert_eq!(
+        lines[1], "{\"k\": [0, 7]}",
+        "a write through a mapping's value must reach the value in the map"
+    );
+    assert_eq!(
+        lines[2], "{\"k\": [7]}",
+        "appending through a mapping's value must reach the value in the map"
+    );
+    assert_eq!(
+        lines[3], "[[[0, 7]]]",
+        "the chain is followed to any depth, not only one level"
+    );
+    assert_eq!(
+        lines[4], "true",
+        "writing through a key that is absent reports, exactly as reading it does -- \
+         creating an empty row would invent a value the program never wrote"
+    );
+}
+
+#[test]
+fn a_write_through_a_nested_attribute_reaches_the_instance() {
+    // The same defect, reached through `self`. An attribute base was already a place; a subscript
+    // of one was not, so a grid held in an instance had the same silent failure -- and this is the
+    // shape where it matters most, because the whole reason to hold state in an instance is that
+    // the next call sees it.
+    let out = run(
+        "mut_nested_attr",
+        concat!(
+            "class Grid:\n",
+            "    def __init__(self, size: int) -> None:\n",
+            "        self.rows: list[list[int]] = []\n",
+            "        for _r in range(size):\n",
+            "            line: list[int] = []\n",
+            "            for _c in range(size):\n",
+            "                line.append(0)\n",
+            "            self.rows.append(line)\n\n",
+            "    def set(self, row: int, column: int, value: int) -> None:\n",
+            "        self.rows[row][column] = value\n\n",
+            "    def get(self, row: int, column: int) -> int:\n",
+            "        return self.rows[row][column]\n",
+        ),
+        r#"
+    let mut grid = Grid::__compylr_new(2).unwrap();
+    grid.set(1, 0, 5).unwrap();
+    println!("{}", grid.get(1, 0).unwrap());
+    println!("{}", grid.get(0, 0).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(
+        lines[0], "5",
+        "the write must survive the call that made it"
+    );
+    assert_eq!(lines[1], "0", "and must not have reached any other cell");
+}
+
+#[test]
 fn assigning_a_mapping_key_creates_or_replaces_it() {
     // Reading a missing key is a KeyError; assigning to one is not. Routing assignment through the
     // checked read would make every insertion of a new key fail.
@@ -1061,6 +1178,59 @@ fn a_collection_attribute_is_a_cache() {
     assert_eq!(
         lines[4], "2",
         "reading a collection attribute does not move it"
+    );
+}
+
+#[test]
+fn a_mutating_method_called_through_a_subscript_reaches_the_element() {
+    // The same defect as the nested assignment, one step further: a receiver reached through a
+    // subscript was emitted as a value, so `items[0].bump()` bumped a clone of the element and
+    // the list was left exactly as it was.
+    //
+    // `total` is the other half. A method that does *not* mutate must still borrow the way a read
+    // does, or a list of instances could never be read from without being bound `mut` — which
+    // would be a borrow-checker error about generated code rather than anything a user could act
+    // on.
+    let out = run(
+        "cls_subscript_receiver",
+        concat!(
+            "class Cell:\n",
+            "    def __init__(self, value: int) -> None:\n",
+            "        self.value: int = value\n",
+            "\n",
+            "    def bump(self, by: int) -> None:\n",
+            "        self.value = self.value + by\n",
+            "\n",
+            "    def get(self) -> int:\n",
+            "        return self.value\n",
+            "\n",
+            "def bumped(start: int, by: int) -> int:\n",
+            "    cells: list[Cell] = []\n",
+            "    cells.append(Cell(start))\n",
+            "    cells[0].bump(by)\n",
+            "    return cells[0].get()\n\n",
+            "def total(a: int, b: int) -> int:\n",
+            "    cells: list[Cell] = []\n",
+            "    cells.append(Cell(a))\n",
+            "    cells.append(Cell(b))\n",
+            "    sum: int = 0\n",
+            "    for cell in cells:\n",
+            "        sum = sum + cell.get()\n",
+            "    return sum\n",
+        ),
+        r#"
+    println!("{}", bumped(10, 5).unwrap());
+    println!("{}", total(3, 4).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(
+        lines[0], "15",
+        "the mutation must reach the element in the list, not a copy of it"
+    );
+    assert_eq!(
+        lines[1], "7",
+        "a method that does not mutate still reads through a shared borrow"
     );
 }
 

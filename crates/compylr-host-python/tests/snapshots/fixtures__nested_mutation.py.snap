@@ -1,0 +1,278 @@
+---
+source: crates/compylr-host-python/tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "zeros",
+        params: [
+            Param {
+                name: "rows",
+                ty: Int,
+            },
+            Param {
+                name: "columns",
+                ty: Int,
+            },
+        ],
+        ret: List(
+            List(
+                Int,
+            ),
+        ),
+        body: [
+            Bind {
+                name: "table",
+                ty: List(
+                    List(
+                        Int,
+                    ),
+                ),
+                value: ListLit(
+                    [],
+                ),
+            },
+            For {
+                name: "_row",
+                ty: Int,
+                iter: Range {
+                    start: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    stop: Name(
+                        "rows",
+                    ),
+                    step: Literal(
+                        Int(
+                            1,
+                        ),
+                    ),
+                },
+                body: [
+                    Bind {
+                        name: "line",
+                        ty: List(
+                            Int,
+                        ),
+                        value: ListLit(
+                            [],
+                        ),
+                    },
+                    For {
+                        name: "_column",
+                        ty: Int,
+                        iter: Range {
+                            start: Literal(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                            stop: Name(
+                                "columns",
+                            ),
+                            step: Literal(
+                                Int(
+                                    1,
+                                ),
+                            ),
+                        },
+                        body: [
+                            Append {
+                                sequence: Name(
+                                    "line",
+                                ),
+                                value: Literal(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                            },
+                        ],
+                    },
+                    Append {
+                        sequence: Name(
+                            "table",
+                        ),
+                        value: Name(
+                            "line",
+                        ),
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "table",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 0,
+            end: 254,
+        },
+    },
+    Function {
+        name: "diagonal",
+        params: [
+            Param {
+                name: "size",
+                ty: Int,
+            },
+        ],
+        ret: List(
+            List(
+                Int,
+            ),
+        ),
+        body: [
+            Bind {
+                name: "table",
+                ty: List(
+                    List(
+                        Int,
+                    ),
+                ),
+                value: Call {
+                    callee: "zeros",
+                    args: [
+                        Name(
+                            "size",
+                        ),
+                        Name(
+                            "size",
+                        ),
+                    ],
+                },
+            },
+            For {
+                name: "i",
+                ty: Int,
+                iter: Range {
+                    start: Literal(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    stop: Name(
+                        "size",
+                    ),
+                    step: Literal(
+                        Int(
+                            1,
+                        ),
+                    ),
+                },
+                body: [
+                    SetItem {
+                        collection: Subscript {
+                            base: Name(
+                                "table",
+                            ),
+                            index: Name(
+                                "i",
+                            ),
+                            origin: FromEitherEnd,
+                        },
+                        index: Name(
+                            "i",
+                        ),
+                        value: Literal(
+                            Int(
+                                1,
+                            ),
+                        ),
+                    },
+                ],
+            },
+            Return(
+                Name(
+                    "table",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 257,
+            end: 397,
+        },
+    },
+    Function {
+        name: "bucket",
+        params: [
+            Param {
+                name: "key",
+                ty: Str,
+            },
+            Param {
+                name: "value",
+                ty: Int,
+            },
+        ],
+        ret: Dict(
+            Str,
+            List(
+                Int,
+            ),
+        ),
+        body: [
+            Bind {
+                name: "buckets",
+                ty: Dict(
+                    Str,
+                    List(
+                        Int,
+                    ),
+                ),
+                value: DictLit(
+                    [],
+                ),
+            },
+            Bind {
+                name: "row",
+                ty: List(
+                    Int,
+                ),
+                value: ListLit(
+                    [],
+                ),
+            },
+            SetItem {
+                collection: Name(
+                    "buckets",
+                ),
+                index: Name(
+                    "key",
+                ),
+                value: Name(
+                    "row",
+                ),
+            },
+            Append {
+                sequence: Subscript {
+                    base: Name(
+                        "buckets",
+                    ),
+                    index: Name(
+                        "key",
+                    ),
+                    origin: FromEitherEnd,
+                },
+                value: Name(
+                    "value",
+                ),
+            },
+            Return(
+                Name(
+                    "buckets",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 400,
+            end: 593,
+        },
+    },
+]

@@ -1,0 +1,155 @@
+---
+source: crates/compylr-host-python/tests/emit_quality.rs
+expression: functions.trim()
+---
+//! Translated by compylr.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::compat::{
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_place, py_subscript,
+};
+
+#[derive(Clone)]
+pub struct Grid {
+    pub rows: Vec<Vec<i64>>,
+}
+
+impl Grid {
+    pub fn __compylr_new(size: i64) -> Result<Self, RuntimeError> {
+        let mut rows: Vec<Vec<i64>> = vec![];
+        {
+            let __compylr_stop: i64 = size;
+            let __compylr_step: i64 = 1i64;
+            if __compylr_step == 0 {
+                return Err(RuntimeError::ZeroStep);
+            }
+            let mut __compylr_cursor: i64 = 0i64;
+            while (__compylr_step > 0 && __compylr_cursor < __compylr_stop)
+                || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
+            {
+                let _row: i64 = __compylr_cursor;
+                __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+                let mut line: Vec<i64> = vec![];
+                {
+                    let __compylr_stop: i64 = size;
+                    let __compylr_step: i64 = 1i64;
+                    if __compylr_step == 0 {
+                        return Err(RuntimeError::ZeroStep);
+                    }
+                    let mut __compylr_cursor: i64 = 0i64;
+                    while (__compylr_step > 0 && __compylr_cursor < __compylr_stop)
+                        || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
+                    {
+                        let _column: i64 = __compylr_cursor;
+                        __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+                        {
+                            let __compylr_value = 0i64;
+                            (line).push(__compylr_value);
+                        }
+                    }
+                }
+                {
+                    let __compylr_value = line.clone();
+                    (rows).push(__compylr_value);
+                }
+            }
+        }
+        Ok(Self { rows })
+    }
+
+    pub fn read(&self, row: i64, column: i64) -> Result<i64, RuntimeError> {
+        Ok(py_subscript(&(py_subscript(&((self).rows.clone()), &(row), IndexOrigin::FromEitherEnd)?), &(column), IndexOrigin::FromEitherEnd)?)
+    }
+
+    pub fn write(&mut self, row: i64, column: i64, value: i64) -> Result<(), RuntimeError> {
+        {
+            let __compylr_value = value.clone();
+            let __compylr_index = column.clone();
+            PySetItem::py_set(&mut ((*py_place(&mut ((self).rows), &(row), IndexOrigin::FromEitherEnd)?)), &__compylr_index, __compylr_value)?;
+        }
+        Ok(())
+    }
+}
+
+pub fn bucket(key: String, value: i64) -> Result<HashMap<String, Vec<i64>>, RuntimeError> {
+    let mut buckets: HashMap<String, Vec<i64>> = HashMap::from([]);
+    let row: Vec<i64> = vec![];
+    {
+        let __compylr_value = row.clone();
+        let __compylr_index = key.clone();
+        PySetItem::py_set(&mut (buckets), &__compylr_index, __compylr_value)?;
+    }
+    {
+        let __compylr_value = value.clone();
+        ((*py_place(&mut (buckets), &(key), IndexOrigin::FromEitherEnd)?)).push(__compylr_value);
+    }
+    Ok(buckets.clone())
+}
+
+pub fn diagonal(size: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
+    let mut table: Vec<Vec<i64>> = zeros(size, size)?;
+    {
+        let __compylr_stop: i64 = size;
+        let __compylr_step: i64 = 1i64;
+        if __compylr_step == 0 {
+            return Err(RuntimeError::ZeroStep);
+        }
+        let mut __compylr_cursor: i64 = 0i64;
+        while (__compylr_step > 0 && __compylr_cursor < __compylr_stop)
+            || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
+        {
+            let i: i64 = __compylr_cursor;
+            __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+            {
+                let __compylr_value = 1i64;
+                let __compylr_index = i.clone();
+                PySetItem::py_set(&mut ((*py_place(&mut (table), &(i), IndexOrigin::FromEitherEnd)?)), &__compylr_index, __compylr_value)?;
+            }
+        }
+    }
+    Ok(table.clone())
+}
+
+pub fn zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
+    let mut table: Vec<Vec<i64>> = vec![];
+    {
+        let __compylr_stop: i64 = rows;
+        let __compylr_step: i64 = 1i64;
+        if __compylr_step == 0 {
+            return Err(RuntimeError::ZeroStep);
+        }
+        let mut __compylr_cursor: i64 = 0i64;
+        while (__compylr_step > 0 && __compylr_cursor < __compylr_stop)
+            || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
+        {
+            let _row: i64 = __compylr_cursor;
+            __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+            let mut line: Vec<i64> = vec![];
+            {
+                let __compylr_stop: i64 = columns;
+                let __compylr_step: i64 = 1i64;
+                if __compylr_step == 0 {
+                    return Err(RuntimeError::ZeroStep);
+                }
+                let mut __compylr_cursor: i64 = 0i64;
+                while (__compylr_step > 0 && __compylr_cursor < __compylr_stop)
+                    || (__compylr_step < 0 && __compylr_cursor > __compylr_stop)
+                {
+                    let _column: i64 = __compylr_cursor;
+                    __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
+                    {
+                        let __compylr_value = 0i64;
+                        (line).push(__compylr_value);
+                    }
+                }
+            }
+            {
+                let __compylr_value = line.clone();
+                (table).push(__compylr_value);
+            }
+        }
+    }
+    Ok(table.clone())
+}

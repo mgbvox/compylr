@@ -284,7 +284,7 @@ fn emit_generated(functions: &str) -> String {
          \n\
          use crate::compat::{{\n\
          {}IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,\n\
-         {}TextUnits, div_exact, py_subscript,\n\
+         {}TextUnits, div_exact, py_place, py_subscript,\n\
          }};\n\
          \n\
          {functions}",
@@ -729,7 +729,13 @@ pub fn mutating_methods(class: &Class) -> BTreeSet<String> {
 fn targets_self(expr: &Expr) -> bool {
     match expr {
         Expr::Name(name) => name == "self",
-        Expr::Attribute { object, .. } => targets_self(object),
+        // Both links, for the same reason: `self.rows[i][j] = v` reaches `self` through an
+        // attribute *and* a subscript, and a receiver derived from only one of them would be
+        // shared where the body needs it mutable — a borrow-checker error about generated code
+        // rather than anything the user could act on.
+        Expr::Attribute { object, .. } | Expr::Subscript { base: object, .. } => {
+            targets_self(object)
+        }
         _ => false,
     }
 }
@@ -932,7 +938,7 @@ impl Emitter<'_> {
                     ty,
                     value,
                 } => {
-                    let object = emit_place(object, self.unit)?;
+                    let object = emit_place(object, self.unit, Access::Mutable)?;
                     let value = emit_expr(value, self.unit, ty)?;
                     let _ = writeln!(self.out, "{pad}({object}).{} = {value};", rust_ident(name));
                 }
@@ -949,7 +955,7 @@ impl Emitter<'_> {
                     // target's index. That is not cosmetic: `d[k] = d[k] + 1` reads the same
                     // collection it writes, and evaluating inline would ask for a shared borrow
                     // inside a mutable one.
-                    let collection = emit_place(collection, self.unit)?;
+                    let collection = emit_place(collection, self.unit, Access::Mutable)?;
                     let index = emit_owned_operand(index, self.unit)?;
                     let value = emit_owned_operand(value, self.unit)?;
                     let _ = writeln!(self.out, "{pad}{{");
@@ -963,7 +969,7 @@ impl Emitter<'_> {
                 }
                 Stmt::Append { sequence, value } => {
                     // Bound first for the same reason: `xs.append(xs[0])` reads what it extends.
-                    let sequence = emit_place(sequence, self.unit)?;
+                    let sequence = emit_place(sequence, self.unit, Access::Mutable)?;
                     let value = emit_owned_operand(value, self.unit)?;
                     let _ = writeln!(self.out, "{pad}{{");
                     let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
@@ -1113,7 +1119,7 @@ impl Emitter<'_> {
             let owned = emit_owned_operand(iterable, self.unit)?;
             let _ = writeln!(self.out, "{pad}    let __compylr_iter = {owned};");
         } else {
-            let place = emit_place(iterable, self.unit)?;
+            let place = emit_place(iterable, self.unit, Access::Shared)?;
             let _ = writeln!(self.out, "{pad}    let __compylr_iter = &{place};");
         }
         let _ = writeln!(
@@ -1144,16 +1150,80 @@ impl Emitter<'_> {
 ///
 /// Only the two shapes a mutation target can take are places. Anything else is a value, and
 /// lowering has already refused to mutate one.
-fn emit_place(expr: &Expr, unit: &Unit) -> Result<String, BackendError> {
+fn emit_place(expr: &Expr, unit: &Unit, access: Access) -> Result<String, BackendError> {
     match expr {
         Expr::Name(name) if name == "self" => Ok("self".to_string()),
         Expr::Name(name) => Ok(rust_ident(name)),
         Expr::Attribute { object, name } => Ok(format!(
             "({}).{}",
-            emit_place(object, unit)?,
+            emit_place(object, unit, access)?,
             rust_ident(name)
         )),
+        // A subscript is a place too, and this is the case whose absence was silent: reading the
+        // base with `py_subscript` hands back a *clone*, so `table[i][j] = v` assigned into a copy
+        // of the row and every write was lost. Nothing errored and nothing looked wrong.
+        //
+        // Only under `Mutable`, because borrowing mutably is not free: it demands the root be
+        // bound `mut` and excludes every other borrow for as long as it lasts. A `for` iterating
+        // `graph[node]` wants neither, and asking for a mutable borrow there fails to compile on
+        // a program that is perfectly good.
+        //
+        // The chain recurses, so `a[i][j][k]` and `self.rows[i][j]` are places to any depth.
+        Expr::Subscript {
+            base,
+            index,
+            origin,
+        } if access == Access::Mutable => Ok(format!(
+            "(*py_place(&mut ({}), &({}), {})?)",
+            emit_place(base, unit, Access::Mutable)?,
+            emit_expr(index, unit, &Ty::Unit)?,
+            rust_index_origin(*origin)
+        )),
         other => emit_expr(other, unit, &Ty::Unit),
+    }
+}
+
+/// How a place is about to be used.
+///
+/// The distinction exists because a mutable borrow is not a strictly better shared one: it needs
+/// the root binding to be `mut` and it locks out every other borrow while it lives. Asking for one
+/// where a read would do turns working programs into borrow-checker errors about generated code.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Access {
+    /// The place is only read through.
+    Shared,
+    /// The place is written through, or a method that mutates the receiver is called on it.
+    Mutable,
+}
+
+/// Whether calling `method` on an instance of `class` mutates the receiver.
+///
+/// Shared by emission and by the scan that decides which bindings are `mut`, deliberately: they
+/// have to agree. If emission asked for a mutable borrow the scan did not anticipate, the result
+/// would be generated code that does not compile — a complaint about Rust rather than about the
+/// user's program.
+///
+/// An unknown class means the receiver came from another source, which lowering resolves at the
+/// unit. Assuming it mutates is the safe direction: a needless `mut` is a warning at worst, and a
+/// missing one does not compile.
+fn method_mutates(class: Option<&str>, method: &str, unit: &Unit) -> bool {
+    match class.and_then(|name| unit.class(name)) {
+        Some(class) => mutating_methods(class).contains(method),
+        None => true,
+    }
+}
+
+/// The name a place ultimately writes to, looking through attributes and subscripts.
+///
+/// `xs[0] = v`, `self.rows[i][j] = v`, and `grid[i].append(v)` all write to something rooted at a
+/// name, and it is that name that has to be bound mutably. Inspecting only the head of the chain
+/// was enough while a mutation target was always a bare name; it stopped being enough the moment a
+/// subscript became a valid base.
+fn place_root(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Name(name) => Some(name),
+        Expr::Attribute { object, .. } | Expr::Subscript { base: object, .. } => place_root(object),
+        _ => None,
     }
 }
 
@@ -1179,10 +1249,12 @@ fn emit_owned_operand(expr: &Expr, unit: &Unit) -> Result<String, BackendError> 
 /// that makes it mutable. Mutating a collection counts as writing: `xs.push(v)` needs `xs` to be
 /// `mut` just as `x = 1` does, and a scan that missed one would produce code that fails to compile.
 ///
-/// Only a bare name is a target. `f(xs)[0] = v` is not something the subset can express, so there
-/// is no case where the collection being written is anything but a name.
+/// A target is rooted at a name but need not be one: `table[i][j] = v` and `self.rows[i][j] = v`
+/// both write to something reached through subscripts and attributes, so the chain is followed to
+/// its root. `f(xs)[0] = v` is not expressible, which is why a root that is not a name simply does
+/// not count as a write.
 fn is_assigned(stmts: &[Stmt], name: &str, unit: &Unit) -> bool {
-    let names_it = |expr: &Expr| matches!(expr, Expr::Name(target) if target == name);
+    let names_it = |expr: &Expr| place_root(expr) == Some(name);
     stmts.iter().any(|stmt| match stmt {
         Stmt::Assign { name: target, .. } => target == name,
         Stmt::SetItem { collection, .. } => names_it(collection),
@@ -1226,12 +1298,9 @@ fn mutating_call_on(expr: &Expr, name: &str, unit: &Unit) -> bool {
             method,
             ..
         } = node
-            && matches!(receiver.as_ref(), Expr::Name(target) if target == name)
+            && place_root(receiver) == Some(name)
         {
-            found |= match class.as_deref().and_then(|c| unit.class(c)) {
-                Some(class) => mutating_methods(class).contains(method),
-                None => true,
-            };
+            found |= method_mutates(class.as_deref(), method, unit);
         }
     });
     found
@@ -1394,13 +1463,22 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
         }
         Expr::MethodCall {
             receiver,
+            class,
             method,
             args,
-            ..
         } => {
             // A place, not a value: a mutating method needs the receiver itself, and calling one
-            // on a clone would compile and lose the mutation.
-            let receiver = emit_place(receiver, unit)?;
+            // on a clone would compile and lose the mutation. That reaches through a subscript
+            // too — `items[0].bump()` used to bump a copy of the element.
+            //
+            // Asked for mutably only when the method actually mutates, so `items[0].get()` still
+            // borrows the list the way a read does.
+            let access = if method_mutates(class.as_deref(), method, unit) {
+                Access::Mutable
+            } else {
+                Access::Shared
+            };
+            let receiver = emit_place(receiver, unit, access)?;
             let rendered = render_all(args, unit, &Ty::Unit)?;
             format!(
                 "({receiver}).{}({})?",
