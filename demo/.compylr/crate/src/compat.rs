@@ -297,7 +297,17 @@ pub fn div_exact(lhs: &f64, rhs: &f64) -> Result<f64, RuntimeError> {
 /// The element is cloned out, which is what lets the read-only subset work without threading
 /// borrows through generated code. For a scalar that is free.
 pub fn py_index<T: Clone>(items: &[T], index: i64, origin: IndexOrigin) -> Result<T, RuntimeError> {
-    let length = items.len() as i64;
+    Ok(items[resolve_index(index, items.len(), origin)?].clone())
+}
+
+/// Turn a declared index into an offset, or report that it is out of range.
+///
+/// Shared by every sequence operation that takes an index — reading, assigning, and borrowing a
+/// place to write through. Three copies of this was two too many: they are the same rule, and the
+/// one that drifted would disagree with the others on exactly the inputs (a negative index, an
+/// index one past the end) that a test suite is least likely to cover.
+fn resolve_index(index: i64, length: usize, origin: IndexOrigin) -> Result<usize, RuntimeError> {
+    let length = length as i64;
     let resolved = match origin {
         IndexOrigin::FromEitherEnd if index < 0 => index + length,
         // Left as it is, so it fails the range check below rather than wrapping into an enormous
@@ -307,7 +317,7 @@ pub fn py_index<T: Clone>(items: &[T], index: i64, origin: IndexOrigin) -> Resul
     if resolved < 0 || resolved >= length {
         return Err(RuntimeError::IndexOutOfRange);
     }
-    Ok(items[resolved as usize].clone())
+    Ok(resolved as usize)
 }
 
 /// Read a mapping value, reporting a missing key the way Python does.
@@ -395,13 +405,15 @@ pub trait PySetItem<I, V> {
 impl<T> PySetItem<i64, T> for Vec<T> {
     fn py_set(&mut self, index: &i64, value: T) -> Result<(), RuntimeError> {
         // A sequence has no element to create, so an out-of-range index is an error here exactly
-        // as it is on a read. Negative indices count from the end, as they do everywhere else.
-        let length = self.len() as i64;
-        let resolved = if *index < 0 { index + length } else { *index };
-        if resolved < 0 || resolved >= length {
-            return Err(RuntimeError::IndexOutOfRange);
-        }
-        self[resolved as usize] = value;
+        // as it is on a read.
+        //
+        // `FromEitherEnd` is passed rather than read off the node: `Stmt::SetItem` carries no
+        // origin, so assignment resolves a negative index the way Python does whatever the
+        // frontend declared for *reads*. That is right for every frontend in this repository and
+        // is a gap for one that declares `FromStart` — recorded here rather than papered over,
+        // because closing it is an IR change and not a runtime one.
+        let resolved = resolve_index(*index, self.len(), IndexOrigin::FromEitherEnd)?;
+        self[resolved] = value;
         Ok(())
     }
 }
@@ -414,6 +426,106 @@ where
         self.insert(key.clone(), value);
         Ok(())
     }
+}
+
+/// Borrowing one element of a collection so that it can be read *through*.
+///
+/// The shared counterpart to [`PyPlace`], and the reason both exist: [`py_subscript`] hands back
+/// a **clone**, which is right for the value a program asked for and wrong for an intermediate it
+/// only passes through. `m[i][j]` cloned the whole row `m[i]` to read one element of it, so a
+/// matrix multiply allocated and copied a row per element access — O(n^4) work for an O(n^3)
+/// algorithm, with every answer correct. Nothing but a benchmark could find that.
+pub trait PyBorrow<I> {
+    /// What one element is.
+    type Item;
+    /// Borrow one element.
+    fn py_borrow(&self, index: &I, origin: IndexOrigin) -> Result<&Self::Item, RuntimeError>;
+}
+
+impl<T> PyBorrow<i64> for Vec<T> {
+    type Item = T;
+    fn py_borrow(&self, index: &i64, origin: IndexOrigin) -> Result<&T, RuntimeError> {
+        Ok(&self[resolve_index(*index, self.len(), origin)?])
+    }
+}
+
+impl<K, V> PyBorrow<K> for std::collections::HashMap<K, V>
+where
+    K: std::hash::Hash + Eq + std::fmt::Debug,
+{
+    type Item = V;
+    /// A key is not an offset, so there is nothing for the origin to decide. A missing key reports
+    /// exactly as [`py_key`] does — borrowing through one is still reading it.
+    fn py_borrow(&self, key: &K, _origin: IndexOrigin) -> Result<&V, RuntimeError> {
+        self.get(key)
+            .ok_or_else(|| RuntimeError::MissingKey(format!("{key:?}")))
+    }
+}
+
+/// Borrow one element of a collection, for reading through.
+pub fn py_borrow<'a, C, I>(
+    collection: &'a C,
+    index: &I,
+    origin: IndexOrigin,
+) -> Result<&'a C::Item, RuntimeError>
+where
+    C: PyBorrow<I>,
+{
+    collection.py_borrow(index, origin)
+}
+
+/// Borrowing one element of a collection so that it can be written *through*.
+///
+/// The counterpart to [`PySetItem`] for a **nested** target. `table[i][j] = v` assigns into the
+/// row `table[i]`, and reaching that row with [`py_subscript`] would hand back a clone of it: the
+/// assignment compiles, runs, and is lost. A place is a borrow rather than a value, so the write
+/// lands where the program said it would.
+///
+/// The failure this prevents is silent — no error, no wrong-looking code, just a table that comes
+/// back holding whatever it was initialised with. `execution.rs` runs it rather than reading it
+/// for that reason.
+pub trait PyPlace<I> {
+    /// What one element is.
+    type Item;
+    /// Borrow one element mutably.
+    fn py_place(&mut self, index: &I, origin: IndexOrigin)
+    -> Result<&mut Self::Item, RuntimeError>;
+}
+
+impl<T> PyPlace<i64> for Vec<T> {
+    type Item = T;
+    fn py_place(&mut self, index: &i64, origin: IndexOrigin) -> Result<&mut T, RuntimeError> {
+        let resolved = resolve_index(*index, self.len(), origin)?;
+        Ok(&mut self[resolved])
+    }
+}
+
+impl<K, V> PyPlace<K> for std::collections::HashMap<K, V>
+where
+    K: std::hash::Hash + Eq + std::fmt::Debug,
+{
+    type Item = V;
+    /// A key is not an offset, so there is nothing for the origin to decide.
+    ///
+    /// A missing key **reports**, exactly as reading one does. `d[k][0] = v` needs `d[k]` to
+    /// already exist — inserting an empty container here would invent a value the program never
+    /// wrote, and would then succeed at storing something into it.
+    fn py_place(&mut self, key: &K, _origin: IndexOrigin) -> Result<&mut V, RuntimeError> {
+        self.get_mut(key)
+            .ok_or_else(|| RuntimeError::MissingKey(format!("{key:?}")))
+    }
+}
+
+/// Borrow one element of a collection, for writing through.
+pub fn py_place<'a, C, I>(
+    collection: &'a mut C,
+    index: &I,
+    origin: IndexOrigin,
+) -> Result<&'a mut C::Item, RuntimeError>
+where
+    C: PyPlace<I>,
+{
+    collection.py_place(index, origin)
 }
 
 /// Membership, meaning whatever the container means by it.

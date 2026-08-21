@@ -130,19 +130,27 @@ may rebuild once as the directory moves to the project root — that is the move
 
 ## The worked example
 
-[`demo/`](demo/) is a complete uv project, not a snippet: three nth-prime implementations —
-recursive, iterative, and memoized — that each compile, and that are asserted to agree with a plain
-interpreted reference and with each other.
+[`demo/`](demo/) is a complete uv project, not a snippet: sixty-eight functions and classes that
+each compile, every one checked against an interpreted oracle, all of them built into **one**
+extension.
 
 ```bash
 cd demo && uv sync
 uv run compylr compyle src
-uv run python -m nth_prime 25
+uv run python -m algorithms          # run everything, then print what the build exercised
 ```
 
-It is verified by this repository's own suite, so it cannot rot unnoticed, and its README records
-the gaps it found — including that marked names are shared across a project and that there is no
-`not`.
+It has two halves. **Breadth** is sorting, number theory, statistics, text, graphs, dynamic
+programming, matrices, and data structures — algorithms chosen so that between them they reach
+*every* form the IR can hold. That is not a claim in prose: the demo walks the IR of its own build
+and asserts it, and a test in this repository fails when a form is added to the compiler that the
+demo does not know about. **Depth** is `nth_prime`, one problem three ways, measured compiled
+against interpreted in two separate processes.
+
+The benchmark reports the spread rather than a headline: 21× for arithmetic in a tight loop, 8× for
+a matrix multiply, and **0.3× for building a dictionary**, where crossing the boundary costs more
+than the computation saves. Its README records what the subset costs as it shows up in real code,
+and the two defects the demo found — both of which produced plausible answers and no error.
 
 ## Turning it off
 

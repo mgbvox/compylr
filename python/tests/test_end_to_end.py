@@ -267,6 +267,8 @@ class TestRebuildCache:
         from compylr import _core
 
         project.ensure_built()
+        assert project._built_fingerprint is not None
+
         calls = 0
         real = _core.compile_unit
 
@@ -277,13 +279,32 @@ class TestRebuildCache:
 
         monkeypatch.setattr(_core, "compile_unit", counted)
 
-        @project.compyle
-        def _late_addition(a: int) -> int:
-            return a + 1
+        # The manager is module-scoped and this test marks something and stubs the build, so what
+        # it does has to be undone. Leaving a stub module behind made every later test in this
+        # file fail with "missing from the compiled module", which reads as a codegen defect.
+        held = (
+            dict(project._sources),
+            dict(project._functions),
+            project._module,
+            project._built_fingerprint,
+        )
+        try:
 
-        monkeypatch.setattr(BuildPipeline, "build", lambda *a, **k: object())
-        project.ensure_built()
-        assert calls == 1, "a newly marked member must make the project recompile"
+            @project.compyle
+            def _late_addition(a: int) -> int:
+                return a + 1
+
+            assert project._built_fingerprint is None, "marking must invalidate what is loaded"
+            monkeypatch.setattr(BuildPipeline, "build", lambda *a, **k: object())
+            project.ensure_built()
+            assert calls == 1, "a newly marked member must make the project recompile"
+        finally:
+            (
+                project._sources,
+                project._functions,
+                project._module,
+                project._built_fingerprint,
+            ) = held
 
     def test_a_failed_build_is_not_recorded_as_successful(self, tmp_path: Path) -> None:
         from compylr import _manager

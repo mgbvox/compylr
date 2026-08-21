@@ -17,6 +17,7 @@ PY := $(VENV)/bin/python
 DEMO := demo
 FIXTURE ?= python/fixtures/accepted/inference.py
 N ?= 500
+SCALE ?= 1
 
 # Coverage runs `cargo test`, and the bridge tests auto-initialize a Python interpreter. An active
 # venv makes that mismatch what PyO3 linked against and the suite aborts with "no Python frame",
@@ -27,7 +28,7 @@ NO_VENV := env -u VIRTUAL_ENV -u PYTHONHOME
 help: ## List the available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| sort \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 # -- everyday ---------------------------------------------------------------------------
 
@@ -96,14 +97,24 @@ emit-rust: ## Print a fixture's translated Rust
 # -- the demo ---------------------------------------------------------------------------
 
 .PHONY: demo
-demo: develop ## Compiled against interpreted, in two processes: make demo N=500
+demo: develop ## Every algorithm, compiled against interpreted: make demo SCALE=4
 	cd $(DEMO) && uv sync --extra dev --quiet
-	cd $(DEMO) && PYTHONPATH=src uv run python -m nth_prime.benchmark --n $(N)
+	cd $(DEMO) && uv run python -m algorithms.benchmark --scale $(SCALE)
+
+.PHONY: demo-primes
+demo-primes: develop ## The nth prime three ways, compiled against interpreted: make demo-primes N=500
+	cd $(DEMO) && uv sync --extra dev --quiet
+	cd $(DEMO) && uv run python -m algorithms.nth_prime.benchmark --n $(N)
 
 .PHONY: demo-run
-demo-run: develop ## Run the demo itself: make demo-run N=25
+demo-run: develop ## Run every algorithm and print the IR coverage table
 	cd $(DEMO) && uv sync --quiet && uv run compylr compyle src
-	cd $(DEMO) && uv run python -m nth_prime $(N)
+	cd $(DEMO) && uv run python -m algorithms
+
+.PHONY: demo-primes-run
+demo-primes-run: develop ## Run the three nth-prime variants: make demo-primes-run N=25
+	cd $(DEMO) && uv sync --quiet && uv run compylr compyle src
+	cd $(DEMO) && uv run python -m algorithms.nth_prime $(N)
 
 .PHONY: demo-check
 demo-check: develop ## The demo's own suite and linters
@@ -111,6 +122,7 @@ demo-check: develop ## The demo's own suite and linters
 	cd $(DEMO) && uv run compylr compyle src
 	cd $(DEMO) && uv run pytest
 	cd $(DEMO) && uv run ruff check .
+	cd $(DEMO) && uv run ruff format --check .
 	cd $(DEMO) && uv run mypy src
 
 .PHONY: demo-rebuild

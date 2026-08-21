@@ -122,9 +122,19 @@ compile. For the same reason `__init__` **may not return early**: every attribut
 so a return before the end would leave part of the instance unassigned. A *trailing* bare `return`
 means nothing in Python either and is dropped rather than refused.
 
-Mutation targets emit as **places**, not values. The ordinary rule clones a collection wherever it
-is consumed, and that reaches through attributes: `self.entries[k] = v` once mutated a copy of the
-field and silently lost every write. Assert on values after mutation, never on emitted text.
+Mutation targets emit as **places**, not values, and a nested read emits as a **borrow**. The
+ordinary rule clones a collection wherever it is consumed, and both directions through a nested
+collection are exceptions — each was a live defect the demo found:
+
+* `self.entries[k] = v` mutated a copy of the field, and so did `table[i][j] = v` and
+  `items[0].bump()`. Every write was silently lost and every answer was plausible.
+* `m[i][j]` cloned the whole row to read one element of it — an O(n) copy per element access, so a
+  matrix multiply did O(n^4) work and came out no faster than interpreted Python.
+
+`emit_place` handles both, selected by `Access::{Shared, Mutable}`, and `place_root` follows the
+chain when deciding which bindings are `mut` and whether a `for` must snapshot what it walks.
+Assert on values after mutation, never on emitted text — except where the emitted *form* is the
+property, as with the borrow.
 
 `range` is a reserved name like `len`, valid only as what a `for` iterates — there is no range value
 in the IR. It is not emitted as Rust's `..`: that counts up by one, `step_by` takes an unsigned step,
@@ -254,6 +264,18 @@ silently was the first.
   path — and fails `cargo test` on drift. The prose half is on you: when a change alters the
   supported subset, adds a capability or pipeline stage, changes the setup steps, or makes the
   backend real, update the README in the *same* change, not afterwards.
+* **The demo is one package, `demo/src/algorithms/`, and its coverage claim is checked from both
+  ends.** `ir_coverage.py` walks the IR of the build and asserts every statement form, expression
+  form, type, operator, and both Python-reachable division modes appear;
+  `crates/compylr-host-python/tests/demo_coverage.rs` reads the IR's enum definitions and fails
+  when a form is *added* that those tables do not list. Adding an IR form therefore means either
+  adding an algorithm that uses it or narrowing the claim in `demo/README.md` — the point is that
+  neither can happen silently. `nth_prime` is a subpackage of it, and is the only place in this
+  repository a *nested* package's `__init__.py` is imported end to end.
+* **The demo is where cost shows up.** Its benchmark found a quadratic clone in `for`, an O(n)
+  clone per nested read, and a full recompile per marked member on the warm path — all three
+  invisible to every correctness test in the repository. When a change touches emission or the
+  manager, run `make demo` and compare, not just `cargo test`.
 * Planning happens in OpenSpec (`openspec/changes/`). `/opsx:propose` to plan, `/opsx:apply`
   to implement.
 
@@ -284,10 +306,12 @@ ruff check python/ && mypy python/compylr
 COMPYLR_DISABLE=1 python your_program.py
 
 # Compare compiled against interpreted (runs both modes in separate processes)
-cd demo && PYTHONPATH=src python -m nth_prime.benchmark --n 500
+make demo                 # every algorithm; SCALE=4 for bigger inputs
+make demo-primes          # the nth prime three ways; N=500
 
 # The demo project (its own uv project; verified by python/tests/test_demo.py)
-cd demo && uv sync && uv run compylr compyle src && uv run python -m nth_prime 25
+cd demo && uv sync && uv run compylr compyle src && uv run python -m algorithms
+cd demo && uv run python -m algorithms.nth_prime 25
 cd demo && uv run pytest && uv run ruff check . && uv run mypy src
 
 ./scripts/render_change_epub.py             # spec -> EPUB in reports/

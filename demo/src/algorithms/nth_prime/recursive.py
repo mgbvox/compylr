@@ -10,7 +10,7 @@ That bound is real and is stated in the demo's README rather than left to be dis
 
 from __future__ import annotations
 
-from ._compylr import c
+from .._compylr import c
 
 
 @c.compyle

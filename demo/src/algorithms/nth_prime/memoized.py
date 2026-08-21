@@ -12,7 +12,7 @@ collection *parameter* is a copy and could not do this.
 
 from __future__ import annotations
 
-from ._compylr import c
+from .._compylr import c
 
 
 @c.compyle

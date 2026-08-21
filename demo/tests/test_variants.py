@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from nth_prime import iterative, memoized, recursive, reference
+from algorithms.nth_prime import iterative, memoized, recursive, reference
 
 #: The range every variant is checked over.
 #:
@@ -89,7 +89,7 @@ class TestTheyAreGenuinelyCompiled:
     def test_no_variant_silently_falls_back(self) -> None:
         # A demo that quietly ran interpreted Python would demonstrate nothing at all, and every
         # assertion above would still pass.
-        from nth_prime._compylr import c
+        from algorithms._compylr import c
 
         module = c.ensure_built()
         for name in (
@@ -100,7 +100,7 @@ class TestTheyAreGenuinelyCompiled:
             assert hasattr(module, name), f"{name} is missing from the compiled extension"
 
     def test_one_build_covers_all_three(self) -> None:
-        from nth_prime._compylr import c
+        from algorithms._compylr import c
 
         marked = set(c._sources)
         assert {"recursive_nth_prime", "iterative_nth_prime", "PrimeCache"} <= marked

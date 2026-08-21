@@ -10,7 +10,7 @@ exists to enable — a collection *parameter* is a copy and cannot be mutated.
 
 from __future__ import annotations
 
-from ._compylr import c
+from .._compylr import c
 
 
 @c.compyle

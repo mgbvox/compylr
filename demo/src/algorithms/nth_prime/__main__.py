@@ -1,6 +1,6 @@
 """Run all three variants and show that they agree.
 
-    python -m nth_prime 25
+python -m algorithms.nth_prime 25
 """
 
 from __future__ import annotations
