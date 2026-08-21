@@ -273,13 +273,20 @@ class Manager:
             )
         backend = backends.pop() if backends else self._settings.backend
 
-        compiled = _core.compile_unit(list(self._sources.values()), backend)
-
-        # Already loaded and current: nothing to do. This is the path every run after the first
-        # takes, and the reason reformatting does not cost a rebuild.
-        if self._module is not None and self._built_fingerprint == compiled.fingerprint:
+        # Already loaded, and nothing has been marked since. Answered *before* compiling, because
+        # `compile_unit` runs the whole compiler -- parse, lower, verify, pass, emit -- and running
+        # it to recompute a fingerprint already held is most of what a call used to cost. A
+        # `CompiledFunction` caches its implementation after the first resolve, so that was paid
+        # once per marked member: on a project with sixty of them it was seconds, on a warm cache,
+        # with nothing to show for it.
+        #
+        # `_register` clears the fingerprint whenever a member is marked or its source changes, so
+        # holding one is exactly the statement that what is loaded still covers the project.
+        if self._module is not None and self._built_fingerprint is not None:
             self.last_build_invoked_toolchain = False
             return self._module
+
+        compiled = _core.compile_unit(list(self._sources.values()), backend)
 
         if (
             self._pipeline.cached_fingerprint() == compiled.fingerprint

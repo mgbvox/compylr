@@ -233,6 +233,58 @@ class TestRebuildCache:
         for _ in range(5):
             assert project._functions["_add"](1, 1) == 2
 
+    def test_a_built_project_does_not_recompile_to_answer_a_call(
+        self, project: compylr.Manager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Not rebuilding the *crate* is not enough. `ensure_built` used to run the whole compiler
+        # -- parse, lower, verify, pass, emit -- on every call, just to recompute a fingerprint it
+        # already held, and only then notice that the loaded module was current.
+        #
+        # A `CompiledFunction` caches its implementation after the first resolve, so the cost was
+        # paid once per marked function: for a project with sixty of them, a couple of hundred
+        # milliseconds each, on a warm cache. The demo is where that became obvious.
+        from compylr import _core
+
+        project.ensure_built()
+        calls = 0
+        real = _core.compile_unit
+
+        def counted(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(_core, "compile_unit", counted)
+        for _ in range(5):
+            project.ensure_built()
+        assert calls == 0, "a project that is loaded and unchanged must not re-run the compiler"
+
+    def test_marking_something_new_does_recompile(
+        self, project: compylr.Manager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The other half: the shortcut above is only sound while nothing has been marked since,
+        # and marking is exactly what makes the loaded module no longer cover the project.
+        from compylr import _core
+
+        project.ensure_built()
+        calls = 0
+        real = _core.compile_unit
+
+        def counted(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(_core, "compile_unit", counted)
+
+        @project.compyle
+        def _late_addition(a: int) -> int:
+            return a + 1
+
+        monkeypatch.setattr(BuildPipeline, "build", lambda *a, **k: object())
+        project.ensure_built()
+        assert calls == 1, "a newly marked member must make the project recompile"
+
     def test_a_failed_build_is_not_recorded_as_successful(self, tmp_path: Path) -> None:
         from compylr import _manager
 
