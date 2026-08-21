@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
     IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
-    TextUnits, div_exact, py_place, py_subscript,
+    TextUnits, div_exact, py_borrow, py_place, py_subscript,
 };
 
 #[derive(Clone)]
@@ -60,7 +60,7 @@ impl Grid {
     }
 
     pub fn read(&self, row: i64, column: i64) -> Result<i64, RuntimeError> {
-        Ok(py_subscript(&(py_subscript(&((self).rows.clone()), &(row), IndexOrigin::FromEitherEnd)?), &(column), IndexOrigin::FromEitherEnd)?)
+        Ok(py_subscript(&((*py_borrow(&((self).rows), &(row), IndexOrigin::FromEitherEnd)?)), &(column), IndexOrigin::FromEitherEnd)?)
     }
 
     pub fn write(&mut self, row: i64, column: i64, value: i64) -> Result<(), RuntimeError> {

@@ -284,7 +284,7 @@ fn emit_generated(functions: &str) -> String {
          \n\
          use crate::compat::{{\n\
          {}IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,\n\
-         {}TextUnits, div_exact, py_place, py_subscript,\n\
+         {}TextUnits, div_exact, py_borrow, py_place, py_subscript,\n\
          }};\n\
          \n\
          {functions}",
@@ -1108,16 +1108,20 @@ impl Emitter<'_> {
         // a collection that grows in an enclosing loop copies the whole thing every pass. That is
         // invisible in a correctness test and showed up immediately in the demo's benchmark, which
         // is exactly what a benchmark is for.
-        let disturbed = match iterable {
-            Expr::Name(target) => is_assigned(body, target, self.unit),
-            // Anything else is already a temporary, so there is nothing to alias.
-            _ => false,
-        };
+        //
+        // Decided from the *root* name, because a subscript is borrowed now rather than cloned:
+        // `for v in m[i]` holds a borrow of `m` for the length of the body, so a body that writes
+        // to `m` has to walk a snapshot instead. Anything not rooted at a name is already a
+        // temporary and nothing can alias it.
+        let disturbed =
+            place_root(iterable).is_some_and(|target| is_assigned(body, target, self.unit));
 
         let _ = writeln!(self.out, "{pad}{{");
         if disturbed {
+            // Bound behind a reference like the borrowed case, because `py_iter` takes `&self`.
+            // The temporary lives as long as the binding does, so the snapshot survives the loop.
             let owned = emit_owned_operand(iterable, self.unit)?;
-            let _ = writeln!(self.out, "{pad}    let __compylr_iter = {owned};");
+            let _ = writeln!(self.out, "{pad}    let __compylr_iter = &{owned};");
         } else {
             let place = emit_place(iterable, self.unit, Access::Shared)?;
             let _ = writeln!(self.out, "{pad}    let __compylr_iter = &{place};");
@@ -1173,12 +1177,18 @@ fn emit_place(expr: &Expr, unit: &Unit, access: Access) -> Result<String, Backen
             base,
             index,
             origin,
-        } if access == Access::Mutable => Ok(format!(
-            "(*py_place(&mut ({}), &({}), {})?)",
-            emit_place(base, unit, Access::Mutable)?,
-            emit_expr(index, unit, &Ty::Unit)?,
-            rust_index_origin(*origin)
-        )),
+        } => {
+            let (helper, borrow) = match access {
+                Access::Mutable => ("py_place", "&mut "),
+                Access::Shared => ("py_borrow", "&"),
+            };
+            Ok(format!(
+                "(*{helper}({borrow}({}), &({}), {})?)",
+                emit_place(base, unit, access)?,
+                emit_expr(index, unit, &Ty::Unit)?,
+                rust_index_origin(*origin)
+            ))
+        }
         other => emit_expr(other, unit, &Ty::Unit),
     }
 }
@@ -1188,6 +1198,10 @@ fn emit_place(expr: &Expr, unit: &Unit, access: Access) -> Result<String, Backen
 /// The distinction exists because a mutable borrow is not a strictly better shared one: it needs
 /// the root binding to be `mut` and it locks out every other borrow while it lives. Asking for one
 /// where a read would do turns working programs into borrow-checker errors about generated code.
+///
+/// Both are borrows, and that is the point of routing reads through here too: the alternative is
+/// the clone `py_subscript` gives, which is right for the value a program asked for and wrong for
+/// an intermediate it only passes through.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Access {
     /// The place is only read through.
@@ -1508,12 +1522,14 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             index,
             origin,
         } => {
-            // The base is borrowed rather than consumed, so a collection read twice is not moved.
+            // The base is borrowed rather than consumed, so a collection read twice is not moved
+            // — and, when it is itself a subscript, borrowed rather than *cloned*. `m[i][j]` used
+            // to copy the whole row to read one element of it.
             //
             // The origin is read off the node and passed through. A backend that assumed one would
             // be silently wrong for any frontend meaning the other, on exactly the inputs — a
             // negative index — that nobody writes a test for by accident.
-            let base = emit_expr(base, unit, &Ty::Unit)?;
+            let base = emit_place(base, unit, Access::Shared)?;
             let index = emit_expr(index, unit, &Ty::Unit)?;
             format!(
                 "py_subscript(&({base}), &({index}), {})?",
@@ -1521,7 +1537,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             )
         }
         Expr::Len { value, units } => {
-            let value = emit_expr(value, unit, &Ty::Unit)?;
+            let value = emit_place(value, unit, Access::Shared)?;
             format!("PyLen::py_len(&({value}), {})", rust_text_units(*units))
         }
         Expr::Range { .. } => {

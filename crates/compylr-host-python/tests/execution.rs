@@ -816,6 +816,122 @@ fn an_element_assignment_is_observed_by_a_later_read() {
 }
 
 #[test]
+fn a_nested_read_borrows_the_intermediate_rather_than_cloning_it() {
+    // `m[i][j]` read `m[i]` with `py_subscript`, which hands back a **clone** of the row. In the
+    // inner loop of a matrix multiply that is an allocation and an O(n) copy per element access,
+    // turning an O(n^3) algorithm into O(n^4) -- and it is invisible, because every answer is
+    // correct. The demo's benchmark is what found it: matrix multiply was no faster compiled.
+    //
+    // The emitted form is asserted as well as the values, because the defect *is* the emitted
+    // form. Both versions produce the same numbers.
+    let source = "def cell(m: list[list[int]], i: int, j: int) -> int:\n    return m[i][j]\n";
+    let emitted = lookup("rust")
+        .unwrap()
+        .emit(&unit_from(source))
+        .expect("must emit");
+    let generated = &emitted["src/generated.rs"];
+    assert!(
+        generated.contains("py_borrow"),
+        "the intermediate collection must be borrowed, not cloned:\n{generated}"
+    );
+
+    let out = run(
+        "read_nested",
+        concat!(
+            "def cell(m: list[list[int]], i: int, j: int) -> int:\n",
+            "    return m[i][j]\n\n",
+            "def from_the_end(m: list[list[int]]) -> int:\n",
+            "    return m[-1][-1]\n\n",
+            "def through_a_mapping(d: dict[str, list[int]], k: str, i: int) -> int:\n",
+            "    return d[k][i]\n\n",
+            "def deep(m: list[list[list[int]]]) -> int:\n",
+            "    return m[0][1][0]\n\n",
+            "def measured(m: list[list[int]], i: int) -> int:\n",
+            "    return len(m[i])\n\n",
+            "def held(m: list[list[int]], i: int, x: int) -> bool:\n",
+            "    return x in m[i]\n\n",
+            "def summed(m: list[list[int]], i: int) -> int:\n",
+            "    total = 0\n",
+            "    for value in m[i]:\n",
+            "        total = total + value\n",
+            "    return total\n\n",
+            "def missing_row(d: dict[str, list[int]], k: str) -> int:\n",
+            "    return d[k][0]\n",
+        ),
+        r#"
+    let m = vec![vec![1i64, 2], vec![3, 4]];
+    println!("{}", cell(m.clone(), 1, 0).unwrap());
+    println!("{}", from_the_end(m.clone()).unwrap());
+    println!("{}", deep(vec![vec![vec![1i64], vec![9]]]).unwrap());
+    println!("{}", measured(m.clone(), 0).unwrap());
+    println!("{}", held(m.clone(), 1, 4).unwrap());
+    println!("{}", summed(m.clone(), 1).unwrap());
+    let mut d = std::collections::HashMap::new();
+    d.insert(String::from("k"), vec![7i64, 8]);
+    println!("{}", through_a_mapping(d.clone(), String::from("k"), 1).unwrap());
+    println!("{}", missing_row(d, String::from("absent")).is_err());
+    println!("{}", cell(m, 9, 0).is_err());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "3", "a nested read still reads the right element");
+    assert_eq!(
+        lines[1], "4",
+        "a negative index still counts from the end at both levels"
+    );
+    assert_eq!(lines[2], "9", "the chain is followed to any depth");
+    assert_eq!(lines[3], "2", "`len` measures the row, not a copy of it");
+    assert_eq!(lines[4], "true", "membership tests the row");
+    assert_eq!(lines[5], "7", "iterating a row still sees every element");
+    assert_eq!(
+        lines[6], "8",
+        "and a mapping's value is reached the same way"
+    );
+    assert_eq!(
+        lines[7], "true",
+        "a missing key still reports rather than yielding an empty row"
+    );
+    assert_eq!(lines[8], "true", "an out-of-range row still reports");
+}
+
+#[test]
+fn a_read_through_a_collection_the_loop_mutates_still_copies_it() {
+    // The borrow above is only safe while nothing disturbs what it borrows from. A loop that
+    // writes to the collection it is walking has to keep iterating the snapshot -- which is what
+    // Python's `for` does -- and holding a borrow across the body would instead be a borrow
+    // checker error about generated code.
+    let out = run(
+        "read_nested_disturbed",
+        concat!(
+            "def doubled(m: list[list[int]], i: int) -> list[list[int]]:\n",
+            "    out: list[list[int]] = []\n",
+            "    for value in m[i]:\n",
+            "        row: list[int] = []\n",
+            "        row.append(value * 2)\n",
+            "        out.append(row)\n",
+            "    return out\n\n",
+            "def grown(n: int) -> int:\n",
+            "    m: list[list[int]] = [[1, 2]]\n",
+            "    seen = 0\n",
+            "    for value in m[0]:\n",
+            "        seen = seen + value\n",
+            "        m[0] = [n]\n",
+            "    return seen\n",
+        ),
+        r#"
+    println!("{:?}", doubled(vec![vec![1i64, 2]], 0).unwrap());
+    println!("{}", grown(99).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[[2], [4]]");
+    assert_eq!(
+        lines[1], "3",
+        "the loop walks what it started with, as Python's `for` does"
+    );
+}
+
+#[test]
 fn a_write_through_a_nested_collection_reaches_the_original() {
     // The ordinary rule clones a collection wherever it is consumed, and the base of a mutation
     // is the one place that is actively wrong. It was already handled for an attribute --

@@ -428,6 +428,52 @@ where
     }
 }
 
+/// Borrowing one element of a collection so that it can be read *through*.
+///
+/// The shared counterpart to [`PyPlace`], and the reason both exist: [`py_subscript`] hands back
+/// a **clone**, which is right for the value a program asked for and wrong for an intermediate it
+/// only passes through. `m[i][j]` cloned the whole row `m[i]` to read one element of it, so a
+/// matrix multiply allocated and copied a row per element access — O(n^4) work for an O(n^3)
+/// algorithm, with every answer correct. Nothing but a benchmark could find that.
+pub trait PyBorrow<I> {
+    /// What one element is.
+    type Item;
+    /// Borrow one element.
+    fn py_borrow(&self, index: &I, origin: IndexOrigin) -> Result<&Self::Item, RuntimeError>;
+}
+
+impl<T> PyBorrow<i64> for Vec<T> {
+    type Item = T;
+    fn py_borrow(&self, index: &i64, origin: IndexOrigin) -> Result<&T, RuntimeError> {
+        Ok(&self[resolve_index(*index, self.len(), origin)?])
+    }
+}
+
+impl<K, V> PyBorrow<K> for std::collections::HashMap<K, V>
+where
+    K: std::hash::Hash + Eq + std::fmt::Debug,
+{
+    type Item = V;
+    /// A key is not an offset, so there is nothing for the origin to decide. A missing key reports
+    /// exactly as [`py_key`] does — borrowing through one is still reading it.
+    fn py_borrow(&self, key: &K, _origin: IndexOrigin) -> Result<&V, RuntimeError> {
+        self.get(key)
+            .ok_or_else(|| RuntimeError::MissingKey(format!("{key:?}")))
+    }
+}
+
+/// Borrow one element of a collection, for reading through.
+pub fn py_borrow<'a, C, I>(
+    collection: &'a C,
+    index: &I,
+    origin: IndexOrigin,
+) -> Result<&'a C::Item, RuntimeError>
+where
+    C: PyBorrow<I>,
+{
+    collection.py_borrow(index, origin)
+}
+
 /// Borrowing one element of a collection so that it can be written *through*.
 ///
 /// The counterpart to [`PySetItem`] for a **nested** target. `table[i][j] = v` assigns into the

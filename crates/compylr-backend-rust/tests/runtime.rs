@@ -318,6 +318,55 @@ mod sequence_indexing {
     }
 }
 
+mod reading_through_a_borrow {
+    use compylr_backend_rust::runtime::{IndexOrigin, PyBorrow, RuntimeError};
+
+    // The point is what these *do not* do: `py_subscript` clones, which is right for the value a
+    // program asked for and wrong for an intermediate it only passes through.
+
+    #[test]
+    fn a_sequence_borrow_points_at_the_original() {
+        let rows = vec![vec![1i64, 2], vec![3, 4]];
+        let row = PyBorrow::py_borrow(&rows, &1i64, IndexOrigin::FromEitherEnd).unwrap();
+        assert_eq!(row, &vec![3, 4]);
+        assert!(
+            std::ptr::eq(row, &rows[1]),
+            "a borrow is the element itself, not a copy of it"
+        );
+    }
+
+    #[test]
+    fn a_sequence_borrow_resolves_the_index_the_declared_way() {
+        let items = vec![1i64, 2, 3];
+        assert_eq!(
+            PyBorrow::py_borrow(&items, &(-1i64), IndexOrigin::FromEitherEnd),
+            Ok(&3)
+        );
+        assert_eq!(
+            PyBorrow::py_borrow(&items, &(-1i64), IndexOrigin::FromStart).err(),
+            Some(RuntimeError::IndexOutOfRange)
+        );
+        assert_eq!(
+            PyBorrow::py_borrow(&items, &3i64, IndexOrigin::FromEitherEnd).err(),
+            Some(RuntimeError::IndexOutOfRange)
+        );
+    }
+
+    #[test]
+    fn a_mapping_borrow_points_at_the_value_and_reports_a_missing_key() {
+        let map = std::collections::HashMap::from([(String::from("k"), vec![1i64])]);
+        let value = PyBorrow::py_borrow(&map, &String::from("k"), IndexOrigin::FromStart).unwrap();
+        assert!(std::ptr::eq(value, &map[&String::from("k")]));
+
+        // Borrowing through a key is still reading it, so a missing one reports exactly as
+        // `py_key` does. `py_place` is the one that differs, and only because `d[k] = v` creates.
+        let failure = PyBorrow::py_borrow(&map, &String::from("absent"), IndexOrigin::FromStart);
+        assert!(
+            matches!(failure.err(), Some(RuntimeError::MissingKey(key)) if key.contains("absent"))
+        );
+    }
+}
+
 mod writing_through_a_place {
     use compylr_backend_rust::runtime::{IndexOrigin, PyPlace, RuntimeError};
 
