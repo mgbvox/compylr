@@ -1,16 +1,16 @@
 ## 0. The instrument, before anything is measured
 
-- [ ] 0.1 Write tests for the benchmark harness: a timing carries a spread, a stated noise floor is
+- [x] 0.1 Write tests for the benchmark harness: a timing carries a spread, a stated noise floor is
       reported, and a difference inside the noise floor is reported as not resolvable rather than
       as a ratio
-- [ ] 0.2 Change `demo/src/algorithms/benchmark.py` to report run-to-run spread alongside each
+- [x] 0.2 Change `demo/src/algorithms/benchmark.py` to report run-to-run spread alongside each
       timing instead of a single best-of figure, and to print the noise floor derived from the
       never-compiled `reference` row
-- [ ] 0.3 Run `make demo SCALE=4` several times and record the observed spread per workload.
+- [x] 0.3 Run `make demo SCALE=4` several times and record the observed spread per workload.
       `sorting.merge_sort` is known to range 160–277us across byte-identical builds; confirm it is
       now visible as unstable rather than reported as a clean number
-- [ ] 0.4 Record the noise floor in `demo/README.md` as the figure every other row is read against
-- [ ] 0.5 `cd demo && uv run pytest && uv run ruff check . && uv run mypy src`; commit
+- [x] 0.4 Record the noise floor in `demo/README.md` as the figure every other row is read against
+- [x] 0.5 `cd demo && uv run pytest && uv run ruff check . && uv run mypy src`; commit
 
 ## 1. The release profile
 

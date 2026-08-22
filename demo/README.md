@@ -136,6 +136,20 @@ way down. Timings are the best of several batches, per call: noise only adds, so
 the closest estimate of the work, and a warm cache hit takes hundreds of nanoseconds, which timing
 once would report as zero.
 
+**Read the speedup column against the noise floor, not against 1.0.** Every batch is kept, not
+only the best, and each row reports the `spread` between them. The floor comes from the
+never-compiled `reference` row: its true ratio is exactly 1.0 by construction, so whatever it
+reports instead is this machine's noise. On the runs recorded below that floor was **2–5%**.
+
+A row closer to 1.0 than the floor prints `not resolvable` instead of a ratio, because a ratio
+would be one. `matrices.transpose` is the example worth looking at: earlier versions of this table
+reported it as `1.0x`, which reads like a finding and is really the harness sitting still.
+
+A row is marked `!` when its own batches varied by more than 25% — unstable enough that its figure
+is not worth reading. `sorting.merge_sort` earns that mark on most runs, ranging from 160us to
+277us across builds that were in some cases *byte-identical*. That spread is wider than most of
+the improvements anyone would want to measure, which is precisely why the column exists.
+
 ### Every algorithm
 
 ```bash
