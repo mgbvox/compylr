@@ -31,8 +31,13 @@ same shape and takes the same placement.
 - Every mode on every node comes from one resolved behavior, so the IR remains fully
   self-describing and no component infers a meaning from which frontend ran.
 - Resolution costs one declaration per language, not one entry per pair.
-- The default path is byte-identical to today's output — provable by diffing emitted source, not
-  by argument.
+- The default path is byte-identical to the output **as of whenever this change lands** — provable
+  by diffing emitted source, not by argument. Note the moving baseline:
+  `improve-generated-code-performance` changes emission for semantics-preserving reasons (an
+  in-place string append, a borrowed loop variable, a moved rather than cloned return), so "today's
+  output" is not a fixed target. The snapshot this diff compares against must be taken from the
+  tree at the point the default path is frozen, after whichever of the two changes lands first —
+  not from a snapshot captured when this design was written.
 - Where a node declares Rust's meaning, the generated source reads like Rust a person would have
   written, and the reader of `.compylr/` can see that it does.
 - A behavior mistake is reported by the decorator that contains it.
@@ -42,7 +47,12 @@ same shape and takes the same placement.
 - No third value on any axis. The domain is the two languages in the compilation, and a value like
   `"checked"` or `"fast"` would be a meaning belonging to neither.
 - No behavior on the *bridge*. How values cross the boundary — collections by value, instances by
-  reference — is a property of the pair and not something an axis selects.
+  reference — is a property of the pair and not something an axis selects. Worth stating what that
+  costs, since it is the single largest performance lever and this change deliberately declines it:
+  a collection parameter is converted element by element on every call, ~4 ns per element for
+  `list[int]` and ~42 ns for `list[str]`, so `binary_search` over 2000 elements does O(n) boundary
+  work for an O(log n) algorithm and loses to the interpreter by 16x. That is real and it is not an
+  axis — it belongs to `improve-generated-code-performance`.
 - No per-expression or per-block behavior. The member is the unit of choice; a `with` block that
   changed arithmetic mid-function would make a line's meaning depend on where it sits.
 - No change to the accepted subset, and no new diagnostics beyond those an invalid behavior needs.
@@ -251,10 +261,19 @@ the demo is required to say what its Rust-behavior build gives up.
 **Overflow has two answers depending on the build profile.** Native `+` panics under
 `overflow-checks` and wraps without them. compylr builds generated crates with `--release`, whose
 default is to wrap, but the crate under `.compylr/` is a real crate that someone may build in
-debug and get a different program. → Documented as what "Rust's own operator" means. The one-line
-reversal, if it proves confusing, is to pin `overflow-checks = false` in the generated manifest's
-release profile, which makes the answer profile-independent at the cost of no longer being
-literally Rust's default.
+debug and get a different program. → Documented as what "Rust's own operator" means. The reversal,
+if it proves confusing, is to pin `overflow-checks = false` in the generated manifest's release
+profile, which makes the answer profile-independent at the cost of no longer being literally
+Rust's default.
+
+  **Correction, from measurement:** that reversal is not a one-line edit today, because there is no
+  line to edit. `cargo_manifest` in `crates/compylr-bridge-python-rust/src/bindings.rs` emits
+  `[workspace]`, `[package]`, `[lib]` and `[dependencies]` and stops — the generated crate has **no
+  `[profile.release]` section at all**. So the mitigation is a section to create, not a setting to
+  flip. `improve-generated-code-performance` adds that section for unrelated reasons (`lto`,
+  `codegen-units`); if it lands first this becomes the one-line edit described above, and if it
+  does not, this change must create the section itself. Either way the dependency is explicit
+  rather than discovered while implementing.
 
 **Mixed behavior is one more thing that can differ between two functions that look alike.** Two
 adjacent functions can compute different answers for `-7 // 2`, and nothing in the Python source
@@ -270,6 +289,17 @@ stances of every axis, so a backend that ignores one fails rather than passing q
 **The IR shape churns for the third time.** Every cache invalidates again. → It is one rebuild,
 `_state_is_current` already handles the version check, and the alternative is doing it later with
 more users.
+
+**The benchmark cannot currently resolve a behavior difference.** `sorting.merge_sort` returned
+160, 202, 235, 256, 264 and 277 us across runs of binaries that were in some cases byte-identical
+— best-of-five-batches does not stabilise an allocation-heavy recursive workload, and the harness
+reports a single best with no spread. A behavior delta smaller than roughly 30% would therefore be
+indistinguishable from the harness itself, which makes "measured rather than asserted" unachievable
+as the demo spec currently requires it. → The demo capability now requires the benchmark to report
+spread and to name its noise floor, and task 11.4 makes that a prerequisite of the behavior
+comparison rather than something discovered when the comparison reads oddly.
+`improve-generated-code-performance` carries the same prerequisite, for the same reason; whichever
+lands first satisfies it for both.
 
 **Folding is the likeliest silent defect.** A fold that ignores `Checked` produces one wrong
 constant in otherwise-correct output — no crash, no diagnostic. → D11 names it, and the fold tests
