@@ -14,17 +14,17 @@
 
 ## 1. The release profile
 
-- [ ] 1.1 Write a test in `compylr-bridge-python-rust` that the generated manifest declares a
+- [x] 1.1 Write a test in `compylr-bridge-python-rust` that the generated manifest declares a
       release profile with link-time optimization and one codegen unit, and that it pins no target
       CPU
-- [ ] 1.2 Add the profile to `cargo_manifest` in `crates/compylr-bridge-python-rust/src/bindings.rs`
-- [ ] 1.3 Confirm the `.cargo/config.toml` the build writes still pins no target CPU, and add a test
+- [x] 1.2 Add the profile to `cargo_manifest` in `crates/compylr-bridge-python-rust/src/bindings.rs`
+- [x] 1.3 Confirm the `.cargo/config.toml` the build writes still pins no target CPU, and add a test
       asserting it — `target-cpu=native` was measured and rejected (design D7), and the assertion is
       what stops it being re-added
-- [ ] 1.4 `rm -rf .compylr demo/.compylr`, run `make demo SCALE=4`, and record before/after against
+- [x] 1.4 `rm -rf .compylr demo/.compylr`, run `make demo SCALE=4`, and record before/after against
       the noise floor from 0.3
-- [ ] 1.5 Record the build-time cost (roughly 7s to 10s on the demo) alongside the gain
-- [ ] 1.6 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 1.5 Record the build-time cost (roughly 7s to 10s on the demo) alongside the gain
+- [x] 1.6 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 2. In-place accumulation

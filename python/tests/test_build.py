@@ -222,3 +222,67 @@ class TestPassConfiguration:
         compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])
         pipeline._record_success(compiled)
         assert pipeline.cached_module_name() == compiled.module_name
+
+
+class TestTheArtifactStaysPortable:
+    """A generated crate may be copied to another machine, so nothing written for a build may
+    depend on the machine that ran it.
+
+    `-C target-cpu=native` was measured against the demo benchmark and moved no row outside its
+    noise floor, while making a copied `.compylr/` fault on a CPU lacking the instructions it was
+    built for. These assertions are what stop it being re-added on the grounds that it is
+    obviously free.
+    """
+
+    @staticmethod
+    def _directives(text: str) -> str:
+        """The file with its comments removed: what cargo actually reads.
+
+        The manifest's comments explain why a setting was rejected, so they name the very things
+        asserted against below. Matching raw text would make an explanation indistinguishable
+        from a directive, and would punish recording the decision.
+        """
+        return "\n".join(
+            line for line in text.splitlines() if not line.lstrip().startswith("#")
+        )
+
+    def _written(self, pipeline: BuildPipeline) -> tuple[str, str]:
+        compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])
+        pipeline.write_artifacts(compiled)
+        config = pipeline.paths.crate / ".cargo" / "config.toml"
+        return pipeline.paths.manifest.read_text(), config.read_text()
+
+    def test_neither_the_manifest_nor_the_cargo_config_pins_a_target_cpu(
+        self, pipeline: BuildPipeline
+    ) -> None:
+        manifest, config = self._written(pipeline)
+        assert "target-cpu" not in self._directives(manifest)
+        assert "target-cpu" not in self._directives(config)
+
+    def test_the_cargo_config_still_only_relaxes_the_macos_linker(
+        self, pipeline: BuildPipeline
+    ) -> None:
+        # It exists for one reason: an extension module resolves the interpreter's symbols at load
+        # time instead of linking libpython, and the macOS linker has to be told they may be
+        # missing. Anything else appearing here is a portability decision nobody recorded.
+        _, config = self._written(pipeline)
+        assert "dynamic_lookup" in config
+        assert "rustflags" in config
+        directives = self._directives(config)
+        for forbidden in ("target-cpu", "opt-level", "lto", "codegen-units"):
+            assert forbidden not in directives, f"{forbidden} belongs in the manifest, not here"
+
+    def test_the_manifest_carries_the_release_profile(self, pipeline: BuildPipeline) -> None:
+        # The profile has to survive the trip through the compiler and onto disk, not merely be
+        # produced by the bridge — this is the file cargo actually reads.
+        manifest, _ = self._written(pipeline)
+        assert "[profile.release]" in manifest
+        assert "codegen-units = 1" in manifest
+        assert 'lto = "fat"' in manifest
+
+    def test_the_built_artifact_never_aborts_on_panic(self, pipeline: BuildPipeline) -> None:
+        # The bridge converts a panic into a Python exception. Aborting would take the
+        # interpreter down with it.
+        manifest, _ = self._written(pipeline)
+        assert 'panic = "unwind"' in manifest
+        assert "abort" not in self._directives(manifest)

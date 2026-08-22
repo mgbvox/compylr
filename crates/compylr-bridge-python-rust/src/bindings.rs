@@ -280,6 +280,11 @@ fn __compylr_to_py_err(error: RuntimeError) -> PyErr {
 ///
 /// The crate depends on `pyo3` and nothing else — deliberately not on compylr, which will not
 /// exist on the machine where this is built.
+///
+/// The release profile is declared rather than inherited. The artifact is built **once per
+/// fingerprint** and imported on every run after that, so build time is the cheap side of that
+/// trade and run time is the expensive one; Cargo's defaults are tuned for the opposite. It costs
+/// roughly 7-10s more on the demo's crate and is recovered on every call thereafter.
 pub fn cargo_manifest(key: &BuildKey, pyo3_version: &str) -> String {
     let name = module_name(key);
     format!(
@@ -299,6 +304,129 @@ pub fn cargo_manifest(key: &BuildKey, pyo3_version: &str) -> String {
          crate-type = [\"cdylib\"]\n\
          \n\
          [dependencies]\n\
-         pyo3 = {{ version = \"{pyo3_version}\", features = [\"abi3-py311\", \"extension-module\"] }}\n"
+         pyo3 = {{ version = \"{pyo3_version}\", features = [\"abi3-py311\", \"extension-module\"] }}\n\
+         \n\
+         # Declared, not inherited. The runtime helpers are emitted into a different module from\n\
+         # the code that calls them, and at Cargo's default of sixteen codegen units they are\n\
+         # frequently not inlined — which matters here in particular because every arithmetic\n\
+         # operation in the supported subset is a trait call by design.\n\
+         #\n\
+         # `panic` is stated rather than left to default: the bridge turns a panic into a Python\n\
+         # exception, and aborting would terminate the interpreter instead.\n\
+         #\n\
+         # No `target-cpu`. It was measured and moved no row outside the benchmark's noise floor,\n\
+         # and a generated crate may be copied to a machine whose CPU lacks the instructions it\n\
+         # was built for. A slower artifact beats one that faults.\n\
+         [profile.release]\n\
+         lto = \"fat\"\n\
+         codegen-units = 1\n\
+         panic = \"unwind\"\n"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key() -> BuildKey {
+        BuildKey {
+            fingerprint: 0x1234_5678_9abc_def0,
+            target: "rust".to_string(),
+            passes: "default".to_string(),
+        }
+    }
+
+    /// The manifest with its comments removed: what Cargo actually reads.
+    ///
+    /// The comments explain why a setting was rejected, and so they name the very things the
+    /// assertions below forbid. Matching raw text would make an explanation indistinguishable
+    /// from a directive — and would punish documenting the decision.
+    fn directives(manifest: &str) -> String {
+        manifest
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The artifact is built once per fingerprint and imported on every run after that, so build
+    /// time is the cheap side of the trade and run time is the expensive one. Cargo's defaults
+    /// optimize for the opposite.
+    #[test]
+    fn the_manifest_declares_a_release_profile() {
+        let manifest = cargo_manifest(&key(), "0.29.2");
+        assert!(
+            manifest.contains("[profile.release]"),
+            "no release profile in:\n{manifest}"
+        );
+    }
+
+    /// The runtime helpers are emitted into a different module from the code that calls them, and
+    /// at Cargo's default of sixteen codegen units they are frequently not inlined. That matters
+    /// here in particular because every arithmetic operation in the subset is a trait call by
+    /// design.
+    #[test]
+    fn the_release_profile_asks_for_link_time_optimization_and_one_codegen_unit() {
+        let manifest = cargo_manifest(&key(), "0.29.2");
+        assert!(manifest.contains("lto = "), "no lto in:\n{manifest}");
+        assert!(
+            manifest.contains("codegen-units = 1"),
+            "not one codegen unit in:\n{manifest}"
+        );
+    }
+
+    /// The bridge converts a panic into a Python exception. Aborting would terminate the
+    /// interpreter instead, so unwinding is written out explicitly rather than left to the
+    /// default — a default is something a later change can flip without noticing what it cost.
+    #[test]
+    fn the_release_profile_preserves_unwinding() {
+        let manifest = cargo_manifest(&key(), "0.29.2");
+        assert!(
+            manifest.contains("panic = \"unwind\""),
+            "unwinding not stated in:\n{manifest}"
+        );
+        assert!(
+            !directives(&manifest).contains("abort"),
+            "a generated crate may not abort: a panic has to reach Python as an exception:\n\
+             {manifest}"
+        );
+    }
+
+    /// Measured and rejected: no row moved outside the benchmark's noise floor, and a generated
+    /// crate may be copied to another machine, where an artifact built for this CPU faults on an
+    /// unsupported instruction. A slower artifact beats one that crashes.
+    ///
+    /// This assertion is the thing that stops it being re-added on the grounds that it is
+    /// obviously free.
+    #[test]
+    fn the_manifest_pins_no_target_cpu() {
+        let manifest = cargo_manifest(&key(), "0.29.2");
+        assert!(
+            !directives(&manifest).contains("target-cpu"),
+            "a pinned target CPU makes a copied artifact fault elsewhere:\n{manifest}"
+        );
+    }
+
+    /// The empty `[workspace]` table is what keeps a generated crate from being adopted as a
+    /// member of whatever workspace it was written inside. Adding sections after it must not
+    /// disturb that.
+    #[test]
+    fn the_crate_is_still_its_own_workspace_root() {
+        let manifest = cargo_manifest(&key(), "0.29.2");
+        assert!(manifest.starts_with("[workspace]\n"), "{manifest}");
+    }
+
+    /// Every section the build needs is still present, in a form Cargo will parse.
+    #[test]
+    fn the_manifest_still_declares_the_package_library_and_dependency() {
+        let manifest = cargo_manifest(&key(), "0.29.2");
+        for section in ["[package]", "[lib]", "[dependencies]"] {
+            assert!(manifest.contains(section), "no {section} in:\n{manifest}");
+        }
+        assert!(manifest.contains("crate-type = [\"cdylib\"]"), "{manifest}");
+        assert!(
+            manifest.contains("pyo3 = { version = \"0.29.2\""),
+            "{manifest}"
+        );
+    }
 }
