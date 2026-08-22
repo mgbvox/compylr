@@ -28,6 +28,7 @@ expression: functions
                         ),
                     ),
                     origin: FromEitherEnd,
+                    checked: Reported,
                 },
             },
             Bind {
@@ -42,7 +43,9 @@ expression: functions
             },
             Return(
                 Binary {
-                    op: Add,
+                    op: Add {
+                        checked: Reported,
+                    },
                     left: Name(
                         "first",
                     ),
@@ -84,6 +87,7 @@ expression: functions
                         "key",
                     ),
                     origin: FromEitherEnd,
+                    checked: Reported,
                 },
             ),
         ],
@@ -292,6 +296,7 @@ expression: functions
                         "key",
                     ),
                     origin: FromEitherEnd,
+                    checked: Reported,
                 },
             },
             Return(
@@ -305,6 +310,7 @@ expression: functions
                         ),
                     ),
                     origin: FromEitherEnd,
+                    checked: Reported,
                 },
             ),
         ],
@@ -331,14 +337,16 @@ expression: functions
                     base: Name(
                         "xs",
                     ),
-                    index: Neg(
-                        Literal(
+                    index: Neg {
+                        value: Literal(
                             Int(
                                 1,
                             ),
                         ),
-                    ),
+                        checked: Reported,
+                    },
                     origin: FromEitherEnd,
+                    checked: Reported,
                 },
             ),
         ],

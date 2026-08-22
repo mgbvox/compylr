@@ -1,13 +1,13 @@
 ## 1. The behavior model
 
-- [ ] 1.1 Write tests for the axis set in `compylr-ir`: exactly six axes, each with a stable
+- [x] 1.1 Write tests for the axis set in `compylr-ir`: exactly six axes, each with a stable
       identifier distinct from its prose, and a test that a stance bundle covering fewer than six
       cannot be constructed
-- [ ] 1.2 Add `compylr-ir/src/behavior.rs` defining `Axis`, the per-axis stance types, and
+- [x] 1.2 Add `compylr-ir/src/behavior.rs` defining `Axis`, the per-axis stance types, and
       `LanguageBehavior` (one stance per axis, complete by construction). Place it beside
       `guarantee.rs` and for the reason recorded there — a unit holds the modes, and the IR cannot
       depend on the crate that consumes it
-- [ ] 1.3 Add the resolved `Behavior` type: one stance per axis, plus the accessors lowering will
+- [x] 1.3 Add the resolved `Behavior` type: one stance per axis, plus the accessors lowering will
       use to read a mode for an operation. Re-export both from `compylr-core` the way `Guarantee`
       is re-exported
 - [ ] 1.4 Write tests for resolution in `compylr-core`: a bare language name sets every axis; an
@@ -24,20 +24,20 @@
 
 ## 2. The `Checked` mode on the IR
 
-- [ ] 2.1 Write tests: the mode is readable off `Add`/`Sub`/`Mul`/`Div`/`Rem`/`Neg`/`Subscript`;
+- [x] 2.1 Write tests: the mode is readable off `Add`/`Sub`/`Mul`/`Div`/`Rem`/`Neg`/`Subscript`;
       two nodes differing only in it are distinguishable; it composes with `DivMode` and `RemSign`
       independently; it survives a round trip; two units differing only in it fingerprint
       differently
-- [ ] 2.2 Add `Checked::{Reported, Unchecked}` to `compylr-ir::ir` and put it on those seven forms.
+- [x] 2.2 Add `Checked::{Reported, Unchecked}` to `compylr-ir::ir` and put it on those seven forms.
       Document `Unchecked` as a statement about the *program* — the program declines to define the
       result — and not about any target, per design D3
-- [ ] 2.3 Update every construction site in the workspace. Where a match binds an operator, bind
+- [x] 2.3 Update every construction site in the workspace. Where a match binds an operator, bind
       the mode rather than wildcarding it, so a future backend that ignores it fails to compile
       rather than being silently wrong
-- [ ] 2.4 Write a test that an artifact at the previous format version is refused, naming both the
+- [x] 2.4 Write a test that an artifact at the previous format version is refused, naming both the
       version found and the version expected
-- [ ] 2.5 Advance the artifact format to version 4. Do not write a v3 reader — design D12
-- [ ] 2.6 Update `tests/serialization.rs` and any snapshot the shape change moves; confirm
+- [x] 2.5 Advance the artifact format to version 4. Do not write a v3 reader — design D12
+- [x] 2.6 Update `tests/serialization.rs` and any snapshot the shape change moves; confirm
       `demo_coverage.rs`'s `variants_of` scan still reads `BinOp` correctly now that more variants
       carry fields
 - [ ] 2.7 `cargo fmt --all`, clippy, `cargo test --workspace`; commit

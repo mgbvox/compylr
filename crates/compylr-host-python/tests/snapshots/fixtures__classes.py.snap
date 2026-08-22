@@ -1,6 +1,5 @@
 ---
 source: tests/fixtures.rs
-assertion_line: 52
 expression: functions
 ---
 [

@@ -50,7 +50,12 @@ use crate::guarantee::Guarantee;
 ///
 /// Recorded in every artifact and checked on load, so a file written by a future build fails
 /// with an explanation rather than deserializing into a subtly wrong unit.
-const ARTIFACT_VERSION: u32 = 3;
+/// Version 4 adds the checking mode to the operations that can fail. **No reader for version 3 is
+/// kept**: the only thing a v3 artifact could mean is "every failure reported", and a migration
+/// asserting that would be more code than the one rebuild it saves. Every existing cache is
+/// refused once and rebuilt, which `_state_is_current` already triggers on the recorded compylr
+/// version.
+const ARTIFACT_VERSION: u32 = 4;
 
 /// The on-disk envelope around a unit.
 ///
@@ -244,6 +249,29 @@ pub enum Rounding {
     TowardZero,
 }
 
+/// Whether the program defines what happens when an operation fails.
+///
+/// **A statement about the program, not about the target.** `Unchecked` does not mean "wrap", or
+/// "trap", or "do whatever Rust does" — it means the program declines to define the result, which
+/// is a fact about the program that stays true whichever backend reads the unit. One target may
+/// trap, another wrap, and a third do something else again; the unit is equally true of all
+/// three, which is the property that lets a unit be legible without knowing who will consume it.
+///
+/// That framing is also what makes Rust's own split expressible at all. A mode named `Wrapping`
+/// would be a lie in a debug build, where the same `+` panics; `Unchecked` is true in both.
+///
+/// Composes with the modes already on a node rather than replacing them. `Div { mode:
+/// Integer(TowardNegInf), checked: Unchecked }` is a real combination — a flooring division whose
+/// zero divisor is undefined — and a backend must still emit a flooring helper for it, because
+/// no target's bare `/` floors *and* leaves the divisor undefined in the same operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Checked {
+    /// The failure becomes a value the program can observe and handle.
+    Reported,
+    /// The program declines to define the result.
+    Unchecked,
+}
+
 /// What a division does with its operands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DivMode {
@@ -308,20 +336,33 @@ pub enum TextUnits {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BinOp {
     /// Addition.
-    Add,
+    Add {
+        /// Whether the program defines a result outside the integer range.
+        checked: Checked,
+    },
     /// Subtraction.
-    Sub,
+    Sub {
+        /// Whether the program defines a result outside the integer range.
+        checked: Checked,
+    },
     /// Multiplication.
-    Mul,
+    Mul {
+        /// Whether the program defines a result outside the integer range.
+        checked: Checked,
+    },
     /// Division, of the declared kind.
     Div {
         /// Whether this divides exactly or as integers, and how it rounds if it does.
         mode: DivMode,
+        /// Whether the program defines a zero divisor.
+        checked: Checked,
     },
     /// Remainder, taking the declared operand's sign.
     Rem {
         /// Which operand's sign the result takes.
         sign: RemSign,
+        /// Whether the program defines a zero divisor.
+        checked: Checked,
     },
     /// Equality.
     Eq,
@@ -353,25 +394,37 @@ impl fmt::Display for BinOp {
     /// `//` is Python's way of writing one particular rounding mode; a Go frontend writes the
     /// same mode as `/`. Naming the mode rather than a symbol is what lets one rendering serve
     /// both, and quoting the programmer's own syntax back at them stays the frontend's job.
+    ///
+    /// The **checking mode is deliberately not rendered**, and it is the one wildcard in this
+    /// file that is not an oversight. This rendering names an operation for a diagnostic about
+    /// *types* — "cannot apply addition to a string and an integer" — and whether the program
+    /// defines an overflow has no bearing on that complaint. The mode stays readable off the
+    /// node, which is where anything acting on it should read it; a consumer that decides what to
+    /// *emit* must match it, and the backend does.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Add => f.write_str("addition"),
-            Self::Sub => f.write_str("subtraction"),
-            Self::Mul => f.write_str("multiplication"),
+            Self::Add { .. } => f.write_str("addition"),
+            Self::Sub { .. } => f.write_str("subtraction"),
+            Self::Mul { .. } => f.write_str("multiplication"),
             Self::Div {
                 mode: DivMode::Exact,
+                ..
             } => f.write_str("exact division"),
             Self::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                ..
             } => f.write_str("integer division rounding toward negative infinity"),
             Self::Div {
                 mode: DivMode::Integer(Rounding::TowardZero),
+                ..
             } => f.write_str("integer division rounding toward zero"),
             Self::Rem {
                 sign: RemSign::Divisor,
+                ..
             } => f.write_str("remainder taking the sign of the divisor"),
             Self::Rem {
                 sign: RemSign::Dividend,
+                ..
             } => f.write_str("remainder taking the sign of the dividend"),
             Self::Eq => f.write_str("equality"),
             Self::NotEq => f.write_str("inequality"),
@@ -391,7 +444,15 @@ pub enum Expr {
     /// A reference to a parameter or local.
     Name(String),
     /// Arithmetic negation.
-    Neg(Box<Expr>),
+    ///
+    /// Carries a checking mode for the same reason addition does: negating the least
+    /// representable integer is the one input for which the result does not fit.
+    Neg {
+        /// What is being negated.
+        value: Box<Expr>,
+        /// Whether the program defines a result outside the integer range.
+        checked: Checked,
+    },
     /// Widening of an integer expression to floating-point.
     ///
     /// Inserted by lowering wherever Python's numeric promotion applies, so the conversion is
@@ -499,6 +560,12 @@ pub enum Expr {
         /// sequence and looking one up in a mapping share a spelling in every language compylr
         /// accepts, and the type of the base is what already distinguishes them.
         origin: IndexOrigin,
+        /// Whether the program defines a read that finds nothing.
+        ///
+        /// Unlike `origin`, this is **not** inert for a mapping. An offset outside a sequence and
+        /// a key a mapping does not hold are the same question — whether the failure is a value
+        /// the program can handle — even though only one of the two has ends to count from.
+        checked: Checked,
     },
     /// The length of a collection or string.
     ///
@@ -589,7 +656,7 @@ impl Expr {
             Self::Literal(_) | Self::Name(_) => {}
             // ToFloat must descend, or a call wrapped in a promotion would be invisible to
             // Unit::validate and its target would never be checked.
-            Self::Neg(inner) | Self::ToFloat(inner) => inner.walk_calls(visit),
+            Self::Neg { value: inner, .. } | Self::ToFloat(inner) => inner.walk_calls(visit),
             Self::Len { value, .. } => value.walk_calls(visit),
             Self::ListLit(items) | Self::SetLit(items) | Self::TupleLit(items) => {
                 for item in items {
@@ -1316,12 +1383,15 @@ mod tests {
     fn a_division_carries_which_kind_it_is() {
         let exact = BinOp::Div {
             mode: DivMode::Exact,
+            checked: Checked::Reported,
         };
         let flooring = BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Reported,
         };
         let truncating = BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Reported,
         };
 
         // All three are `/` in some language. Distinguishable only because the node says which.
@@ -1334,9 +1404,11 @@ mod tests {
     fn a_remainder_carries_whose_sign_it_takes() {
         let divisor = BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         };
         let dividend = BinOp::Rem {
             sign: RemSign::Dividend,
+            checked: Checked::Reported,
         };
         assert_ne!(divisor, dividend);
         assert!(!divisor.is_comparison());
@@ -1348,6 +1420,7 @@ mod tests {
         assert!(
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             }
             .to_string()
             .contains("negative infinity")
@@ -1355,6 +1428,7 @@ mod tests {
         assert!(
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             }
             .to_string()
             .contains("divisor")
@@ -1398,17 +1472,26 @@ mod tests {
             assert!(op.is_comparison(), "{op:?} should be a comparison");
         }
         for op in [
-            BinOp::Add,
-            BinOp::Sub,
-            BinOp::Mul,
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
+            BinOp::Sub {
+                checked: Checked::Reported,
+            },
+            BinOp::Mul {
+                checked: Checked::Reported,
+            },
             BinOp::Div {
                 mode: DivMode::Exact,
+                checked: Checked::Reported,
             },
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             },
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             },
         ] {
             assert!(!op.is_comparison(), "{op:?} should not be a comparison");
@@ -1423,23 +1506,34 @@ mod tests {
     #[test]
     fn every_operator_and_mode_renders_distinctly() {
         let ops = [
-            BinOp::Add,
-            BinOp::Sub,
-            BinOp::Mul,
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
+            BinOp::Sub {
+                checked: Checked::Reported,
+            },
+            BinOp::Mul {
+                checked: Checked::Reported,
+            },
             BinOp::Div {
                 mode: DivMode::Exact,
+                checked: Checked::Reported,
             },
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             },
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardZero),
+                checked: Checked::Reported,
             },
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             },
             BinOp::Rem {
                 sign: RemSign::Dividend,
+                checked: Checked::Reported,
             },
             BinOp::Eq,
             BinOp::NotEq,
@@ -1471,15 +1565,39 @@ mod tests {
     fn expressions_nest_three_levels_deep() {
         // (a + 1) * -(b)
         let expr = Expr::binary(
-            BinOp::Mul,
-            Expr::binary(BinOp::Add, Expr::name("a"), Expr::int(1)),
-            Expr::Neg(Box::new(Expr::name("b"))),
+            BinOp::Mul {
+                checked: Checked::Reported,
+            },
+            Expr::binary(
+                BinOp::Add {
+                    checked: Checked::Reported,
+                },
+                Expr::name("a"),
+                Expr::int(1),
+            ),
+            Expr::Neg {
+                value: Box::new(Expr::name("b")),
+                checked: Checked::Reported,
+            },
         );
         match &expr {
             Expr::Binary { op, left, right } => {
-                assert_eq!(*op, BinOp::Mul);
-                assert!(matches!(**left, Expr::Binary { op: BinOp::Add, .. }));
-                assert!(matches!(**right, Expr::Neg(_)));
+                assert_eq!(
+                    *op,
+                    BinOp::Mul {
+                        checked: Checked::Reported
+                    }
+                );
+                assert!(matches!(
+                    **left,
+                    Expr::Binary {
+                        op: BinOp::Add {
+                            checked: Checked::Reported
+                        },
+                        ..
+                    }
+                ));
+                assert!(matches!(**right, Expr::Neg { .. }));
             }
             other => panic!("expected binary, got {other:?}"),
         }
@@ -1723,7 +1841,9 @@ mod tests {
             vec![],
             Ty::Int,
             vec![Stmt::Return(Expr::binary(
-                BinOp::Add,
+                BinOp::Add {
+                    checked: Checked::Reported,
+                },
                 Expr::int(1),
                 Expr::Call {
                     callee: "missing".into(),

@@ -13,7 +13,7 @@
 use compylr_diagnostics::span::Span;
 use compylr_frontend_python::frontend::parse_source;
 use compylr_frontend_python::lower::lower_source;
-use compylr_ir::{BinOp, DivMode, Expr, Function, Literal, Param, Stmt, Ty, Unit};
+use compylr_ir::{BinOp, Checked, DivMode, Expr, Function, Literal, Param, Stmt, Ty, Unit};
 
 /// Lower source text into a unit, panicking with the diagnostic if it does not lower.
 fn unit_from(source: &str) -> Unit {
@@ -100,7 +100,10 @@ fn every_construct() -> Unit {
             Stmt::Bind {
                 name: "negated".into(),
                 ty: Ty::Int,
-                value: Expr::Neg(Box::new(Expr::name("i"))),
+                value: Expr::Neg {
+                    value: Box::new(Expr::name("i")),
+                    checked: Checked::Reported,
+                },
             },
             Stmt::Bind {
                 name: "promoted".into(),
@@ -118,6 +121,7 @@ fn every_construct() -> Unit {
             Stmt::Return(Expr::binary(
                 BinOp::Div {
                     mode: DivMode::Exact,
+                    checked: Checked::Reported,
                 },
                 Expr::to_float(Expr::name("i")),
                 Expr::name("f"),
@@ -355,6 +359,32 @@ fn malformed_json_is_rejected() {
     assert!(Unit::from_json("{not json").is_err());
 }
 
+/// An artifact written before checking modes existed is refused rather than reinterpreted.
+///
+/// No reader for the previous version is kept, and that is the decision rather than an omission:
+/// the only thing a version 3 artifact could mean is "every failure reported", and a migration
+/// asserting that would be more code than the single rebuild it saves. What matters is that the
+/// refusal *says both numbers* — a user whose first run after upgrading is slow deserves to be
+/// told why, and "unsupported version" alone does not.
+#[test]
+fn an_artifact_from_the_previous_version_is_refused_naming_both_versions() {
+    let json = every_construct().to_json().unwrap();
+    assert!(
+        json.contains("\"version\": 4"),
+        "the current artifact must be version 4; found: {}",
+        json.lines().take(3).collect::<Vec<_>>().join(" ")
+    );
+
+    let previous = json.replace("\"version\": 4", "\"version\": 3");
+    let error = Unit::from_json(&previous).expect_err("a version 3 artifact must be refused");
+
+    let message = error.to_string();
+    assert!(
+        message.contains('3') && message.contains('4'),
+        "the refusal must name the version found and the version expected; got: {message}"
+    );
+}
+
 /// Two divisions that differ only in declared rounding are two different programs.
 ///
 /// This is the whole change reduced to one assertion. Before, `//` *was* flooring and there was
@@ -396,9 +426,11 @@ mod declared_semantics {
     fn rounding_modes_fingerprint_differently() {
         let flooring = unit_dividing(BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Reported,
         });
         let truncating = unit_dividing(BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Reported,
         });
         assert_ne!(
             flooring.fingerprint(),
@@ -411,9 +443,11 @@ mod declared_semantics {
     fn remainder_conventions_fingerprint_differently() {
         let divisor = unit_dividing(BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         });
         let dividend = unit_dividing(BinOp::Rem {
             sign: RemSign::Dividend,
+            checked: Checked::Reported,
         });
         assert_ne!(divisor.fingerprint(), dividend.fingerprint());
     }
@@ -423,18 +457,23 @@ mod declared_semantics {
         for op in [
             BinOp::Div {
                 mode: DivMode::Exact,
+                checked: Checked::Reported,
             },
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             },
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardZero),
+                checked: Checked::Reported,
             },
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             },
             BinOp::Rem {
                 sign: RemSign::Dividend,
+                checked: Checked::Reported,
             },
         ] {
             let unit = unit_dividing(op);
@@ -456,6 +495,7 @@ mod declared_semantics {
         use compylr_ir::Guarantee;
         let mut unit = unit_dividing(BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         });
         unit.set_origin("python", &[Guarantee::IntegerOverflowReported]);
 
@@ -487,6 +527,7 @@ mod declared_semantics {
                 base: Box::new(Expr::name("xs")),
                 index: Box::new(Expr::name("i")),
                 origin,
+                checked: Checked::Reported,
             })],
             doc: None,
             span: Span::default(),
@@ -572,9 +613,158 @@ mod declared_semantics {
     /// have.
     #[test]
     fn an_unclaimed_unit_carries_no_origin() {
-        let unit = unit_dividing(BinOp::Add);
+        let unit = unit_dividing(BinOp::Add {
+            checked: Checked::Reported,
+        });
         assert!(unit.origin().is_none());
         assert!(unit.requires().is_empty());
         assert!(!unit.to_json().unwrap().contains("origin"));
+    }
+
+    /// Whether the program defines a failure is part of what the program computes.
+    ///
+    /// The same shape the rounding mode already had, and here for the same reason: two units that
+    /// disagree about what `a + b` does on overflow are two different programs, and a rebuild key
+    /// that could not tell them apart would hand back the wrong artifact.
+    mod checking_mode {
+        use super::*;
+
+        /// Every operation that can fail, in both modes.
+        fn both_modes(build: impl Fn(Checked) -> BinOp) -> (Unit, Unit) {
+            (
+                unit_dividing(build(Checked::Reported)),
+                unit_dividing(build(Checked::Unchecked)),
+            )
+        }
+
+        #[test]
+        fn the_mode_is_readable_off_every_operation_that_can_fail() {
+            let operations: Vec<BinOp> = vec![
+                BinOp::Add {
+                    checked: Checked::Unchecked,
+                },
+                BinOp::Sub {
+                    checked: Checked::Unchecked,
+                },
+                BinOp::Mul {
+                    checked: Checked::Unchecked,
+                },
+                BinOp::Div {
+                    mode: DivMode::Integer(Rounding::TowardZero),
+                    checked: Checked::Unchecked,
+                },
+                BinOp::Rem {
+                    sign: RemSign::Dividend,
+                    checked: Checked::Unchecked,
+                },
+            ];
+            for op in operations {
+                let read = match op {
+                    BinOp::Add { checked }
+                    | BinOp::Sub { checked }
+                    | BinOp::Mul { checked }
+                    | BinOp::Div { checked, .. }
+                    | BinOp::Rem { checked, .. } => checked,
+                    other => panic!("{other:?} cannot fail"),
+                };
+                assert_eq!(read, Checked::Unchecked);
+            }
+
+            // Negation and subscripting carry it too, on their own forms.
+            let negation = Expr::Neg {
+                value: Box::new(Expr::name("a")),
+                checked: Checked::Unchecked,
+            };
+            let Expr::Neg { checked, .. } = negation else {
+                unreachable!()
+            };
+            assert_eq!(checked, Checked::Unchecked);
+
+            let read = Expr::Subscript {
+                base: Box::new(Expr::name("xs")),
+                index: Box::new(Expr::name("i")),
+                origin: compylr_ir::IndexOrigin::FromStart,
+                checked: Checked::Unchecked,
+            };
+            let Expr::Subscript { checked, .. } = read else {
+                unreachable!()
+            };
+            assert_eq!(checked, Checked::Unchecked);
+        }
+
+        #[test]
+        fn two_nodes_differing_only_in_the_mode_are_distinguishable() {
+            let (reported, unchecked) = both_modes(|checked| BinOp::Add { checked });
+            assert_ne!(
+                reported.functions().next().unwrap().body,
+                unchecked.functions().next().unwrap().body
+            );
+        }
+
+        /// The mode composes with the modes already on a node rather than replacing them.
+        ///
+        /// `Div { mode: Integer(TowardNegInf), checked: Unchecked }` is a real combination — a
+        /// flooring division whose zero divisor is undefined — and it must be distinct from all
+        /// three of its neighbours, or one of the two axes has collapsed into the other.
+        #[test]
+        fn the_mode_is_independent_of_the_rounding_and_the_sign() {
+            let mut seen = std::collections::HashSet::new();
+            for rounding in [Rounding::TowardNegInf, Rounding::TowardZero] {
+                for checked in [Checked::Reported, Checked::Unchecked] {
+                    let unit = unit_dividing(BinOp::Div {
+                        mode: DivMode::Integer(rounding),
+                        checked,
+                    });
+                    assert!(
+                        seen.insert(unit.fingerprint()),
+                        "{rounding:?} with {checked:?} collided with an earlier combination"
+                    );
+                }
+            }
+            assert_eq!(seen.len(), 4, "two independent axes give four combinations");
+
+            let mut seen = std::collections::HashSet::new();
+            for sign in [RemSign::Divisor, RemSign::Dividend] {
+                for checked in [Checked::Reported, Checked::Unchecked] {
+                    let unit = unit_dividing(BinOp::Rem { sign, checked });
+                    assert!(seen.insert(unit.fingerprint()));
+                }
+            }
+            assert_eq!(seen.len(), 4);
+        }
+
+        #[test]
+        fn a_declared_mode_survives_the_artifact() {
+            for op in [
+                BinOp::Add {
+                    checked: Checked::Unchecked,
+                },
+                BinOp::Div {
+                    mode: DivMode::Integer(Rounding::TowardNegInf),
+                    checked: Checked::Unchecked,
+                },
+                BinOp::Rem {
+                    sign: RemSign::Divisor,
+                    checked: Checked::Unchecked,
+                },
+            ] {
+                let unit = unit_dividing(op);
+                let restored = Unit::from_json(&unit.to_json().unwrap()).expect("round trip");
+                match &restored.get("op").unwrap().body[0] {
+                    Stmt::Return(Expr::Binary { op: back, .. }) => assert_eq!(*back, op),
+                    other => panic!("unexpected body: {other:?}"),
+                }
+            }
+        }
+
+        #[test]
+        fn two_units_differing_only_in_the_mode_fingerprint_differently() {
+            let (reported, unchecked) = both_modes(|checked| BinOp::Add { checked });
+            assert_ne!(
+                reported.fingerprint(),
+                unchecked.fingerprint(),
+                "the mode is part of what the program computes, so it must reach the rebuild key"
+            );
+        }
     }
 }

@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use compylr_frontend_python::{PythonOperator, PythonTypeName};
-use compylr_ir::{BinOp, DivMode, RemSign, Rounding, Ty};
+use compylr_ir::{BinOp, Checked, DivMode, RemSign, Rounding, Ty};
 
 fn repo_root() -> PathBuf {
     // `CARGO_MANIFEST_DIR` is this crate's directory, two levels down since the host binding
@@ -54,17 +54,26 @@ fn readme_documents_every_type() {
 fn readme_documents_every_operator() {
     let text = readme();
     let ops = [
-        BinOp::Add,
-        BinOp::Sub,
-        BinOp::Mul,
+        BinOp::Add {
+            checked: Checked::Reported,
+        },
+        BinOp::Sub {
+            checked: Checked::Reported,
+        },
+        BinOp::Mul {
+            checked: Checked::Reported,
+        },
         BinOp::Div {
             mode: DivMode::Exact,
+            checked: Checked::Reported,
         },
         BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Reported,
         },
         BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         },
         BinOp::Eq,
         BinOp::NotEq,

@@ -28,7 +28,7 @@ use compylr_ir::Guarantee;
 use std::collections::BTreeSet;
 
 use compylr_ir::{
-    BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, RemSign, Rounding, Stmt,
+    BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin, Literal, RemSign, Rounding, Stmt,
     TextUnits, Ty, Unit, returns_on_all_paths,
 };
 
@@ -560,7 +560,10 @@ fn attribute_reads_as_locals(expr: &Expr) -> Expr {
             name: name.clone(),
         },
         Expr::Literal(_) | Expr::Name(_) => expr.clone(),
-        Expr::Neg(inner) => Expr::Neg(boxed(inner)),
+        Expr::Neg { value, checked } => Expr::Neg {
+            value: boxed(value),
+            checked: *checked,
+        },
         Expr::ToFloat(inner) => Expr::ToFloat(boxed(inner)),
         Expr::Not(inner) => Expr::Not(boxed(inner)),
         Expr::Len { value, units } => Expr::Len {
@@ -598,10 +601,12 @@ fn attribute_reads_as_locals(expr: &Expr) -> Expr {
             base,
             index,
             origin,
+            checked,
         } => Expr::Subscript {
             base: boxed(base),
             index: boxed(index),
             origin: *origin,
+            checked: *checked,
         },
         Expr::Contains { value, container } => Expr::Contains {
             value: boxed(value),
@@ -813,7 +818,7 @@ fn expr_calls_any_of(expr: &Expr, named: &BTreeSet<String>) -> bool {
                 || args.iter().any(|a| expr_calls_any_of(a, named))
         }
         Expr::Literal(_) | Expr::Name(_) => false,
-        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => {
+        Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
             expr_calls_any_of(inner, named)
         }
         Expr::Len { value, .. } => expr_calls_any_of(value, named),
@@ -1177,7 +1182,11 @@ fn emit_place(expr: &Expr, unit: &Unit, access: Access) -> Result<String, Backen
             base,
             index,
             origin,
+            checked,
         } => {
+            if *checked == Checked::Unchecked {
+                return Err(unchecked_not_yet_emitted("a subscript"));
+            }
             let (helper, borrow) = match access {
                 Access::Mutable => ("py_place", "&mut "),
                 Access::Shared => ("py_borrow", "&"),
@@ -1325,7 +1334,9 @@ fn visit_exprs(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
     visit(expr);
     match expr {
         Expr::Literal(_) | Expr::Name(_) => {}
-        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => visit_exprs(inner, visit),
+        Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
+            visit_exprs(inner, visit)
+        }
         Expr::Len { value, .. } => visit_exprs(value, visit),
         Expr::Attribute { object, .. } => visit_exprs(object, visit),
         Expr::TupleIndex { base, .. } => visit_exprs(base, visit),
@@ -1402,9 +1413,9 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
                 name
             }
         }
-        Expr::Neg(inner) => {
-            let inner = emit_expr(inner, unit, expected)?;
-            format!("PyNum::py_neg(&({inner}))?")
+        Expr::Neg { value, checked } => {
+            let inner = emit_expr(value, unit, expected)?;
+            emit_neg(&inner, *checked)?
         }
         Expr::ToFloat(inner) => {
             // The operand is an integer expression; `expected` describes the float context it is
@@ -1521,6 +1532,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             base,
             index,
             origin,
+            checked,
         } => {
             // The base is borrowed rather than consumed, so a collection read twice is not moved
             // — and, when it is itself a subscript, borrowed rather than *cloned*. `m[i][j]` used
@@ -1529,6 +1541,9 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             // The origin is read off the node and passed through. A backend that assumed one would
             // be silently wrong for any frontend meaning the other, on exactly the inputs — a
             // negative index — that nobody writes a test for by accident.
+            if *checked == Checked::Unchecked {
+                return Err(unchecked_not_yet_emitted("a subscript"));
+            }
             let base = emit_place(base, unit, Access::Shared)?;
             let index = emit_expr(index, unit, &Ty::Unit)?;
             format!(
@@ -1574,6 +1589,34 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
     })
 }
 
+/// Emission for a node whose failure the program declined to define.
+///
+/// Rust's own operators are what such a node should become, and they arrive with this backend's
+/// behavior declaration. Until then an unchecked node is **unreachable** rather than merely
+/// unimplemented: the Python frontend is the only one, and it reports every failure — so nothing
+/// can lower to one. Reported as a compylr defect for exactly that reason. If this ever fires,
+/// some component produced a mode nothing can yet render, and a wrong answer would be worse than
+/// a refusal.
+///
+/// This is why the checking mode is *bound* at every emission site rather than wildcarded: a
+/// backend that matched `BinOp::Add { .. }` would compile, emit a reporting helper for a node
+/// that asked for none, and be silently slower and subtly different forever.
+fn unchecked_not_yet_emitted(what: &str) -> BackendError {
+    BackendError::Unsupported {
+        detail: format!(
+            "{what} declares its failure unchecked, which this backend does not emit yet"
+        ),
+    }
+}
+
+/// Emit an arithmetic negation, honouring the mode the node declares.
+fn emit_neg(inner: &str, checked: Checked) -> Result<String, BackendError> {
+    match checked {
+        Checked::Reported => Ok(format!("PyNum::py_neg(&({inner}))?")),
+        Checked::Unchecked => Err(unchecked_not_yet_emitted("a negation")),
+    }
+}
+
 /// The element type of an expected collection type, or unit when the context says nothing.
 fn element_ty(expected: &Ty) -> Ty {
     match expected {
@@ -1617,10 +1660,15 @@ fn emit_binary(
     }
 
     // Exact division's operands are always floats: lowering inserted the promotion nodes.
-    if op
-        == (BinOp::Div {
-            mode: DivMode::Exact,
-        })
+    //
+    // Matched on the *mode* rather than compared against a whole operator value: the checking
+    // mode is an independent axis, so `op == BinOp::Div { mode: Exact, checked: Reported }` would
+    // have quietly stopped recognising an exact division the moment a behavior waived its zero
+    // divisor, and sent it down the integer path instead.
+    if let BinOp::Div {
+        mode: DivMode::Exact,
+        ..
+    } = op
     {
         let left = emit_expr(left, unit, &Ty::Float)?;
         let right = emit_expr(right, unit, &Ty::Float)?;
@@ -1639,22 +1687,54 @@ fn emit_binary(
     // Read off the node, not off the operator's name. The same `BinOp::Div` reaches here meaning
     // either rounding, and a backend that assumed one of them would be silently wrong for any
     // frontend that meant the other.
+    //
+    // The checking mode is bound in every arm rather than wildcarded. An arm written
+    // `BinOp::Add { .. }` would compile and emit a reporting helper for a node that declared it
+    // wanted none — the exact failure mode this mode exists to prevent, and one no test written
+    // in Python could catch while the only frontend reports everything.
     let call = match op {
-        BinOp::Add => "PyAdd::py_add",
-        BinOp::Sub => "PyNum::py_sub",
-        BinOp::Mul => "PyNum::py_mul",
+        BinOp::Add {
+            checked: Checked::Reported,
+        } => "PyAdd::py_add",
+        BinOp::Sub {
+            checked: Checked::Reported,
+        } => "PyNum::py_sub",
+        BinOp::Mul {
+            checked: Checked::Reported,
+        } => "PyNum::py_mul",
         BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Reported,
         } => "PyNum::div_floor",
         BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Reported,
         } => "PyNum::div_trunc",
         BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         } => "PyNum::rem_floor",
         BinOp::Rem {
             sign: RemSign::Dividend,
+            checked: Checked::Reported,
         } => "PyNum::rem_trunc",
+        BinOp::Add {
+            checked: Checked::Unchecked,
+        }
+        | BinOp::Sub {
+            checked: Checked::Unchecked,
+        }
+        | BinOp::Mul {
+            checked: Checked::Unchecked,
+        }
+        | BinOp::Div {
+            checked: Checked::Unchecked,
+            ..
+        }
+        | BinOp::Rem {
+            checked: Checked::Unchecked,
+            ..
+        } => return Err(unchecked_not_yet_emitted("an arithmetic operation")),
         _ => unreachable!("comparisons and exact division are handled above"),
     };
     Ok(format!("{call}(&({left}), &({right}))?"))

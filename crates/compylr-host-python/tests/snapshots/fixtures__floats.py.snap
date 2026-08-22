@@ -19,7 +19,9 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: Mul,
+                    op: Mul {
+                        checked: Reported,
+                    },
                     left: Name(
                         "a",
                     ),
@@ -77,7 +79,9 @@ expression: functions
                 name: "total",
                 ty: Float,
                 value: Binary {
-                    op: Add,
+                    op: Add {
+                        checked: Reported,
+                    },
                     left: ToFloat(
                         Name(
                             "a",

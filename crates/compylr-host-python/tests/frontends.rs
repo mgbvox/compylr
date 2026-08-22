@@ -155,7 +155,7 @@ fn the_python_frontend_declares_what_it_requires() {
 /// mode the change exists to remove.
 mod declared_meanings {
     use super::*;
-    use compylr_ir::{BinOp, DivMode, Expr, RemSign, Rounding, Stmt};
+    use compylr_ir::{BinOp, Checked, DivMode, Expr, RemSign, Rounding, Stmt};
 
     fn operator_of(source: &str) -> BinOp {
         let frontend = frontend::lookup("python").unwrap();
@@ -172,6 +172,7 @@ mod declared_meanings {
             operator_of("def op(a: int, b: int) -> int:\n    return a // b\n"),
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             }
         );
     }
@@ -182,6 +183,7 @@ mod declared_meanings {
             operator_of("def op(a: int, b: int) -> int:\n    return a % b\n"),
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             }
         );
     }
@@ -192,6 +194,7 @@ mod declared_meanings {
             operator_of("def op(a: int, b: int) -> float:\n    return a / b\n"),
             BinOp::Div {
                 mode: DivMode::Exact,
+                checked: Checked::Reported,
             }
         );
     }

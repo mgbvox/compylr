@@ -14,8 +14,15 @@
 //! * **Nothing is reassociated.** Only an operation whose operands are *both* literals folds.
 //!   `(a + 1.0) + 2.0` stays as it is, because rewriting it to `a + 3.0` changes the result under
 //!   floating-point arithmetic — and preserving that is a guarantee frontends declare.
+//!
+//! The first rule is where the checking mode comes in, and it is worth being precise about what
+//! reading it does and does not change. A failing operation is left unfolded under **both** modes,
+//! but for two different reasons — see [`left_unfolded`]. The answer being the same today is a
+//! fact about these two modes rather than a property of folding, which is why the decision is
+//! made by matching on the mode rather than by ignoring it: a mode added later has to answer the
+//! question here instead of inheriting an answer nobody wrote down.
 
-use compylr_ir::{BinOp, DivMode, Expr, Literal, RemSign, Rounding, Stmt, Unit};
+use compylr_ir::{BinOp, Checked, DivMode, Expr, Literal, RemSign, Rounding, Stmt, Unit};
 
 use crate::pass::{Pass, PassError};
 
@@ -87,7 +94,9 @@ fn fold_stmts(stmts: &mut [Stmt]) {
 fn fold_expr(expr: &mut Expr) {
     match expr {
         Expr::Literal(_) | Expr::Name(_) => return,
-        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => fold_expr(inner),
+        Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
+            fold_expr(inner)
+        }
         // Neither container node folds — a length or a subscript needs the value, not just its
         // type — but both have to be descended through, or a constant inside one survives.
         Expr::Len { value, .. } => fold_expr(value),
@@ -144,10 +153,14 @@ fn evaluate(expr: &Expr) -> Option<Literal> {
             Expr::Literal(Literal::Float(bits)) => Some(Literal::Float(*bits)),
             _ => None,
         },
-        Expr::Neg(inner) => match inner.as_ref() {
-            // `-i64::MIN` is the one negation that overflows. Left in place, so the failure the
-            // program would have reported still happens.
-            Expr::Literal(Literal::Int(value)) => value.checked_neg().map(Literal::Int),
+        Expr::Neg { value, checked } => match value.as_ref() {
+            // `-i64::MIN` is the one negation that overflows, and it is left in place under
+            // either mode — see `left_unfolded` for the two reasons.
+            Expr::Literal(Literal::Int(value)) => match value.checked_neg() {
+                Some(negated) => Some(Literal::Int(negated)),
+                None => left_unfolded(*checked),
+            },
+            // Float negation cannot overflow, so the mode has nothing to govern here.
             Expr::Literal(Literal::Float(bits)) => finite_float(-f64::from_bits(*bits)),
             _ => None,
         },
@@ -183,18 +196,50 @@ fn binary(op: BinOp, left: &Literal, right: &Literal) -> Option<Literal> {
     }
 }
 
+/// A fold that would fail is left alone, whichever checking mode the node declares.
+///
+/// The answer is the same under both and the reasons are not, which is why this matches rather
+/// than returning a constant — and why a mode added later fails to compile here instead of
+/// quietly inheriting one of these two arguments.
+fn left_unfolded<T>(checked: Checked) -> Option<T> {
+    match checked {
+        // The failure is a value the program asked to observe. Folding it away would delete a
+        // reported error, which is the module's first rule.
+        Checked::Reported => None,
+        // The program declined to define a result, so there is nothing to fold *to*. Any value
+        // chosen here would be one particular target's answer written into a tree that every
+        // backend reads — the one thing a mode may not do, since `Unchecked` is a statement about
+        // the program and not about who compiles it.
+        Checked::Unchecked => None,
+    }
+}
+
 fn integer(op: BinOp, a: i64, b: i64) -> Option<Literal> {
     let value = match op {
-        BinOp::Add => a.checked_add(b)?,
-        BinOp::Sub => a.checked_sub(b)?,
-        BinOp::Mul => a.checked_mul(b)?,
+        BinOp::Add { checked } => match a.checked_add(b) {
+            Some(value) => value,
+            None => return left_unfolded(checked),
+        },
+        BinOp::Sub { checked } => match a.checked_sub(b) {
+            Some(value) => value,
+            None => return left_unfolded(checked),
+        },
+        BinOp::Mul { checked } => match a.checked_mul(b) {
+            Some(value) => value,
+            None => return left_unfolded(checked),
+        },
         BinOp::Div {
             mode: DivMode::Integer(rounding),
+            checked,
         } => {
             if b == 0 {
-                return None;
+                return left_unfolded(checked);
             }
-            let quotient = a.checked_div(b)?;
+            // `i64::MIN / -1` is the one quotient that does not fit, and it is a failure like any
+            // other rather than a case to wrap.
+            let Some(quotient) = a.checked_div(b) else {
+                return left_unfolded(checked);
+            };
             match rounding {
                 Rounding::TowardZero => quotient,
                 Rounding::TowardNegInf => {
@@ -207,9 +252,9 @@ fn integer(op: BinOp, a: i64, b: i64) -> Option<Literal> {
                 }
             }
         }
-        BinOp::Rem { sign } => {
+        BinOp::Rem { sign, checked } => {
             if b == 0 {
-                return None;
+                return left_unfolded(checked);
             }
             // `i64::MIN % -1` overflows in Rust though the answer, 0, is representable.
             if b == -1 {
@@ -231,6 +276,7 @@ fn integer(op: BinOp, a: i64, b: i64) -> Option<Literal> {
         // Exact division on two integers cannot occur: lowering promotes both operands first.
         BinOp::Div {
             mode: DivMode::Exact,
+            ..
         } => return None,
         _ => return comparison(op, &a, &b),
     };
@@ -239,31 +285,40 @@ fn integer(op: BinOp, a: i64, b: i64) -> Option<Literal> {
 
 fn float(op: BinOp, a: f64, b: f64) -> Option<Literal> {
     let value = match op {
-        BinOp::Add => a + b,
-        BinOp::Sub => a - b,
-        BinOp::Mul => a * b,
+        // The overflow axis governs *integer* arithmetic; a float result that leaves the range
+        // becomes an infinity, which `finite_float` already refuses to fold. So the mode has
+        // nothing to govern on these three and is wildcarded deliberately rather than by
+        // oversight.
+        BinOp::Add { .. } => a + b,
+        BinOp::Sub { .. } => a - b,
+        BinOp::Mul { .. } => a * b,
         BinOp::Div {
             mode: DivMode::Exact,
+            checked,
         } => {
+            // A zero divisor *is* governed, on the exact-division axis. Under a stance that
+            // leaves it undefined the IEEE result is an infinity, which does not fold either —
+            // so the expression survives to the backend, which emits the target's own division.
             if b == 0.0 {
-                return None;
+                return left_unfolded(checked);
             }
             a / b
         }
         BinOp::Div {
             mode: DivMode::Integer(rounding),
+            checked,
         } => {
             if b == 0.0 {
-                return None;
+                return left_unfolded(checked);
             }
             match rounding {
                 Rounding::TowardNegInf => (a / b).floor(),
                 Rounding::TowardZero => (a / b).trunc(),
             }
         }
-        BinOp::Rem { sign } => {
+        BinOp::Rem { sign, checked } => {
             if b == 0.0 {
-                return None;
+                return left_unfolded(checked);
             }
             let remainder = a % b;
             match sign {
@@ -284,7 +339,10 @@ fn float(op: BinOp, a: f64, b: f64) -> Option<Literal> {
 
 fn string(op: BinOp, a: &str, b: &str) -> Option<Literal> {
     match op {
-        BinOp::Add => Some(Literal::Str(format!("{a}{b}"))),
+        // Concatenation has no integer range to leave, so the overflow axis says nothing about
+        // it. Wildcarded on purpose: binding a mode here and pretending to consult it would be
+        // the more misleading of the two.
+        BinOp::Add { .. } => Some(Literal::Str(format!("{a}{b}"))),
         _ => comparison(op, &a, &b),
     }
 }
@@ -356,15 +414,33 @@ mod tests {
 
     #[test]
     fn arithmetic_on_literals_folds() {
-        let body = folded(vec![Stmt::Return(binop(BinOp::Add, int(2), int(3)))]);
+        let body = folded(vec![Stmt::Return(binop(
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
+            int(2),
+            int(3),
+        ))]);
         assert_eq!(*returned(&body), int(5));
     }
 
     #[test]
     fn folding_is_bottom_up() {
         // `(1 + 2) * 3` must reach the multiplication with a literal on its left.
-        let inner = binop(BinOp::Add, int(1), int(2));
-        let body = folded(vec![Stmt::Return(binop(BinOp::Mul, inner, int(3)))]);
+        let inner = binop(
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
+            int(1),
+            int(2),
+        );
+        let body = folded(vec![Stmt::Return(binop(
+            BinOp::Mul {
+                checked: Checked::Reported,
+            },
+            inner,
+            int(3),
+        ))]);
         assert_eq!(*returned(&body), int(9));
     }
 
@@ -377,6 +453,7 @@ mod tests {
         let flooring = folded(vec![Stmt::Return(binop(
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             },
             int(7),
             int(-2),
@@ -384,6 +461,7 @@ mod tests {
         let truncating = folded(vec![Stmt::Return(binop(
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardZero),
+                checked: Checked::Reported,
             },
             int(7),
             int(-2),
@@ -398,6 +476,7 @@ mod tests {
         let divisor = folded(vec![Stmt::Return(binop(
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             },
             int(-7),
             int(2),
@@ -405,6 +484,7 @@ mod tests {
         let dividend = folded(vec![Stmt::Return(binop(
             BinOp::Rem {
                 sign: RemSign::Dividend,
+                checked: Checked::Reported,
             },
             int(-7),
             int(2),
@@ -420,6 +500,7 @@ mod tests {
         let body = folded(vec![Stmt::Return(binop(
             BinOp::Div {
                 mode: DivMode::Exact,
+                checked: Checked::Reported,
             },
             Expr::ToFloat(Box::new(int(7))),
             Expr::ToFloat(Box::new(int(2))),
@@ -429,7 +510,13 @@ mod tests {
 
     #[test]
     fn a_non_literal_operand_is_left_alone() {
-        let original = binop(BinOp::Add, Expr::name("a"), int(1));
+        let original = binop(
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
+            Expr::name("a"),
+            int(1),
+        );
         let body = folded(vec![Stmt::Return(original.clone())]);
         assert_eq!(*returned(&body), original);
     }
@@ -440,9 +527,11 @@ mod tests {
         for op in [
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             },
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             },
         ] {
             let original = binop(op, int(1), int(0));
@@ -457,14 +546,23 @@ mod tests {
 
     #[test]
     fn an_overflowing_constant_is_not_folded_away() {
-        let original = binop(BinOp::Add, int(i64::MAX), int(1));
+        let original = binop(
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
+            int(i64::MAX),
+            int(1),
+        );
         let body = folded(vec![Stmt::Return(original.clone())]);
         assert_eq!(*returned(&body), original);
     }
 
     #[test]
     fn a_negation_that_overflows_is_left_in_place() {
-        let original = Expr::Neg(Box::new(int(i64::MIN)));
+        let original = Expr::Neg {
+            value: Box::new(int(i64::MIN)),
+            checked: Checked::Reported,
+        };
         let body = folded(vec![Stmt::Return(original.clone())]);
         assert_eq!(*returned(&body), original);
     }
@@ -473,11 +571,19 @@ mod tests {
     #[test]
     fn a_partially_constant_float_expression_is_not_reassociated() {
         let inner = binop(
-            BinOp::Add,
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
             Expr::name("a"),
             Expr::Literal(Literal::float(1.0)),
         );
-        let original = binop(BinOp::Add, inner, Expr::Literal(Literal::float(2.0)));
+        let original = binop(
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
+            inner,
+            Expr::Literal(Literal::float(2.0)),
+        );
         let body = folded(vec![Stmt::Return(original.clone())]);
         assert_eq!(*returned(&body), original);
     }
@@ -486,7 +592,9 @@ mod tests {
     #[test]
     fn a_result_that_is_not_finite_is_left_in_place() {
         let original = binop(
-            BinOp::Mul,
+            BinOp::Mul {
+                checked: Checked::Reported,
+            },
             Expr::Literal(Literal::float(f64::MAX)),
             Expr::Literal(Literal::float(2.0)),
         );
@@ -507,12 +615,34 @@ mod tests {
     #[test]
     fn float_arithmetic_folds_under_every_mode() {
         let cases: [(BinOp, f64, f64, f64); 7] = [
-            (BinOp::Add, 1.5, 2.25, 3.75),
-            (BinOp::Sub, 1.5, 2.25, -0.75),
-            (BinOp::Mul, 1.5, 2.0, 3.0),
+            (
+                BinOp::Add {
+                    checked: Checked::Reported,
+                },
+                1.5,
+                2.25,
+                3.75,
+            ),
+            (
+                BinOp::Sub {
+                    checked: Checked::Reported,
+                },
+                1.5,
+                2.25,
+                -0.75,
+            ),
+            (
+                BinOp::Mul {
+                    checked: Checked::Reported,
+                },
+                1.5,
+                2.0,
+                3.0,
+            ),
             (
                 BinOp::Div {
                     mode: DivMode::Exact,
+                    checked: Checked::Reported,
                 },
                 7.0,
                 2.0,
@@ -521,6 +651,7 @@ mod tests {
             (
                 BinOp::Div {
                     mode: DivMode::Integer(Rounding::TowardNegInf),
+                    checked: Checked::Reported,
                 },
                 -7.0,
                 2.0,
@@ -529,6 +660,7 @@ mod tests {
             (
                 BinOp::Div {
                     mode: DivMode::Integer(Rounding::TowardZero),
+                    checked: Checked::Reported,
                 },
                 -7.0,
                 2.0,
@@ -537,6 +669,7 @@ mod tests {
             (
                 BinOp::Rem {
                     sign: RemSign::Divisor,
+                    checked: Checked::Reported,
                 },
                 -7.0,
                 2.0,
@@ -552,6 +685,7 @@ mod tests {
         let dividend = folded(vec![Stmt::Return(binop(
             BinOp::Rem {
                 sign: RemSign::Dividend,
+                checked: Checked::Reported,
             },
             float_lit(-7.0),
             float_lit(2.0),
@@ -564,12 +698,15 @@ mod tests {
         for op in [
             BinOp::Div {
                 mode: DivMode::Exact,
+                checked: Checked::Reported,
             },
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             },
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             },
         ] {
             let original = binop(op, float_lit(1.0), float_lit(0.0));
@@ -587,10 +724,16 @@ mod tests {
 
     #[test]
     fn negation_and_logical_not_fold() {
-        let negated = folded(vec![Stmt::Return(Expr::Neg(Box::new(int(3))))]);
+        let negated = folded(vec![Stmt::Return(Expr::Neg {
+            value: Box::new(int(3)),
+            checked: Checked::Reported,
+        })]);
         assert_eq!(*returned(&negated), int(-3));
 
-        let float_negated = folded(vec![Stmt::Return(Expr::Neg(Box::new(float_lit(1.5))))]);
+        let float_negated = folded(vec![Stmt::Return(Expr::Neg {
+            value: Box::new(float_lit(1.5)),
+            checked: Checked::Reported,
+        })]);
         assert_eq!(*returned(&float_negated), float_lit(-1.5));
 
         let flipped = folded(vec![Stmt::Return(Expr::Not(Box::new(Expr::Literal(
@@ -628,7 +771,13 @@ mod tests {
             ),
             (int(1), float_lit(1.0)),
         ] {
-            let original = binop(BinOp::Sub, left, right);
+            let original = binop(
+                BinOp::Sub {
+                    checked: Checked::Reported,
+                },
+                left,
+                right,
+            );
             let body = folded(vec![Stmt::Return(original.clone())]);
             assert_eq!(*returned(&body), original);
         }
@@ -640,7 +789,15 @@ mod tests {
     /// because the surrounding expression still emits correctly.
     #[test]
     fn folding_descends_through_every_container_form() {
-        let sum = || binop(BinOp::Add, int(1), int(2));
+        let sum = || {
+            binop(
+                BinOp::Add {
+                    checked: Checked::Reported,
+                },
+                int(1),
+                int(2),
+            )
+        };
         let body = folded(vec![
             Stmt::Bind {
                 name: "xs".to_string(),
@@ -669,6 +826,7 @@ mod tests {
                     base: Box::new(Expr::name("xs")),
                     index: Box::new(sum()),
                     origin: IndexOrigin::FromEitherEnd,
+                    checked: Checked::Reported,
                 },
             },
             Stmt::Bind {
@@ -731,7 +889,9 @@ mod tests {
         assert_eq!(*returned(&less), Expr::Literal(Literal::Bool(true)));
 
         let joined = folded(vec![Stmt::Return(binop(
-            BinOp::Add,
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
             Expr::Literal(Literal::Str("a".into())),
             Expr::Literal(Literal::Str("b".into())),
         ))]);
@@ -744,7 +904,13 @@ mod tests {
         let body = folded(vec![
             Stmt::If {
                 test: binop(BinOp::Lt, int(1), int(2)),
-                then: vec![Stmt::Return(binop(BinOp::Add, int(1), int(1)))],
+                then: vec![Stmt::Return(binop(
+                    BinOp::Add {
+                        checked: Checked::Reported,
+                    },
+                    int(1),
+                    int(1),
+                ))],
                 otherwise: vec![],
             },
             Stmt::Return(int(0)),

@@ -8,7 +8,7 @@
 use compylr_diagnostics::span::Span;
 use compylr_frontend_python::frontend::parse_source;
 use compylr_frontend_python::lower::lower_source;
-use compylr_ir::{BinOp, DivMode, Expr, Function, Param, Stmt, Ty, Unit};
+use compylr_ir::{BinOp, Checked, DivMode, Expr, Function, Param, Stmt, Ty, Unit};
 use compylr_registry::backends::lookup;
 
 /// Lower source into a unit and return its translated functions.
@@ -278,7 +278,8 @@ fn exact_division_emits_a_plain_division_because_lowering_already_promoted() {
             assert_eq!(
                 *op,
                 BinOp::Div {
-                    mode: DivMode::Exact
+                    mode: DivMode::Exact,
+                    checked: Checked::Reported,
                 }
             );
             assert!(

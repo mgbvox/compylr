@@ -19,7 +19,9 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: Add,
+                    op: Add {
+                        checked: Reported,
+                    },
                     left: Name(
                         "a",
                     ),
@@ -51,7 +53,9 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: Sub,
+                    op: Sub {
+                        checked: Reported,
+                    },
                     left: Name(
                         "a",
                     ),
@@ -83,7 +87,9 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: Mul,
+                    op: Mul {
+                        checked: Reported,
+                    },
                     left: Name(
                         "a",
                     ),
@@ -115,6 +121,7 @@ expression: functions
                         mode: Integer(
                             TowardNegInf,
                         ),
+                        checked: Reported,
                     },
                     left: Name(
                         "a",
@@ -151,6 +158,7 @@ expression: functions
                 Binary {
                     op: Rem {
                         sign: Divisor,
+                        checked: Reported,
                     },
                     left: Name(
                         "a",
@@ -178,11 +186,12 @@ expression: functions
         ret: Int,
         body: [
             Return(
-                Neg(
-                    Name(
+                Neg {
+                    value: Name(
                         "a",
                     ),
-                ),
+                    checked: Reported,
+                },
             ),
         ],
         doc: None,

@@ -1,6 +1,5 @@
 ---
 source: tests/fixtures.rs
-assertion_line: 52
 expression: functions
 ---
 [
@@ -50,13 +49,14 @@ expression: functions
                         },
                         then: [
                             Return(
-                                Neg(
-                                    Literal(
+                                Neg {
+                                    value: Literal(
                                         Int(
                                             1,
                                         ),
                                     ),
-                                ),
+                                    checked: Reported,
+                                },
                             ),
                         ],
                         otherwise: [

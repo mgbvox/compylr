@@ -1439,7 +1439,7 @@ mod folding {
 mod modes_python_cannot_write {
     use super::*;
     use compylr_diagnostics::span::Span;
-    use compylr_ir::{BinOp, DivMode, Expr, Function, Param, RemSign, Rounding, Stmt, Ty};
+    use compylr_ir::{BinOp, Checked, DivMode, Expr, Function, Param, RemSign, Rounding, Stmt, Ty};
 
     /// A unit holding one function `op(a, b) -> int` applying `op` to its two parameters.
     fn binary_unit(op: BinOp) -> Unit {
@@ -1473,6 +1473,7 @@ mod modes_python_cannot_write {
     fn division_rounding_toward_zero_truncates() {
         let unit = binary_unit(BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Reported,
         });
         let out = run_unit(
             "mode_div_trunc",
@@ -1489,6 +1490,7 @@ mod modes_python_cannot_write {
     fn division_rounding_toward_negative_infinity_floors() {
         let unit = binary_unit(BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Reported,
         });
         let out = run_unit(
             "mode_div_floor",
@@ -1504,6 +1506,7 @@ mod modes_python_cannot_write {
     fn remainder_taking_the_sign_of_the_dividend() {
         let unit = binary_unit(BinOp::Rem {
             sign: RemSign::Dividend,
+            checked: Checked::Reported,
         });
         let out = run_unit(
             "mode_rem_trunc",
@@ -1519,6 +1522,7 @@ mod modes_python_cannot_write {
     fn remainder_taking_the_sign_of_the_divisor() {
         let unit = binary_unit(BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         });
         let out = run_unit(
             "mode_rem_floor",
@@ -1556,6 +1560,7 @@ mod modes_python_cannot_write {
                     base: Box::new(Expr::name("xs")),
                     index: Box::new(Expr::name("i")),
                     origin,
+                    checked: Checked::Reported,
                 })],
                 doc: None,
                 span: Span::default(),
@@ -1639,9 +1644,16 @@ mod modes_python_cannot_write {
                     "quotient",
                     BinOp::Div {
                         mode: DivMode::Integer(rounding),
+                        checked: Checked::Reported,
                     },
                 ),
-                ("remainder", BinOp::Rem { sign }),
+                (
+                    "remainder",
+                    BinOp::Rem {
+                        sign,
+                        checked: Checked::Reported,
+                    },
+                ),
             ] {
                 unit.add_function(Function {
                     name: name.to_string(),

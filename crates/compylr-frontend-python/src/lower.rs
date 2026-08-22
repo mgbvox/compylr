@@ -43,7 +43,15 @@ use crate::spelling::{PythonOperator, PythonTypeName};
 /// `3`.
 const PY_TRUE_DIV: BinOp = BinOp::Div {
     mode: DivMode::Exact,
+    checked: PY_CHECKED,
 };
+
+/// Python reports every arithmetic failure: an overflow, a zero divisor, an index out of range.
+///
+/// One constant rather than five because Python's answer is the same on every axis that has one.
+/// A language whose answers differed per axis would need five, which is why the *behavior* model
+/// carries them separately even though this frontend does not.
+const PY_CHECKED: Checked = Checked::Reported;
 
 /// Python's `//`: integer division rounding toward negative infinity, so `-7 // 2` is `-4`.
 ///
@@ -51,6 +59,7 @@ const PY_TRUE_DIV: BinOp = BinOp::Div {
 /// makes the difference something a backend reproduces rather than something it guesses.
 const PY_FLOOR_DIV: BinOp = BinOp::Div {
     mode: DivMode::Integer(Rounding::TowardNegInf),
+    checked: PY_CHECKED,
 };
 
 /// Python's `%`: the result takes the sign of the divisor, so `-7 % 2` is `1`.
@@ -60,6 +69,7 @@ const PY_FLOOR_DIV: BinOp = BinOp::Div {
 /// the truncating one.
 const PY_MOD: BinOp = BinOp::Rem {
     sign: RemSign::Divisor,
+    checked: PY_CHECKED,
 };
 
 /// Python's `xs[i]`: a negative index counts backwards from the end, so `xs[-1]` is the last.
@@ -76,8 +86,8 @@ const PY_INDEX_ORIGIN: IndexOrigin = IndexOrigin::FromEitherEnd;
 const PY_TEXT_UNITS: TextUnits = TextUnits::CodePoints;
 use compylr_diagnostics::error::{LowerError, LowerErrorKind};
 use compylr_ir::{
-    Attribute, BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param, RemSign,
-    Rounding, Stmt, TextUnits, Ty, returns_on_all_paths,
+    Attribute, BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param,
+    RemSign, Rounding, Stmt, TextUnits, Ty, returns_on_all_paths,
 };
 
 /// Remove a trailing bare `return` from a constructor, and reject one anywhere else.
@@ -1103,6 +1113,7 @@ fn lower_subscript(
                 base: Box::new(base),
                 index: Box::new(index),
                 origin: PY_INDEX_ORIGIN,
+                checked: PY_CHECKED,
             },
             None,
         ));
@@ -1161,6 +1172,7 @@ fn lower_subscript(
             base: Box::new(base),
             index: Box::new(index),
             origin: PY_INDEX_ORIGIN,
+            checked: PY_CHECKED,
         },
         result,
     ))
@@ -2338,7 +2350,7 @@ fn lower_bare_binding(
 /// Result type of an arithmetic operator applied to two determined operand types.
 fn arithmetic_result(op: BinOp, left: &Ty, right: &Ty) -> Option<Ty> {
     // Python's `+` is overloaded on strings; every other arithmetic operator is numeric only.
-    if op == BinOp::Add && *left == Ty::Str && *right == Ty::Str {
+    if matches!(op, BinOp::Add { .. }) && *left == Ty::Str && *right == Ty::Str {
         return Some(Ty::Str);
     }
     if !left.is_numeric() || !right.is_numeric() {
@@ -2470,13 +2482,25 @@ fn lower_expr(
             UnaryOp::USub => {
                 let (operand, ty) = lower_expr(&unary.operand, scope, names)?;
                 match ty {
-                    Some(ty) if ty.is_numeric() => Ok((Expr::Neg(Box::new(operand)), Some(ty))),
+                    Some(ty) if ty.is_numeric() => Ok((
+                        Expr::Neg {
+                            value: Box::new(operand),
+                            checked: PY_CHECKED,
+                        },
+                        Some(ty),
+                    )),
                     Some(ty) => Err(err(
                         LowerErrorKind::TypeMismatch,
                         format!("cannot negate a value of type '{}'", ty.python_name()),
                         expr,
                     )),
-                    None => Ok((Expr::Neg(Box::new(operand)), None)),
+                    None => Ok((
+                        Expr::Neg {
+                            value: Box::new(operand),
+                            checked: PY_CHECKED,
+                        },
+                        None,
+                    )),
                 }
             }
             UnaryOp::UAdd => Err(err(
@@ -2497,9 +2521,15 @@ fn lower_expr(
         },
         PyExpr::BinOp(binary) => {
             let op = match binary.op {
-                Operator::Add => BinOp::Add,
-                Operator::Sub => BinOp::Sub,
-                Operator::Mult => BinOp::Mul,
+                Operator::Add => BinOp::Add {
+                    checked: PY_CHECKED,
+                },
+                Operator::Sub => BinOp::Sub {
+                    checked: PY_CHECKED,
+                },
+                Operator::Mult => BinOp::Mul {
+                    checked: PY_CHECKED,
+                },
                 Operator::Div => PY_TRUE_DIV,
                 Operator::FloorDiv => PY_FLOOR_DIV,
                 Operator::Mod => PY_MOD,
@@ -2887,7 +2917,9 @@ mod tests {
         assert_eq!(
             f.body,
             vec![Stmt::Return(Expr::binary(
-                BinOp::Add,
+                BinOp::Add {
+                    checked: PY_CHECKED
+                },
                 Expr::name("a"),
                 Expr::name("b")
             ))]
@@ -2951,9 +2983,24 @@ mod tests {
     #[test]
     fn all_supported_operators_lower() {
         for (symbol, expected) in [
-            ("+", BinOp::Add),
-            ("-", BinOp::Sub),
-            ("*", BinOp::Mul),
+            (
+                "+",
+                BinOp::Add {
+                    checked: PY_CHECKED,
+                },
+            ),
+            (
+                "-",
+                BinOp::Sub {
+                    checked: PY_CHECKED,
+                },
+            ),
+            (
+                "*",
+                BinOp::Mul {
+                    checked: PY_CHECKED,
+                },
+            ),
             ("//", PY_FLOOR_DIV),
             ("%", PY_MOD),
         ] {
@@ -2986,7 +3033,13 @@ mod tests {
     #[test]
     fn literals_and_negation_lower() {
         let f = lower_one("def f() -> int:\n    return -7\n");
-        assert_eq!(f.body[0], Stmt::Return(Expr::Neg(Box::new(Expr::int(7)))));
+        assert_eq!(
+            f.body[0],
+            Stmt::Return(Expr::Neg {
+                value: Box::new(Expr::int(7)),
+                checked: PY_CHECKED,
+            })
+        );
 
         let g = lower_one("def g() -> bool:\n    return True\n");
         assert_eq!(g.body[0], Stmt::Return(Expr::bool(true)));

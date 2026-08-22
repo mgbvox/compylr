@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 
 use compylr_diagnostics::span::Span;
 use compylr_ir::{
-    Attribute, BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param, RemSign,
-    Rounding, Stmt, TextUnits, Ty, Unit,
+    Attribute, BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param,
+    RemSign, Rounding, Stmt, TextUnits, Ty, Unit,
 };
 
 fn param(name: &str, ty: Ty) -> Param {
@@ -103,22 +103,36 @@ fn operators() -> Unit {
     let mut body = vec![Stmt::Bind {
         name: "acc".to_string(),
         ty: Ty::Int,
-        value: binary(BinOp::Add, Expr::name("a"), Expr::name("b")),
+        value: binary(
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
+            Expr::name("a"),
+            Expr::name("b"),
+        ),
     }];
     for op in [
-        BinOp::Sub,
-        BinOp::Mul,
+        BinOp::Sub {
+            checked: Checked::Reported,
+        },
+        BinOp::Mul {
+            checked: Checked::Reported,
+        },
         BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Reported,
         },
         BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Reported,
         },
         BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         },
         BinOp::Rem {
             sign: RemSign::Dividend,
+            checked: Checked::Reported,
         },
     ] {
         body.push(Stmt::Assign {
@@ -170,6 +184,7 @@ fn operators() -> Unit {
                 vec![Stmt::Return(binary(
                     BinOp::Div {
                         mode: DivMode::Exact,
+                        checked: Checked::Reported,
                     },
                     Expr::name("a").to_float(),
                     Expr::name("b").to_float(),
@@ -179,7 +194,10 @@ fn operators() -> Unit {
                 "negation",
                 vec![param("a", Ty::Int)],
                 Ty::Int,
-                vec![Stmt::Return(Expr::Neg(Box::new(Expr::name("a"))))],
+                vec![Stmt::Return(Expr::Neg {
+                    value: Box::new(Expr::name("a")),
+                    checked: Checked::Reported,
+                })],
             ),
             function(
                 "literals",
@@ -263,6 +281,7 @@ fn collections() -> Unit {
                             base: Box::new(Expr::name("xs")),
                             index: Box::new(int(0)),
                             origin: IndexOrigin::FromEitherEnd,
+                            checked: Checked::Reported,
                         },
                     },
                     Stmt::Bind {
@@ -274,7 +293,9 @@ fn collections() -> Unit {
                         },
                     },
                     Stmt::Return(binary(
-                        BinOp::Add,
+                        BinOp::Add {
+                            checked: Checked::Reported,
+                        },
                         Expr::name("first"),
                         Expr::name("second"),
                     )),
@@ -297,7 +318,13 @@ fn collections() -> Unit {
                         body: vec![Stmt::Assign {
                             name: "total".to_string(),
                             ty: Ty::Int,
-                            value: binary(BinOp::Add, Expr::name("total"), Expr::name("x")),
+                            value: binary(
+                                BinOp::Add {
+                                    checked: Checked::Reported,
+                                },
+                                Expr::name("total"),
+                                Expr::name("x"),
+                            ),
                         }],
                     },
                     Stmt::Return(Expr::name("total")),
@@ -336,7 +363,13 @@ fn control_flow() -> Unit {
                             otherwise: vec![Stmt::Assign {
                                 name: "total".to_string(),
                                 ty: Ty::Int,
-                                value: binary(BinOp::Add, Expr::name("total"), Expr::name("i")),
+                                value: binary(
+                                    BinOp::Add {
+                                        checked: Checked::Reported,
+                                    },
+                                    Expr::name("total"),
+                                    Expr::name("i"),
+                                ),
                             }],
                         },
                         Stmt::If {
@@ -351,7 +384,13 @@ fn control_flow() -> Unit {
                     body: vec![Stmt::Assign {
                         name: "total".to_string(),
                         ty: Ty::Int,
-                        value: binary(BinOp::Add, Expr::name("total"), int(1)),
+                        value: binary(
+                            BinOp::Add {
+                                checked: Checked::Reported,
+                            },
+                            Expr::name("total"),
+                            int(1),
+                        ),
                     }],
                 },
                 Stmt::Return(Expr::name("total")),
@@ -393,7 +432,9 @@ fn classes() -> Unit {
                 name: "count".to_string(),
                 ty: Ty::Int,
                 value: binary(
-                    BinOp::Add,
+                    BinOp::Add {
+                        checked: Checked::Reported,
+                    },
                     Expr::Attribute {
                         object: Box::new(Expr::name("self")),
                         name: "count".to_string(),
@@ -482,7 +523,13 @@ fn calls() -> Unit {
                 "helper",
                 vec![param("n", Ty::Int)],
                 Ty::Int,
-                vec![Stmt::Return(binary(BinOp::Mul, Expr::name("n"), int(2)))],
+                vec![Stmt::Return(binary(
+                    BinOp::Mul {
+                        checked: Checked::Reported,
+                    },
+                    Expr::name("n"),
+                    int(2),
+                ))],
             ),
             Function {
                 doc: Some("Documented, so a backend that carries docs is exercised.".to_string()),
