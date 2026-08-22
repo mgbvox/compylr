@@ -1,3 +1,3 @@
 # Inspiration
 
-Projects that compyle takes inspiration from.
+Projects that the `compyle` project takes inspiration from.
