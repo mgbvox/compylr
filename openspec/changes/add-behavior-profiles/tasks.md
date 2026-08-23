@@ -200,11 +200,11 @@
 
 ## 12. Final verification
 
-- [ ] 12.1 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 12.1 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`
-- [ ] 12.2 `cargo llvm-cov --workspace --ignore-filename-regex '(vendored/|/main\.rs)'
+- [x] 12.2 `cargo llvm-cov --workspace --ignore-filename-regex '(vendored/|/main\.rs)'
       --summary-only`, with the venv deactivated, and confirm coverage has not regressed
-- [ ] 12.3 `pytest` including slow tests, `ruff check python/`, `mypy python/compylr`
-- [ ] 12.4 Confirm `python/fixtures/` was never linted, and that no fixture was edited by a
+- [x] 12.3 `pytest` including slow tests, `ruff check python/`, `mypy python/compylr`
+- [x] 12.4 Confirm `python/fixtures/` was never linted, and that no fixture was edited by a
       formatter during this change
-- [ ] 12.5 Re-read the delta specs against what was built and reconcile any drift before archiving
+- [x] 12.5 Re-read the delta specs against what was built and reconcile any drift before archiving
