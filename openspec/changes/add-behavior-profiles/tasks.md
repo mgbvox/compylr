@@ -101,28 +101,28 @@
 
 ## 7. Native emission in the Rust backend
 
-- [ ] 7.1 Write emission tests asserting the emitted *form*, which is legitimate here because the
+- [x] 7.1 Write emission tests asserting the emitted *form*, which is legitimate here because the
       form is the property: an unchecked integer add with a known expected type emits a bare `+`
       with no `?`; a reported one emits the helper unchanged; unchecked truncating division emits
       `/`; unchecked remainder taking the sign of the dividend emits `%`; unchecked indexing from
       the start emits native indexing; UTF-8 length emits Rust's own length
-- [ ] 7.2 Write a test that a flooring division declaring `Unchecked` still emits a flooring
+- [x] 7.2 Write a test that a flooring division declaring `Unchecked` still emits a flooring
       helper, since Rust's `/` does not floor — the combination is reachable and is the likeliest
       thing to get wrong
-- [ ] 7.3 Write execution tests over a hand-built unit (no Python involved) covering both stances
+- [x] 7.3 Write execution tests over a hand-built unit (no Python involved) covering both stances
       of every axis, so a backend defect cannot hide behind the Python frontend's choices
-- [ ] 7.4 Add the infallible `NativeAdd`/`NativeNum` shims to `runtime.rs`, with unit tests in
+- [x] 7.4 Add the infallible `NativeAdd`/`NativeNum` shims to `runtime.rs`, with unit tests in
       `tests/runtime.rs`. Keep the file self-contained — it is embedded verbatim into every
       generated crate
-- [ ] 7.5 Emit natively in `emit_binop`, `emit_expr`'s `Neg`, `Subscript`, and `Len` where the
+- [x] 7.5 Emit natively in `emit_binop`, `emit_expr`'s `Neg`, `Subscript`, and `Len` where the
       node's modes are Rust's own; fall back to the infallible shim where the expected type is
       `Ty::Unit` (design D6)
-- [ ] 7.6 Write a test that an all-unchecked function's signature is the same fallible one it would
+- [x] 7.6 Write a test that an all-unchecked function's signature is the same fallible one it would
       have had under the default behavior, and that its body contains no `?` (design D7)
-- [ ] 7.7 Extend the `(form, position)` matrix in `tests/conformance.rs` with a stance dimension,
+- [x] 7.7 Extend the `(form, position)` matrix in `tests/conformance.rs` with a stance dimension,
       scoped as design D15 states: every form carrying a mode, in every position it is legal in,
       under both stances of its axis
-- [ ] 7.8 fmt, clippy, test; commit
+- [x] 7.8 fmt, clippy, test; commit
 
 ## 8. Host bindings and CLI
 

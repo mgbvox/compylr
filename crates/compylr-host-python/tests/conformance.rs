@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 
 use compylr_diagnostics::span::Span;
 use compylr_ir::{
-    Attribute, BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param,
-    RemSign, Rounding, Stmt, TextUnits, Ty, Unit,
+    Attribute, Axis, Behavior, BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin,
+    Literal, Param, RemSign, Rounding, Stance, Stmt, TextUnits, Ty, Unit,
 };
 
 fn param(name: &str, ty: Ty) -> Param {
@@ -762,6 +762,184 @@ fn positions() -> Unit {
 }
 
 /// The corpus, by name.
+/// One binding per mode-carrying form, under one language's stance.
+///
+/// Named by `tag` so the two stances can sit side by side in one body without colliding, which is
+/// what lets a single entry cover both halves of every axis in every position.
+fn stance_bindings(tag: &str, behavior: Behavior) -> Vec<Stmt> {
+    let named = |what: &str| format!("{what}_{tag}");
+    let int_bind = |what: &str, value: Expr| Stmt::Bind {
+        name: named(what),
+        ty: Ty::Int,
+        value,
+    };
+
+    vec![
+        // The overflow axis, on all four operations that carry it.
+        int_bind(
+            "sum",
+            binary(
+                BinOp::Add {
+                    checked: behavior.arithmetic(),
+                },
+                Expr::name("a"),
+                Expr::name("b"),
+            ),
+        ),
+        int_bind(
+            "diff",
+            binary(
+                BinOp::Sub {
+                    checked: behavior.arithmetic(),
+                },
+                Expr::name("a"),
+                Expr::name("b"),
+            ),
+        ),
+        int_bind(
+            "prod",
+            binary(
+                BinOp::Mul {
+                    checked: behavior.arithmetic(),
+                },
+                Expr::name("a"),
+                Expr::name("b"),
+            ),
+        ),
+        int_bind(
+            "neg",
+            Expr::Neg {
+                value: Box::new(Expr::name("a")),
+                checked: behavior.arithmetic(),
+            },
+        ),
+        int_bind(
+            "quot",
+            binary(
+                behavior.integer_division(),
+                Expr::name("a"),
+                Expr::name("b"),
+            ),
+        ),
+        int_bind(
+            "rem",
+            binary(behavior.remainder(), Expr::name("a"), Expr::name("b")),
+        ),
+        int_bind(
+            "elem",
+            Expr::Subscript {
+                base: Box::new(Expr::name("xs")),
+                index: Box::new(int(0)),
+                origin: behavior.index_origin(),
+                checked: behavior.index_checked(),
+            },
+        ),
+        int_bind(
+            "size",
+            Expr::Len {
+                value: Box::new(Expr::name("s")),
+                units: behavior.text_units(),
+            },
+        ),
+        // Exact division promotes both operands, so this one is a float.
+        Stmt::Bind {
+            name: named("exact"),
+            ty: Ty::Float,
+            value: binary(
+                behavior.exact_division(),
+                Expr::to_float(Expr::name("a")),
+                Expr::to_float(Expr::name("b")),
+            ),
+        },
+    ]
+}
+
+/// Both languages' stances on every axis, in every position a body can be.
+///
+/// The corpus was written entirely under the source language's stance, which made it a good test
+/// of one half of every axis and no test at all of the other. A backend arm that handled only
+/// `Reported` would have rendered every entry correctly and been wrong for every program that
+/// asked for the target's meaning.
+///
+/// Scoped as design D15 states: the forms that *carry* a mode, in every position they are legal
+/// in, under both stances of the axis governing each. The full cross product with every
+/// statement form is neither necessary nor affordable — a form with no mode is unaffected by
+/// behavior by construction, and a test asserting that would be asserting the absence of a field.
+fn stances() -> Unit {
+    let python = Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR);
+    let rust = Behavior::of(
+        compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior(),
+    );
+
+    // Both stances, then the same again inside a loop: four positions in total once the class
+    // below repeats the pair in a constructor and a method.
+    let both = |suffix: &str| {
+        let mut body = stance_bindings(&format!("py{suffix}"), python);
+        body.extend(stance_bindings(&format!("rs{suffix}"), rust));
+        body
+    };
+
+    let with_loop = || {
+        let mut body = both("");
+        body.push(Stmt::For {
+            name: "i".to_string(),
+            ty: Ty::Int,
+            iter: Expr::Range {
+                start: Box::new(int(0)),
+                stop: Box::new(int(2)),
+                step: Box::new(int(1)),
+            },
+            body: both("_in_loop"),
+        });
+        body
+    };
+
+    let params = || {
+        vec![
+            param("a", Ty::Int),
+            param("b", Ty::Int),
+            param("xs", Ty::List(Box::new(Ty::Int))),
+            param("s", Ty::Str),
+        ]
+    };
+
+    let mut free = with_loop();
+    free.push(Stmt::Return(int(0)));
+
+    let mut init_body = with_loop();
+    init_body.push(Stmt::SetAttr {
+        object: Expr::name("self"),
+        name: "seen".to_string(),
+        ty: Ty::Int,
+        value: int(0),
+    });
+
+    let mut method_body = with_loop();
+    method_body.push(Stmt::Return(int(0)));
+
+    let class = Class {
+        name: "Stances".to_string(),
+        attributes: vec![Attribute {
+            name: "seen".to_string(),
+            ty: Ty::Int,
+        }],
+        init: function("__init__", params(), Ty::Unit, init_body),
+        methods: BTreeMap::from([(
+            "measure".to_string(),
+            function("measure", params(), Ty::Int, method_body),
+        )]),
+        doc: None,
+        span: Span::default(),
+    };
+
+    unit_of(
+        vec![function("both_stances", params(), Ty::Int, free)],
+        vec![class],
+    )
+}
+
 fn corpus() -> Vec<(&'static str, Unit)> {
     vec![
         ("types", types()),
@@ -771,6 +949,7 @@ fn corpus() -> Vec<(&'static str, Unit)> {
         ("classes", classes()),
         ("calls", calls()),
         ("positions", positions()),
+        ("stances", stances()),
     ]
 }
 
@@ -1045,6 +1224,220 @@ fn the_corpus_covers_every_statement_form_in_every_position_it_is_legal_in() {
     assert!(
         missing.is_empty(),
         "these (form, position) pairs are not exercised by any corpus entry:\n  {}",
+        missing.join("\n  ")
+    );
+}
+
+/// Which axis governs a node, and which language's stance it declares.
+///
+/// `None` for a node no axis governs, and — deliberately — for a mode *combination* that is
+/// neither language's. `Div { mode: Integer(TowardNegInf), checked: Unchecked }` is a real and
+/// reachable node, and it is not Python's stance and not Rust's; counting it as either would
+/// report coverage the corpus does not have.
+fn declared_stance(
+    expr: &Expr,
+    python: &Behavior,
+    rust: &Behavior,
+) -> Option<(Axis, &'static str)> {
+    let axis = match expr {
+        Expr::Neg { .. } => Axis::IntegerOverflow,
+        Expr::Len { .. } => Axis::TextLength,
+        Expr::Subscript { .. } => Axis::SequenceIndex,
+        Expr::Binary { op, .. } => match op {
+            BinOp::Add { .. } | BinOp::Sub { .. } | BinOp::Mul { .. } => Axis::IntegerOverflow,
+            BinOp::Div {
+                mode: DivMode::Exact,
+                ..
+            } => Axis::ExactDivision,
+            BinOp::Div { .. } => Axis::IntegerDivision,
+            BinOp::Rem { .. } => Axis::Remainder,
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    // Compared against the two declarations rather than against literals, so this test keeps
+    // asking the same question if a language ever restates its stance.
+    let declared = node_stance(expr, axis)?;
+    if declared == python.stance(axis) {
+        Some((axis, "python"))
+    } else if declared == rust.stance(axis) {
+        Some((axis, "rust"))
+    } else {
+        None
+    }
+}
+
+/// The stance a node declares, as a value comparable against a language's.
+fn node_stance(expr: &Expr, axis: Axis) -> Option<Stance> {
+    Some(match (expr, axis) {
+        (Expr::Neg { checked, .. }, _) => Stance::IntegerOverflow(*checked),
+        (Expr::Len { units, .. }, _) => Stance::TextLength(*units),
+        (
+            Expr::Subscript {
+                origin, checked, ..
+            },
+            _,
+        ) => Stance::SequenceIndex(compylr_ir::SequenceIndex {
+            origin: *origin,
+            checked: *checked,
+        }),
+        (
+            Expr::Binary {
+                op: BinOp::Add { checked } | BinOp::Sub { checked } | BinOp::Mul { checked },
+                ..
+            },
+            _,
+        ) => Stance::IntegerOverflow(*checked),
+        (
+            Expr::Binary {
+                op:
+                    BinOp::Div {
+                        mode: DivMode::Exact,
+                        checked,
+                    },
+                ..
+            },
+            _,
+        ) => Stance::ExactDivision(*checked),
+        (
+            Expr::Binary {
+                op:
+                    BinOp::Div {
+                        mode: DivMode::Integer(rounding),
+                        checked,
+                    },
+                ..
+            },
+            _,
+        ) => Stance::IntegerDivision(compylr_ir::IntegerDivision {
+            rounding: *rounding,
+            checked: *checked,
+        }),
+        (
+            Expr::Binary {
+                op: BinOp::Rem { sign, checked },
+                ..
+            },
+            _,
+        ) => Stance::Remainder(compylr_ir::Remainder {
+            sign: *sign,
+            checked: *checked,
+        }),
+        _ => return None,
+    })
+}
+
+/// Every form carrying a mode must be exercised under **both** stances of its axis, in every
+/// position a body can be.
+///
+/// The third dimension design D15 asks for, scoped as it says. Before this, the corpus was
+/// written entirely under the source language's stance — so a backend arm handling only
+/// `Reported` would have rendered every entry correctly while being wrong for every program that
+/// asked for the target's meaning. No test written in Python could have caught that either, since
+/// the only frontend reports everything.
+#[test]
+fn the_corpus_covers_both_stances_of_every_axis_in_every_position() {
+    let python = Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR);
+    let rust = Behavior::of(
+        compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior(),
+    );
+
+    let mut seen: BTreeMap<(Axis, &'static str), Vec<Position>> = BTreeMap::new();
+    let mut record = |expr: &Expr, position: Position| {
+        if let Some(key) = declared_stance(expr, &python, &rust) {
+            let positions = seen.entry(key).or_default();
+            if !positions.contains(&position) {
+                positions.push(position);
+            }
+        }
+    };
+
+    fn walk(stmts: &[Stmt], position: Position, record: &mut impl FnMut(&Expr, Position)) {
+        for stmt in stmts {
+            let mut visit = |expr: &Expr| expr.walk(&mut |node| record(node, position));
+            match stmt {
+                Stmt::Return(expr) | Stmt::Effect(expr) => visit(expr),
+                Stmt::Bind { value, .. } | Stmt::Assign { value, .. } => visit(value),
+                Stmt::SetAttr { object, value, .. } => {
+                    visit(object);
+                    visit(value);
+                }
+                Stmt::SetItem {
+                    collection,
+                    index,
+                    value,
+                } => {
+                    visit(collection);
+                    visit(index);
+                    visit(value);
+                }
+                Stmt::Append { sequence, value } => {
+                    visit(sequence);
+                    visit(value);
+                }
+                Stmt::If {
+                    test,
+                    then,
+                    otherwise,
+                } => {
+                    visit(test);
+                    walk(then, position, record);
+                    walk(otherwise, position, record);
+                }
+                Stmt::While { test, body } => {
+                    visit(test);
+                    walk(body, Position::Loop, record);
+                }
+                Stmt::For { iter, body, .. } => {
+                    visit(iter);
+                    walk(body, Position::Loop, record);
+                }
+                Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => {}
+            }
+        }
+    }
+
+    for (_, unit) in corpus() {
+        for function in unit.functions() {
+            walk(&function.body, Position::FreeFunction, &mut record);
+        }
+        for class in unit.classes() {
+            walk(&class.init.body, Position::Constructor, &mut record);
+            for method in class.methods.values() {
+                walk(&method.body, Position::Method, &mut record);
+            }
+        }
+    }
+
+    let positions = [
+        Position::FreeFunction,
+        Position::Constructor,
+        Position::Method,
+        Position::Loop,
+    ];
+    let mut missing = Vec::new();
+    for axis in Axis::ALL {
+        for language in ["python", "rust"] {
+            for position in positions {
+                let covered = seen
+                    .get(&(axis, language))
+                    .is_some_and(|at| at.contains(&position));
+                if !covered {
+                    missing.push(format!(
+                        "{} under {language}'s stance, in {}",
+                        axis.code(),
+                        position.name()
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "these (axis, stance, position) triples are not exercised by any corpus entry:\n  {}",
         missing.join("\n  ")
     );
 }
