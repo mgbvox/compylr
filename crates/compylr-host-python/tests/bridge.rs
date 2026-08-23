@@ -344,3 +344,97 @@ mod cross_source_inference {
         }
     }
 }
+
+/// A behavior travels with each source, not with the call.
+///
+/// The property that makes mixed behavior within one project work at all: the decorator captures
+/// each marked member as its own source, so a per-call setting could not express a project whose
+/// members differ. What follows from that is that a call *between* two of them is an ordinary
+/// call, because the meanings ride on the nodes rather than on anything the call has to know.
+mod behavior_per_source {
+    use compylr_core::{BehaviorRequest, Source};
+    use compylr_ir::{BinOp, Checked, DivMode, Expr, Rounding, Stmt};
+
+    use super::*;
+
+    fn rust_source(text: &str) -> Source {
+        let behavior =
+            compylr::resolve_behavior(&BehaviorRequest::language("rust"), "python", "rust")
+                .expect("both languages of the pair resolve");
+        Source::new(text, behavior)
+    }
+
+    const FLOOR: &str = "def floor_it(a: int, b: int) -> int:\n    return a // b\n";
+
+    fn rounding_of(unit: &compylr_ir::Unit, name: &str) -> (Rounding, Checked) {
+        match &unit.get(name).expect("the fixture defines it").body[0] {
+            Stmt::Return(Expr::Binary {
+                op:
+                    BinOp::Div {
+                        mode: DivMode::Integer(rounding),
+                        checked,
+                    },
+                ..
+            }) => (*rounding, *checked),
+            other => panic!("unexpected body: {other:?}"),
+        }
+    }
+
+    /// Two sources, two behaviors, one unit — and each function keeps its own meanings.
+    #[test]
+    fn each_source_keeps_the_behavior_it_was_given() {
+        let unit = compylr_registry::frontends::lookup("python")
+            .unwrap()
+            .lower(&[
+                py_source(FLOOR),
+                rust_source("def truncate_it(a: int, b: int) -> int:\n    return a // b\n"),
+            ])
+            .expect("must lower");
+
+        assert_eq!(
+            rounding_of(&unit, "floor_it"),
+            (Rounding::TowardNegInf, Checked::Reported)
+        );
+        assert_eq!(
+            rounding_of(&unit, "truncate_it"),
+            (Rounding::TowardZero, Checked::Unchecked)
+        );
+    }
+
+    #[test]
+    fn an_omitted_behavior_is_the_source_languages_stance() {
+        let inherited = compylr::resolve_behavior(&BehaviorRequest::inherit(), "python", "rust")
+            .expect("must resolve");
+        assert_eq!(
+            inherited.axes(),
+            &compylr_frontend_python::component::PYTHON_BEHAVIOR
+        );
+    }
+
+    /// A call across the boundary types and resolves exactly as a same-behavior call would.
+    #[test]
+    fn a_cross_behavior_call_resolves() {
+        let compiled = compile(
+            &[
+                py_source("def outer(a: int) -> int:\n    return inner(a)\n"),
+                rust_source("def inner(a: int) -> int:\n    return a + 1\n"),
+            ],
+            "rust",
+        )
+        .expect("a call between two behaviors is an ordinary call");
+
+        assert_eq!(compiled.function_names, ["inner", "outer"]);
+    }
+
+    /// The same source under two behaviors is two different programs, so two fingerprints.
+    ///
+    /// This is what makes a behavior change rebuild without any new machinery: the modes are part
+    /// of what the program computes, so they reach the rebuild key the way everything else does.
+    #[test]
+    fn the_same_source_under_two_behaviors_fingerprints_differently() {
+        let under_python = compile(&[py_source(FLOOR)], "rust").unwrap();
+        let under_rust = compile(&[rust_source(FLOOR)], "rust").unwrap();
+
+        assert_ne!(under_python.fingerprint, under_rust.fingerprint);
+    }
+}

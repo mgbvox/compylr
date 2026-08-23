@@ -36,7 +36,7 @@ const DEFAULT_BACKEND: &str = "rust";
 
 const USAGE: &str = "\
 usage: compylr [--emit summary|ir|rust|crate] [--out DIR]
-               [--frontend NAME] [--backend NAME] <file>
+               [--frontend NAME] [--backend NAME] [--behavior SPEC] <file>
 
   --emit summary   unit fingerprint and each function's signature (default)
   --emit ir        the IR artifact, as JSON
@@ -45,6 +45,10 @@ usage: compylr [--emit summary|ir|rust|crate] [--out DIR]
   --out DIR        destination for --emit crate
   --frontend NAME  source language (default: python)
   --backend NAME   target backend (default: rust)
+  --behavior SPEC  which language supplies the meaning of each operation:
+                   a language name for every axis, or comma-separated
+                   axis=language assignments. Unnamed axes take the source
+                   language's meaning, which is also the default.
 ";
 
 /// What the CLI should print.
@@ -80,6 +84,12 @@ struct Options {
     frontend: String,
     backend: String,
     out: Option<PathBuf>,
+    /// What the user asked of each axis, before it is resolved against the two languages.
+    ///
+    /// Held unresolved because resolution needs the components, and parsing must not depend on
+    /// which languages happen to be registered — an unknown *axis* is a mistake worth reporting
+    /// even for a pair that would itself have been refused.
+    behavior: BehaviorRequest,
 }
 
 /// Parse arguments by hand.
@@ -92,6 +102,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut frontend = DEFAULT_FRONTEND.to_string();
     let mut backend = DEFAULT_BACKEND.to_string();
     let mut out: Option<PathBuf> = None;
+    let mut behavior = BehaviorRequest::inherit();
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -108,6 +119,10 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
             }
             "--out" => {
                 out = Some(PathBuf::from(args.next().ok_or("--out needs a value")?));
+            }
+            "--behavior" => {
+                let value = args.next().ok_or("--behavior needs a value")?;
+                behavior = parse_behavior(&value)?;
             }
             "-h" | "--help" => return Err(String::new()),
             other if other.starts_with('-') => {
@@ -128,6 +143,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
         frontend,
         backend,
         out,
+        behavior,
     };
     // Required rather than defaulted: writing several files somewhere the user did not name is a
     // side effect a command should not have.
@@ -159,6 +175,39 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Parse `--behavior`: either a language name, or comma-separated `axis=language` assignments.
+///
+/// A bare name is expanded to every axis rather than kept as a second shape, so "naming a
+/// language means naming it for all six" is true by construction here too.
+///
+/// An unknown *axis* is rejected at parse time, before any component is resolved. That is
+/// deliberate: silently dropping `floor_div=rust` would compile the program the user did not ask
+/// for and say nothing about it. An unknown *language* cannot be judged yet — which two are
+/// acceptable depends on the pair — so it is left for resolution.
+fn parse_behavior(spec: &str) -> Result<BehaviorRequest, String> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Err("--behavior needs a language name or axis=language assignments".to_string());
+    }
+
+    if !spec.contains('=') {
+        return Ok(BehaviorRequest::language(spec));
+    }
+
+    let mut pairs = Vec::new();
+    for assignment in spec.split(',') {
+        let assignment = assignment.trim();
+        let (axis, language) = assignment.split_once('=').ok_or_else(|| {
+            format!(
+                "'{assignment}' is not an axis=language assignment; \
+                 --behavior takes a language name or comma-separated axis=language pairs"
+            )
+        })?;
+        pairs.push((axis.trim().to_string(), language.trim().to_string()));
+    }
+    BehaviorRequest::from_pairs(pairs).map_err(|error| error.to_string())
 }
 
 /// Resolve a behavior request against the two languages this run compiles between.
@@ -198,6 +247,10 @@ fn run(options: &Options) -> Result<String, String> {
     // Resolved the same way the backend is, and reporting the same three answers. A reserved
     // source language reads as planned rather than as a typo.
     let frontend = frontends::lookup(&options.frontend).map_err(|error| error.to_string())?;
+    // Resolved beside the components and before the file is touched, for the reason they are:
+    // a user who both named a behavior that does not exist and mistyped the path should hear
+    // about the behavior, not about whichever thing the code happened to reach first.
+    let behavior = resolve_behavior(&options.behavior, frontend, backend)?;
 
     let source = std::fs::read_to_string(&options.path)
         .map_err(|error| format!("could not read {}: {error}", options.path.display()))?;
@@ -205,8 +258,6 @@ fn run(options: &Options) -> Result<String, String> {
     // The frontend does the parsing and the assembly. Reading the file is this crate's business
     // because the trait takes text: the decorator's sources come from a live function object and
     // may correspond to no file at all.
-    // Resolved before the file is parsed, so an invalid behavior is reported without a parse.
-    let behavior = resolve_behavior(&BehaviorRequest::inherit(), frontend, backend)?;
     let mut unit = frontend
         .lower(&[Source::new(source, behavior)])
         .map_err(|error| error.to_string())?;

@@ -287,3 +287,177 @@ mod frontends {
         );
     }
 }
+
+/// `--behavior`, which is what makes "what does this compile to under X?" answerable without a
+/// build.
+mod behavior {
+    use super::*;
+
+    const ARITHMETIC: &str = "python/fixtures/accepted/arithmetic.py";
+
+    #[test]
+    fn the_default_is_the_source_languages_stance() {
+        let plain = cli(&["--emit", "rust", ARITHMETIC]);
+        assert!(plain.status.success(), "{}", stderr(&plain));
+
+        let named = cli(&["--emit", "rust", "--behavior", "python", ARITHMETIC]);
+        assert!(named.status.success(), "{}", stderr(&named));
+
+        assert_eq!(
+            stdout(&plain),
+            stdout(&named),
+            "naming the source language must be exactly what omitting the flag means"
+        );
+        assert!(
+            stdout(&plain).contains("PyAdd::py_add"),
+            "the default must still reproduce Python's meanings:\n{}",
+            stdout(&plain)
+        );
+    }
+
+    #[test]
+    fn a_language_name_sets_every_axis() {
+        let output = cli(&["--emit", "rust", "--behavior", "rust", ARITHMETIC]);
+        assert!(output.status.success(), "{}", stderr(&output));
+
+        let out = stdout(&output);
+        assert!(
+            out.contains("((a) + (b))"),
+            "every axis should have taken the target's stance:\n{out}"
+        );
+        assert!(
+            !out.contains("PyAdd::py_add"),
+            "and none should have been left on the source language's:\n{out}"
+        );
+    }
+
+    /// One axis named; the other five inherit.
+    #[test]
+    fn per_axis_assignments_leave_the_rest_alone() {
+        let output = cli(&[
+            "--emit",
+            "rust",
+            "--behavior",
+            "integer_overflow=rust",
+            ARITHMETIC,
+        ]);
+        assert!(output.status.success(), "{}", stderr(&output));
+
+        let out = stdout(&output);
+        assert!(
+            out.contains("((a) + (b))"),
+            "the named axis takes the target's stance:\n{out}"
+        );
+        assert!(
+            out.contains("div_floor"),
+            "and integer division, unnamed, keeps the source language's:\n{out}"
+        );
+    }
+
+    #[test]
+    fn several_axes_may_be_assigned_at_once() {
+        let output = cli(&[
+            "--emit",
+            "rust",
+            "--behavior",
+            "integer_overflow=rust,integer_division=rust",
+            ARITHMETIC,
+        ]);
+        assert!(output.status.success(), "{}", stderr(&output));
+
+        let out = stdout(&output);
+        assert!(out.contains("((a) + (b))"), "{out}");
+        assert!(
+            !out.contains("div_floor"),
+            "integer division was named too:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_language_that_is_neither_of_the_two_is_rejected() {
+        let output = cli(&["--emit", "rust", "--behavior", "haskell", ARITHMETIC]);
+        assert!(!output.status.success());
+
+        let err = stderr(&output);
+        assert!(err.contains("haskell"), "{err}");
+        assert!(err.contains("python") && err.contains("rust"), "{err}");
+    }
+
+    /// A reserved target is a different mistake from a name compylr has never heard of.
+    #[test]
+    fn a_known_language_outside_the_pair_is_rejected_distinctly() {
+        let reserved = stderr(&cli(&["--emit", "rust", "--behavior", "go", ARITHMETIC]));
+        let unknown = stderr(&cli(&[
+            "--emit",
+            "rust",
+            "--behavior",
+            "haskell",
+            ARITHMETIC,
+        ]));
+
+        assert!(reserved.contains("go"), "{reserved}");
+        assert_ne!(
+            reserved.replace("go", "X"),
+            unknown.replace("haskell", "X"),
+            "a language compylr knows but cannot use here must not read as a typo"
+        );
+    }
+
+    #[test]
+    fn an_unknown_axis_is_rejected_listing_the_axes_that_exist() {
+        let output = cli(&["--emit", "rust", "--behavior", "floor_div=rust", ARITHMETIC]);
+        assert!(!output.status.success());
+
+        let err = stderr(&output);
+        assert!(err.contains("floor_div"), "{err}");
+        assert!(
+            err.contains("integer_division"),
+            "the message must list what would have worked:\n{err}"
+        );
+    }
+
+    /// An invalid behavior is reported before the file is read, not after.
+    #[test]
+    fn an_invalid_behavior_is_rejected_before_any_source_is_parsed() {
+        let output = cli(&[
+            "--emit",
+            "rust",
+            "--behavior",
+            "haskell",
+            "does-not-exist.py",
+        ]);
+        assert!(!output.status.success());
+        assert!(
+            !stderr(&output).contains("does-not-exist"),
+            "the behavior is resolved first, so the missing file is never reached: {}",
+            stderr(&output)
+        );
+    }
+
+    /// The IR and the target source agree with each other, and with what was asked for.
+    ///
+    /// The property that would break first if the backend ever decided from something other than
+    /// the node: the modes written into `.compylr/` are what a reader is told the program means,
+    /// and the emitted source is what it actually does.
+    #[test]
+    fn the_ir_and_the_emitted_source_agree_under_a_non_default_behavior() {
+        let ir = cli(&["--emit", "ir", "--behavior", "rust", ARITHMETIC]);
+        assert!(ir.status.success(), "{}", stderr(&ir));
+        let ir = stdout(&ir);
+
+        assert!(
+            ir.contains("\"checked\": \"Unchecked\""),
+            "the IR must record what was asked for:\n{}",
+            &ir[..ir.len().min(600)]
+        );
+        assert!(
+            !ir.contains("\"checked\": \"Reported\""),
+            "every axis was named, so nothing should still report"
+        );
+        assert!(ir.contains("TowardZero"), "{ir}");
+
+        let rust = stdout(&cli(&["--emit", "rust", "--behavior", "rust", ARITHMETIC]));
+        assert!(rust.contains("((a) + (b))"), "{rust}");
+        assert!(!rust.contains("py_add"), "{rust}");
+    }
+}

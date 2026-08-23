@@ -126,21 +126,21 @@
 
 ## 8. Host bindings and CLI
 
-- [ ] 8.1 Write tests that `_core` accepts a behavior per source, that an omitted one is the source
+- [x] 8.1 Write tests that `_core` accepts a behavior per source, that an omitted one is the source
       language's stance, that a cross-behavior call resolves, and that the same source under two
       behaviors reports two different fingerprints
-- [ ] 8.2 Change `compile_unit` to take `(source, behavior)` pairs. Leave `validate_source`
+- [x] 8.2 Change `compile_unit` to take `(source, behavior)` pairs. Leave `validate_source`
       unchanged — acceptance does not depend on behavior (design D9)
-- [ ] 8.3 Add `check_behavior(frontend, backend, mapping)`, mirroring `check_backend`, carrying a
+- [x] 8.3 Add `check_behavior(frontend, backend, mapping)`, mirroring `check_backend`, carrying a
       stable failure category so the Python side branches without matching prose
-- [ ] 8.4 Update `_core.pyi`
-- [ ] 8.5 Write CLI tests: no behavior means the source language's stance; a language name sets
+- [x] 8.4 Update `_core.pyi`
+- [x] 8.5 Write CLI tests: no behavior means the source language's stance; a language name sets
       every axis; per-axis assignments work; an invalid language and an unknown axis each exit
       unsuccessfully before parsing; the IR and the Rust emitted for one file under a non-default
       behavior agree with each other
-- [ ] 8.6 Add `--behavior` to `compylr-cli`, accepting a language name or comma-separated
+- [x] 8.6 Add `--behavior` to `compylr-cli`, accepting a language name or comma-separated
       `axis=language` assignments
-- [ ] 8.7 fmt, clippy, test; commit
+- [x] 8.7 fmt, clippy, test; commit
 
 ## 9. The Python API
 
