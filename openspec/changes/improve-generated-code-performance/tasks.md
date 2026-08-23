@@ -111,15 +111,15 @@
 
 These carry no design risk and land regardless of whether section 8 does.
 
-- [ ] 7.1 Add a workload to the demo whose body does asymptotically less work than converting its
+- [x] 7.1 Add a workload to the demo whose body does asymptotically less work than converting its
       arguments costs — a search over a sorted list is the clearest — so the shape where compiling
       loses is visible in the benchmark
-- [ ] 7.2 Confirm the demo already covers a collection of text; `text.word_count` does
-- [ ] 7.3 Document in `demo/README.md` that a collection parameter costs time proportional to its
+- [x] 7.2 Confirm the demo already covers a collection of text; `text.word_count` does
+- [x] 7.3 Document in `demo/README.md` that a collection parameter costs time proportional to its
       length on **every call**, with the measured per-element figures, and that a function doing
       less work than its arguments cost to convert may be slower compiled
-- [ ] 7.4 Correct any README prose implying compiled is always at least as fast
-- [ ] 7.5 `cd demo && uv run pytest && uv run ruff check . && uv run mypy src`; commit
+- [x] 7.4 Correct any README prose implying compiled is always at least as fast
+- [x] 7.5 `cd demo && uv run pytest && uv run ruff check . && uv run mypy src`; commit
 
 ## 8. The boundary — borrowed text parameters
 

@@ -17,9 +17,9 @@ other.
 What this table is for is the **spread**. A demo that reported one speedup would be hiding the
 thing worth knowing: compiling is not uniformly good. Arithmetic in a tight loop wins by a lot,
 because there is nothing for the interpreter to do but dispatch. Work that is mostly moving a
-large collection across the boundary wins by much less, because the conversion is real and the
-interpreted version was already calling into C. And `joined` **loses**, because it is quadratic
-string concatenation either way and Python's `str` is very good at it.
+large collection across the boundary can lose even when its generated body is faster, because
+conversion is real and happens on every call. `binary_search` makes that shape explicit: all n
+integers cross so its body can inspect only about log2(n) of them.
 
 `reference` is the control: it is never compiled, so its ratio is what "no difference" looks like
 on the machine you ran this on. Read every other row against that rather than against 1.0.
@@ -118,6 +118,7 @@ def workloads(scale: int) -> list[Workload]:
     graph = {node: [(node * 7 + step) % nodes for step in range(1, 4)] for node in range(nodes)}
     edges = [(source.randrange(nodes), source.randrange(nodes)) for _ in range(nodes)]
     ordered = sorted(numbers)
+    search_values = list(range(500 * scale))
 
     return [
         # The control. Never compiled, so its ratio is this run's noise floor.
@@ -125,6 +126,14 @@ def workloads(scale: int) -> list[Workload]:
         Workload("merge_sort", "sorting.merge_sort", lambda: sorting.merge_sort(numbers)),
         Workload(
             "insertion_sort", "sorting.insertion_sort", lambda: sorting.insertion_sort(ordered)
+        ),
+        # Converting this whole list is O(n); the binary-search body reads only O(log n) elements.
+        # At scale four that is 2,000 converted integers for about eleven comparisons, making the
+        # boundary rather than the generated body the measured work.
+        Workload(
+            "binary_search",
+            "sorting.binary_search",
+            lambda: sorting.binary_search(search_values, len(search_values) - 1),
         ),
         Workload("sieve", "arithmetic.sieve", lambda: arithmetic.sieve(200 * scale)),
         Workload(

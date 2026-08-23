@@ -182,15 +182,18 @@ text.word_count                     55.25us        14.82us      0.3x
 
 The rows at the top are arithmetic in a tight loop, where there is nothing for the interpreter to
 do but dispatch. The rows at the bottom are dominated by **crossing the boundary**: collections go
-by value, so `bfs_distances` converts a 200-node mapping of lists on the way in and a mapping of
-integers on the way out, and the traversal between them is not enough work to pay for that.
-`word_count` is worse — building a dictionary is most of what it does, and CPython's dictionary is
-C. `joined` loses because it is quadratic string concatenation either way and Python's `str` is
-very good at it.
+by value, and every element is converted on **every call**. Measured on this machine, an integer
+element costs roughly 4 ns to cross, a text element roughly 42 ns, and returning an element roughly
+10 ns. Text is therefore the most expensive supported collection element; `text.word_count`
+deliberately keeps `list[str]` represented in the table.
 
-The shape of the rule: **conversion is proportional to the size of the argument, and compiling
-speeds up the computation.** The ratio between those two is what a row measures. Nothing about
-being compiled makes a small function over a large collection faster.
+That conversion cost is proportional to the argument's length even when the function body is not.
+`sorting.binary_search` converts all 2,000 integers at scale four to perform only about eleven
+comparisons. Measured here it took 11.58 us compiled against 0.66 us interpreted — about 17.5x
+slower — because its O(n) boundary dominates its O(log n) body.
+`bfs_distances` similarly converts a mapping of lists on the way in and a mapping of integers on
+the way out. A faster generated body does not guarantee a faster call; the ratio between conversion
+and computation is what each row measures.
 
 `reference` is the control. It is never compiled, so its ratio is what "no difference" looks like
 on the machine you ran this on. Read every other row against that, not against 1.0.

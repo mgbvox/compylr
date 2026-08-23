@@ -127,6 +127,10 @@ class TestTheNthPrimeTable:
 
 
 class TestTheAlgorithmsTable:
+    def test_it_includes_a_conversion_dominated_binary_search(self) -> None:
+        workloads = {workload.key: workload for workload in benchmark.workloads(scale=4)}
+        assert workloads["binary_search"].label == "sorting.binary_search"
+
     def test_it_lists_every_workload_and_reports_agreement(
         self, algorithm_runs: tuple[dict[str, Any], dict[str, Any]]
     ) -> None:
