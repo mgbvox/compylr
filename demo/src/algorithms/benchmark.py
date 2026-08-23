@@ -4,8 +4,15 @@
     python -m algorithms.benchmark --scale 4    # bigger inputs
 
 The method is `_timing`'s and is shared with `nth_prime.benchmark`: two processes, batches rather
-than single calls, and the best batch rather than the mean. Read that module before trusting a
-number from this one.
+than single calls, the best batch rather than the mean, and every batch kept so a figure can be
+read with its uncertainty. Read that module before trusting a number from this one.
+
+**Read the speedup column against the noise floor, not against 1.0.** The floor comes from the
+never-compiled `reference` row, whose true ratio is exactly 1.0 by construction, so whatever it
+reports instead is this machine's noise. A row that does not clear the floor prints "not
+resolvable" rather than a ratio — several workloads here move by more between identical runs than
+the improvements anyone would want to measure, and a bare number would invite reading one as the
+other.
 
 What this table is for is the **spread**. A demo that reported one speedup would be hiding the
 thing worth knowing: compiling is not uniformly good. Arithmetic in a tight loop wins by a lot,
@@ -28,7 +35,21 @@ from dataclasses import dataclass
 from random import Random
 from typing import Any, TypedDict
 
-from ._timing import DISABLE_ENV, REPETITIONS, compylr_enabled, measure_in_child, per_call
+from ._timing import (
+    DISABLE_ENV,
+    NOT_RESOLVABLE,
+    REPETITIONS,
+    UNSTABLE_MARK,
+    UNSTABLE_SPREAD,
+    Timing,
+    compylr_enabled,
+    format_ratio,
+    measure_call,
+    measure_in_child,
+    noise_floor,
+    uncertainty,
+    unstable,
+)
 
 #: Fixed, so the two processes measure the same work and two runs are comparable.
 SEED = 20260821
@@ -40,7 +61,9 @@ class Measurement(TypedDict):
     compiled: bool
     scale: int
     repetitions: int
-    seconds: dict[str, float]
+    #: Every batch's seconds-per-call, not just the best. The spread between them is the only
+    #: evidence a reader has about whether the best means anything.
+    samples: dict[str, list[float]]
     answers: dict[str, str]
 
 
@@ -141,17 +164,17 @@ def workloads(scale: int) -> list[Workload]:
 
 def measure(scale: int, repetitions: int = REPETITIONS) -> Measurement:
     """Time every workload in *this* process's mode."""
-    seconds: dict[str, float] = {}
+    samples: dict[str, list[float]] = {}
     answers: dict[str, str] = {}
     for workload in workloads(scale):
         # Called once first, so the first call's module resolution is not timed with the work.
         answers[workload.key] = _signature(workload.call())
-        seconds[workload.key] = per_call(workload.call, repetitions)
+        samples[workload.key] = list(measure_call(workload.call, repetitions).samples)
     return Measurement(
         compiled=compylr_enabled(),
         scale=scale,
         repetitions=repetitions,
-        seconds=seconds,
+        samples=samples,
         answers=answers,
     )
 
@@ -166,34 +189,70 @@ def _run_child(scale: int, repetitions: int, *, disabled: bool) -> Measurement:
     return measured
 
 
-def format_comparison(compiled: Measurement, interpreted: Measurement) -> str:
-    """The comparison, as a table sorted by how much compiling helped."""
-    fast, slow = compiled["seconds"], interpreted["seconds"]
-    labels = {workload.key: workload.label for workload in workloads(compiled["scale"])}
+def _timings(measured: Measurement) -> dict[str, Timing]:
+    """Every workload's batches, as timings that know their own spread."""
+    return {key: Timing(tuple(batches)) for key, batches in measured["samples"].items()}
 
-    ranked = sorted(fast, key=lambda key: -(slow[key] / fast[key]) if fast[key] else 0.0)
+
+def format_comparison(compiled: Measurement, interpreted: Measurement) -> str:
+    """The comparison, as a table sorted by how much compiling helped.
+
+    Every ratio is read against a floor rather than against 1.0, and a ratio that does not clear
+    its floor is named rather than printed. A table of bare numbers invites exactly the mistake
+    this benchmark exists to prevent: reading a 1.1x off a harness that moves by 30%.
+    """
+    fast, slow = _timings(compiled), _timings(interpreted)
+    labels = {workload.key: workload.label for workload in workloads(compiled["scale"])}
+    floor = noise_floor(fast["reference"], slow["reference"])
+
+    ranked = sorted(
+        fast, key=lambda key: -(slow[key].best / fast[key].best) if fast[key].best else 0.0
+    )
     lines = [
         (
             f"every algorithm, scale={compiled['scale']}, per call, "
             f"best of {compiled['repetitions']} batches"
         ),
         "",
-        f"{'workload':<30}{'compiled':>13}{'interpreted':>15}{'speedup':>10}",
-        f"{'-' * 30}{'-' * 13}{'-' * 15}{'-' * 10}",
+        f"{'workload':<32}{'compiled':>13}{'interpreted':>15}{'spread':>9}{'speedup':>17}",
+        f"{'-' * 32}{'-' * 13}{'-' * 15}{'-' * 9}{'-' * 17}",
     ]
+    shaky = []
     for key in ranked:
-        quick, slowly = fast[key] * 1e6, slow[key] * 1e6
-        ratio = f"{slowly / quick:.1f}x" if quick > 0 else "n/a"
-        lines.append(f"{labels[key]:<30}{quick:>11.2f}us{slowly:>13.2f}us{ratio:>10}")
+        quick, slowly = fast[key], slow[key]
+        mark = UNSTABLE_MARK if unstable(quick, slowly) else ""
+        if mark:
+            shaky.append(labels[key])
+        # The wider of the two modes: it is what limits what this row can support.
+        widest = max(quick.spread, slowly.spread)
+        ratio = (
+            format_ratio(slowly.best / quick.best, uncertainty(floor, quick, slowly))
+            if quick.best > 0
+            else "n/a"
+        )
+        lines.append(
+            f"{labels[key] + mark:<32}{quick.best * 1e6:>11.2f}us"
+            f"{slowly.best * 1e6:>13.2f}us{widest:>8.0%}{ratio:>17}"
+        )
 
-    floor = slow["reference"] / fast["reference"] if fast["reference"] else 0.0
     lines += [
         "",
         (
-            f"The reference is never compiled, so its {floor:.2f}x is this run's noise floor — "
-            "read every other row against that, not against 1.0."
+            f"The reference is never compiled, so its true ratio is exactly 1.0 and everything it "
+            f"reports instead is this run's noise floor: {floor:.0%}. A row closer to 1.0 "
+            f'than that reads "{NOT_RESOLVABLE}" rather than a figure, because it would be one.'
+        ),
+        (
+            "`spread` is how far the slowest batch ran from the fastest, in the mode that varied "
+            "more. A row must clear its own spread as well as the floor to report a figure."
         ),
     ]
+    if shaky:
+        lines.append(
+            f"{UNSTABLE_MARK} marks a workload whose batches varied by more than "
+            f"{UNSTABLE_SPREAD:.0%}: unstable enough that its own figure is not worth reading. "
+            f"({', '.join(shaky)})"
+        )
 
     disagreed = [key for key in fast if compiled["answers"][key] != interpreted["answers"][key]]
     if disagreed:

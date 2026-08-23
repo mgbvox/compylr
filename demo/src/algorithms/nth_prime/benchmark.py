@@ -14,6 +14,11 @@ member is left exactly as written, so an interpreted call stays interpreted all 
 
 Timings are the **best** of several repetitions rather than the mean. Noise only ever adds, so the
 minimum is the closest estimate of the work itself; a mean mostly measures the machine's mood.
+
+Every batch is kept, though, not only the best, because the spread between them is the only
+evidence a reader has that the best means anything. A ratio is read against the noise floor the
+never-compiled reference establishes, and one that does not clear it prints "not resolvable"
+instead of a figure.
 """
 
 from __future__ import annotations
@@ -25,7 +30,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TypedDict
 
-from .._timing import DISABLE_ENV, REPETITIONS, compylr_enabled, measure_in_child, per_call
+from .._timing import (
+    DISABLE_ENV,
+    NOT_RESOLVABLE,
+    REPETITIONS,
+    UNSTABLE_MARK,
+    UNSTABLE_SPREAD,
+    Timing,
+    compylr_enabled,
+    format_ratio,
+    measure_call,
+    measure_in_child,
+    noise_floor,
+    uncertainty,
+    unstable,
+)
 
 
 class Measurement(TypedDict):
@@ -39,7 +58,9 @@ class Measurement(TypedDict):
     compiled: bool
     n: int
     repetitions: int
-    seconds: dict[str, float]
+    #: Every batch's seconds-per-call, not just the best. The spread between them is the only
+    #: evidence a reader has about whether the best means anything.
+    samples: dict[str, list[float]]
     answers: dict[str, int]
 
 
@@ -84,27 +105,27 @@ def measure(n: int, repetitions: int = REPETITIONS) -> Measurement:
     """Time every workload in *this* process's mode."""
     from . import memoized
 
-    seconds: dict[str, float] = {}
+    samples: dict[str, list[float]] = {}
     answers: dict[str, int] = {}
 
     for workload in workloads():
         build = workload.build
         # Called once first so the first call's module resolution is not timed with the work.
         answers[workload.key] = build()(n)
-        seconds[workload.key] = per_call(_fresh_call(build, n), repetitions)
+        samples[workload.key] = list(measure_call(_fresh_call(build, n), repetitions).samples)
 
     # The warm cache, which is the entire point of memoizing: a second request for an `n` this
     # instance has already answered.
     warm = memoized.PrimeCache()
     warm.nth(n)
-    seconds["memoized_warm"] = per_call(lambda: warm.nth(n), repetitions)
+    samples["memoized_warm"] = list(measure_call(lambda: warm.nth(n), repetitions).samples)
     answers["memoized_warm"] = warm.nth(n)
 
     return Measurement(
         compiled=compylr_enabled(),
         n=n,
         repetitions=repetitions,
-        seconds=seconds,
+        samples=samples,
         answers=answers,
     )
 
@@ -129,28 +150,56 @@ ROWS = [
 ]
 
 
+def _timings(measured: Measurement) -> dict[str, Timing]:
+    """Every variant's batches, as timings that know their own spread."""
+    return {key: Timing(tuple(batches)) for key, batches in measured["samples"].items()}
+
+
 def format_comparison(compiled: Measurement, interpreted: Measurement) -> str:
-    """The comparison, as a table."""
-    fast = compiled["seconds"]
-    slow = interpreted["seconds"]
+    """The comparison, as a table.
+
+    Read the same way as the breadth benchmark's, and by the same code: a ratio is compared
+    against a floor rather than against 1.0, and one that does not clear its floor is named
+    instead of printed.
+    """
+    fast, slow = _timings(compiled), _timings(interpreted)
+    floor = noise_floor(fast["reference"], slow["reference"])
 
     lines = [
         f"nth prime, n={compiled['n']}, per call, best of {compiled['repetitions']} batches",
         "",
-        f"{'variant':<28}{'compiled':>13}{'interpreted':>15}{'speedup':>10}",
-        f"{'-' * 28}{'-' * 13}{'-' * 15}{'-' * 10}",
+        f"{'variant':<30}{'compiled':>13}{'interpreted':>15}{'spread':>9}{'speedup':>17}",
+        f"{'-' * 30}{'-' * 13}{'-' * 15}{'-' * 9}{'-' * 17}",
     ]
+    shaky = []
     for key, label in ROWS:
-        a, b = fast[key] * 1e6, slow[key] * 1e6
-        ratio = f"{b / a:.1f}x" if a > 0 else "n/a"
-        lines.append(f"{label:<28}{a:>11.2f}us{b:>13.2f}us{ratio:>10}")
+        quick, slowly = fast[key], slow[key]
+        mark = UNSTABLE_MARK if unstable(quick, slowly) else ""
+        if mark:
+            shaky.append(label)
+        widest = max(quick.spread, slowly.spread)
+        ratio = (
+            format_ratio(slowly.best / quick.best, uncertainty(floor, quick, slowly))
+            if quick.best > 0
+            else "n/a"
+        )
+        lines.append(
+            f"{label + mark:<30}{quick.best * 1e6:>11.2f}us"
+            f"{slowly.best * 1e6:>13.2f}us{widest:>8.0%}{ratio:>17}"
+        )
 
     lines.append("")
-    floor = slow["reference"] / fast["reference"] if fast["reference"] else 0.0
     lines.append(
-        f"The reference is never compiled, so its {floor:.2f}x is this run's noise floor — "
-        "read every other row against that, not against 1.0."
+        f"The reference is never compiled, so its true ratio is exactly 1.0 and everything it "
+        f"reports instead is this run's noise floor: {floor:.0%}. A row closer to 1.0 than "
+        f'that reads "{NOT_RESOLVABLE}" rather than a figure, because it would be one.'
     )
+    if shaky:
+        lines.append(
+            f"{UNSTABLE_MARK} marks a variant whose batches varied by more than "
+            f"{UNSTABLE_SPREAD:.0%}: unstable enough that its own figure is not worth reading. "
+            f"({', '.join(shaky)})"
+        )
 
     # A disagreement would make every timing above meaningless.
     mismatched = [key for key, _ in ROWS if compiled["answers"][key] != interpreted["answers"][key]]

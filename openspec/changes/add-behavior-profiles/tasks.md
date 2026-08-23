@@ -183,7 +183,7 @@
       is not
 - [ ] 11.3 Update `CLAUDE.md`: the axis set, that `Unchecked` is a statement about the program, the
       artifact version at 4, and the standing warning about `rm -rf .compylr` when emission changes
-- [ ] 11.4 **Prerequisite for everything below.** Make the benchmark report a measure of
+- [x] 11.4 **Prerequisite for everything below.** Make the benchmark report a measure of
       run-to-run spread alongside each timing instead of a single best-of figure, and record the
       resulting noise floor. `sorting.merge_sort` currently varies from 160us to 277us across
       *byte-identical* builds, so a behavior delta under roughly 30% cannot be told apart from the
