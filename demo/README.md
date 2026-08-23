@@ -157,26 +157,34 @@ make demo                                   # from the repository root
 uv run python -m algorithms.benchmark       # or directly, from here
 ```
 
-```
-workload                           compiled    interpreted   speedup
---------------------------------------------------------------------
-arithmetic.collatz_length            0.22us         4.71us     21.5x
-dynamic.knapsack                    16.42us       184.12us     11.2x
-structures.component_count           4.83us        45.87us      9.5x
-matrices.multiply                    7.37us        60.66us      8.2x
-arithmetic.sieve                     0.93us         6.64us      7.1x
-stats.standard_deviation             4.11us        14.52us      3.5x
-sorting.insertion_sort               3.82us         9.43us      2.5x
-dynamic.edit_distance               35.96us        83.47us      2.3x
-stats.normalize                      8.66us        17.89us      2.1x
-sorting.merge_sort                  66.34us       132.75us      2.0x
-graphs.topological_order           109.25us       160.03us      1.5x
-matrices.transpose                   4.34us         4.31us      1.0x
-reference (never compiled)          30.47us        29.99us      1.0x
-text.joined                         57.11us        46.08us      0.8x
-graphs.bfs_distances                37.91us        20.39us      0.5x
-text.word_count                     55.25us        14.82us      0.3x
-```
+The final clean scale-one run had a 0% control-row floor and 0–6% row spreads. The baseline is the
+table recorded before this change; `—` means the workload was added later or had no recorded
+baseline, not that it measured zero.
+
+| workload | before | after compiled | after interpreted | after |
+| --- | ---: | ---: | ---: | ---: |
+| `arithmetic.collatz_length` | 21.5x | 0.28us | 6.00us | 21.3x |
+| `dynamic.knapsack` | 11.2x | 13.35us | 241.51us | 18.1x |
+| `structures.component_count` | 9.5x | 4.73us | 59.94us | 12.7x |
+| `matrices.multiply` | 8.2x | 6.92us | 80.26us | 11.6x |
+| `arithmetic.sieve` | 7.1x | 0.96us | 8.83us | 9.2x |
+| `stats.standard_deviation` | 3.5x | 4.58us | 19.36us | 4.2x |
+| `sorting.merge_sort` | 2.0x | 43.48us | 178.01us | 4.1x |
+| `text.joined` | 0.8x | 17.69us | 62.37us | 3.5x |
+| `sorting.insertion_sort` | 2.5x | 3.72us | 12.56us | 3.4x |
+| `graphs.topological_order` | 1.5x | 66.36us | 209.08us | 3.2x |
+| `dynamic.edit_distance` | 2.3x | 38.90us | 110.64us | 2.8x |
+| `stats.normalize` | 2.1x | 9.56us | 23.69us | 2.5x |
+| `matrices.transpose` | 1.0x | 3.45us | 5.77us | 1.7x |
+| `graphs.bfs_distances` | 0.5x | 24.46us | 27.13us | 1.1x |
+| `reference` | 1.0x | 41.18us | 41.38us | not resolvable |
+| `text.word_count` | 0.3x | 26.22us | 15.37us | 0.6x |
+| `text.total_length` | — | 15.54us | 8.22us | 0.5x |
+| `sorting.binary_search` | — | 2.95us | 0.56us | 0.2x |
+
+`-C target-cpu=native` was also measured and rejected: no workload moved outside the noise floor,
+while the resulting artifact could fault if `.compylr` were copied to a machine with a different
+instruction set. The generated manifest has a test preventing that flag from being reintroduced.
 
 **The spread is the point.** A demo reporting one speedup would be hiding what is worth knowing.
 

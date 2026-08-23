@@ -9,6 +9,8 @@ anything.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -142,6 +144,30 @@ class TestToolchainChecks:
             pipeline.build(object())  # type: ignore[arg-type]
 
 
+class TestMakingTheExtensionImportable:
+    def test_uv_installs_into_the_running_virtual_environment(
+        self, pipeline: BuildPipeline, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        wheel = tmp_path / "generated.whl"
+        wheel.touch()
+        commands: list[list[str]] = []
+
+        monkeypatch.setattr("compylr._build._in_virtual_environment", lambda: True)
+        monkeypatch.setattr("compylr._build.shutil.which", lambda tool: "/usr/bin/uv")
+
+        def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        monkeypatch.setattr("compylr._build.subprocess.run", run)
+
+        pipeline._make_importable(wheel, "compylr_generated_test")
+
+        assert commands == [
+            ["uv", "pip", "install", "--python", sys.executable, "--force-reinstall", str(wheel)]
+        ]
+
+
 def _state(**overrides: object) -> dict[str, object]:
     """Recorded build state that this compylr would accept."""
     from compylr._build import _STATE_VERSION, _compiler_version
@@ -242,9 +268,7 @@ class TestTheArtifactStaysPortable:
         asserted against below. Matching raw text would make an explanation indistinguishable
         from a directive, and would punish recording the decision.
         """
-        return "\n".join(
-            line for line in text.splitlines() if not line.lstrip().startswith("#")
-        )
+        return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
     def _written(self, pipeline: BuildPipeline) -> tuple[str, str]:
         compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])

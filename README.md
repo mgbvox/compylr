@@ -147,10 +147,12 @@ and asserts it, and a test in this repository fails when a form is added to the 
 demo does not know about. **Depth** is `nth_prime`, one problem three ways, measured compiled
 against interpreted in two separate processes.
 
-The benchmark reports the spread rather than a headline: 21× for arithmetic in a tight loop, 8× for
-a matrix multiply, and **0.3× for building a dictionary**, where crossing the boundary costs more
-than the computation saves. Its README records what the subset costs as it shows up in real code,
-and the two defects the demo found — both of which produced plausible answers and no error.
+The benchmark reports the spread rather than promising that compiled is always faster. In the
+recorded scale-one run, arithmetic in a tight loop was 21.3× faster, matrix multiplication 11.6×,
+and text joining 3.5×; `text.word_count` was 0.6× and conversion-dominated binary search 0.2×.
+Collections are converted element by element on every call, so compiling pays when the generated
+body saves more than that boundary costs. The demo README records the complete before/after table,
+its noise floor, and the defects the benchmark found despite every answer being correct.
 
 ## Turning it off
 

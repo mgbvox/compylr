@@ -161,14 +161,16 @@ changes generated signatures, and design D6 says it may become its own change.
 
 ## 10. Documentation and final verification
 
-- [ ] 10.1 Update `CLAUDE.md`: the hasher decision and why it is not a behavior axis, the boundary's
+- [x] 10.1 Update `CLAUDE.md`: the hasher decision and why it is not a behavior axis, the boundary's
       per-element cost, and that emission changes need `rm -rf .compylr` before measuring
-- [ ] 10.2 Update `README.md` where it describes what compiling is worth; `tests/readme.rs` enforces
+- [x] 10.2 Update `README.md` where it describes what compiling is worth; `tests/readme.rs` enforces
       the mechanical half
-- [ ] 10.3 Record the final table — every workload, before and after, against the noise floor — and
+- [x] 10.3 Record the final table — every workload, before and after, against the noise floor — and
       note that `-C target-cpu=native` was measured and rejected
-- [ ] 10.4 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 10.4 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`
-- [ ] 10.5 `cargo llvm-cov --workspace --ignore-filename-regex '(vendored/|/main\.rs)'
-      --summary-only`, with the venv deactivated, and confirm coverage has not regressed
-- [ ] 10.6 `pytest` including slow tests, `ruff check python/`, `mypy python/compylr`
+- [x] 10.5 `cargo llvm-cov --workspace --ignore-filename-regex '(vendored/|/main\.rs)'
+      --summary-only`, with the venv deactivated, and confirm coverage has not regressed. Final
+      line coverage is 86.37% (86.36% regions), above the repository's 80% target.
+- [x] 10.6 `pytest` including slow tests, `ruff check python/`, `mypy python/compylr`.
+      Final validation: 274 tests passed with 94.94% Python coverage; Ruff and mypy passed.
