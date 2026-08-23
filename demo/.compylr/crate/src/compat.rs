@@ -163,6 +163,19 @@ impl PyAdd for String {
     }
 }
 
+/// Concatenate borrowed text while keeping generated results owned.
+pub fn py_str_add(left: &str, right: &str) -> String {
+    let mut joined = String::with_capacity(left.len() + right.len());
+    joined.push_str(left);
+    joined.push_str(right);
+    joined
+}
+
+/// Materialise text only at a site that requires an owned Python value.
+pub fn py_str_owned(value: &str) -> String {
+    value.to_owned()
+}
+
 /// In-place addition, for an accumulator that reads itself.
 ///
 /// The shape `x = x + y` is ordinary Python and, for text, quadratic when emitted as a rebuild:
@@ -175,9 +188,9 @@ impl PyAdd for String {
 /// accumulates and the emitter never has to know which type it is looking at. The numeric
 /// implementations keep the checked arithmetic of `py_add` exactly: an in-place update that
 /// stopped reporting overflow would be a change of meaning wearing the costume of an optimization.
-pub trait PyAddAssign {
+pub trait PyAddAssign<Rhs = Self> {
     /// Add or concatenate `rhs` into `self`.
-    fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError>;
+    fn py_add_assign(&mut self, rhs: &Rhs) -> Result<(), RuntimeError>;
 }
 
 impl PyAddAssign for i64 {
@@ -200,6 +213,16 @@ impl PyAddAssign for String {
     /// halves into it.
     fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError> {
         self.push_str(rhs);
+        Ok(())
+    }
+}
+
+impl<T> PyAddAssign<&T> for String
+where
+    T: AsRef<str> + ?Sized,
+{
+    fn py_add_assign(&mut self, rhs: &&T) -> Result<(), RuntimeError> {
+        self.push_str((*rhs).as_ref());
         Ok(())
     }
 }
@@ -540,7 +563,7 @@ pub fn py_str_len(value: &str, units: TextUnits) -> i64 {
 /// The origin reaches every implementation, including the ones it means nothing to. A mapping has
 /// no ends to count from, so its implementation ignores the argument — which is the cost of
 /// carrying the mode on a node that covers both container kinds.
-pub trait PyIndexable<I> {
+pub trait PyIndexable<I: ?Sized> {
     /// What reading an element yields.
     type Output;
     /// Read one element.
@@ -567,8 +590,19 @@ where
     }
 }
 
+impl<V: Clone, S: std::hash::BuildHasher> PyIndexable<&str>
+    for std::collections::HashMap<String, V, S>
+{
+    type Output = V;
+    fn py_get(&self, key: &&str, _origin: IndexOrigin) -> Result<V, RuntimeError> {
+        self.get(*key)
+            .cloned()
+            .ok_or_else(|| RuntimeError::MissingKey(format!("{key:?}")))
+    }
+}
+
 /// Read one element of a collection.
-pub fn py_subscript<C, I>(
+pub fn py_subscript<C, I: ?Sized>(
     collection: &C,
     index: &I,
     origin: IndexOrigin,
@@ -619,6 +653,17 @@ where
     }
 }
 
+impl<V, S, Q> PySetItem<&Q, V> for std::collections::HashMap<String, V, S>
+where
+    S: std::hash::BuildHasher,
+    Q: AsRef<str> + ?Sized,
+{
+    fn py_set(&mut self, key: &&Q, value: V) -> Result<(), RuntimeError> {
+        self.insert((*key).as_ref().to_owned(), value);
+        Ok(())
+    }
+}
+
 /// Borrowing one element of a collection so that it can be read *through*.
 ///
 /// The shared counterpart to [`PyPlace`], and the reason both exist: [`py_subscript`] hands back
@@ -626,7 +671,7 @@ where
 /// only passes through. `m[i][j]` cloned the whole row `m[i]` to read one element of it, so a
 /// matrix multiply allocated and copied a row per element access — O(n^4) work for an O(n^3)
 /// algorithm, with every answer correct. Nothing but a benchmark could find that.
-pub trait PyBorrow<I> {
+pub trait PyBorrow<I: ?Sized> {
     /// What one element is.
     type Item;
     /// Borrow one element.
@@ -655,8 +700,16 @@ where
     }
 }
 
+impl<V, S: std::hash::BuildHasher> PyBorrow<&str> for std::collections::HashMap<String, V, S> {
+    type Item = V;
+    fn py_borrow(&self, key: &&str, _origin: IndexOrigin) -> Result<&V, RuntimeError> {
+        self.get(*key)
+            .ok_or_else(|| RuntimeError::MissingKey(format!("{key:?}")))
+    }
+}
+
 /// Borrow one element of a collection, for reading through.
-pub fn py_borrow<'a, C, I>(
+pub fn py_borrow<'a, C, I: ?Sized>(
     collection: &'a C,
     index: &I,
     origin: IndexOrigin,
@@ -710,6 +763,18 @@ where
     }
 }
 
+impl<V, S, Q> PyPlace<&Q> for std::collections::HashMap<String, V, S>
+where
+    S: std::hash::BuildHasher,
+    Q: AsRef<str> + ?Sized,
+{
+    type Item = V;
+    fn py_place(&mut self, key: &&Q, _origin: IndexOrigin) -> Result<&mut V, RuntimeError> {
+        self.get_mut((*key).as_ref())
+            .ok_or_else(|| RuntimeError::MissingKey(format!("{:?}", (*key).as_ref())))
+    }
+}
+
 /// Borrow one element of a collection, for writing through.
 pub fn py_place<'a, C, I>(
     collection: &'a mut C,
@@ -751,6 +816,16 @@ where
     }
 }
 
+impl<V, S, Q> PyContains<&Q> for std::collections::HashMap<String, V, S>
+where
+    S: std::hash::BuildHasher,
+    Q: AsRef<str> + ?Sized,
+{
+    fn py_contains(&self, key: &&Q) -> bool {
+        self.contains_key((*key).as_ref())
+    }
+}
+
 impl<T, S> PyContains<T> for std::collections::HashSet<T, S>
 where
     T: std::hash::Hash + Eq,
@@ -761,11 +836,30 @@ where
     }
 }
 
+impl<S, Q> PyContains<&Q> for std::collections::HashSet<String, S>
+where
+    S: std::hash::BuildHasher,
+    Q: AsRef<str> + ?Sized,
+{
+    fn py_contains(&self, value: &&Q) -> bool {
+        self.contains((*value).as_ref())
+    }
+}
+
 impl PyContains<String> for String {
     fn py_contains(&self, value: &String) -> bool {
         // A substring test. `"ab" in "cab"` is true in Python, and a character-membership reading
         // would answer false.
         self.contains(value.as_str())
+    }
+}
+
+impl<T> PyContains<T> for str
+where
+    T: AsRef<str>,
+{
+    fn py_contains(&self, value: &T) -> bool {
+        self.contains(value.as_ref())
     }
 }
 
@@ -799,6 +893,12 @@ impl<T, S> PyLen for std::collections::HashSet<T, S> {
 
 impl PyLen for String {
     /// The one implementation the units decide — see [`py_str_len`].
+    fn py_len(&self, units: TextUnits) -> i64 {
+        py_str_len(self, units)
+    }
+}
+
+impl PyLen for str {
     fn py_len(&self, units: TextUnits) -> i64 {
         py_str_len(self, units)
     }

@@ -364,7 +364,7 @@ fn __compylr_export_24(n: i64) -> PyResult<Vec<i64>> {
 
 #[pyfunction]
 #[pyo3(name = "joined")]
-fn __compylr_export_25(words: Vec<String>, separator: String) -> PyResult<String> {
+fn __compylr_export_25(words: Vec<String>, separator: &str) -> PyResult<String> {
     generated::joined(words, separator).map_err(__compylr_to_py_err)
 }
 
@@ -424,7 +424,7 @@ fn __compylr_export_34(xs: Vec<i64>) -> PyResult<Vec<i64>> {
 
 #[pyfunction]
 #[pyo3(name = "missing")]
-fn __compylr_export_35(haystack: String, needles: Vec<String>) -> PyResult<Vec<String>> {
+fn __compylr_export_35(haystack: &str, needles: Vec<String>) -> PyResult<Vec<String>> {
     generated::missing(haystack, needles).map_err(__compylr_to_py_err)
 }
 
@@ -454,7 +454,7 @@ fn __compylr_export_39(xs: Vec<f64>) -> PyResult<Vec<f64>> {
 
 #[pyfunction]
 #[pyo3(name = "occurrences")]
-fn __compylr_export_40(haystack: String, needles: Vec<String>) -> PyResult<i64> {
+fn __compylr_export_40(haystack: &str, needles: Vec<String>) -> PyResult<i64> {
     generated::occurrences(haystack, needles).map_err(__compylr_to_py_err)
 }
 

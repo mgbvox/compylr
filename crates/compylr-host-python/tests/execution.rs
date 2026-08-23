@@ -228,14 +228,14 @@ fn remaining_operators_behave() {
             "def streq(a: str, b: str) -> bool:\n    return a == b\n",
         ),
         r#"
-    println!("{}", cat(String::from("a"), String::from("b")).unwrap());
+    println!("{}", cat("a", "b").unwrap());
     println!("{}", eq(1, 1).unwrap());
     println!("{}", ne(1, 2).unwrap());
     println!("{}", lt(1, 2).unwrap());
     println!("{}", le(2, 2).unwrap());
     println!("{}", gt(3, 2).unwrap());
     println!("{}", ge(2, 2).unwrap());
-    println!("{}", streq(String::from("x"), String::from("y")).unwrap());
+    println!("{}", streq("x", "y").unwrap());
 "#,
     );
     let lines: Vec<&str> = out.lines().collect();
@@ -255,7 +255,7 @@ fn a_string_used_twice_is_not_moved_on_first_use() {
         "strings",
         "def twice(s: str) -> str:\n    t = s + s\n    return t + s\n",
         r#"
-    println!("{}", twice(String::from("ab")).unwrap());
+    println!("{}", twice("ab").unwrap());
 "#,
     );
     assert_eq!(out.trim(), "ababab");
@@ -438,8 +438,8 @@ mod collections {
             r#"
     let mut d = compat::FastMap::default();
     d.insert(String::from("a"), 1i64);
-    println!("{}", get(d.clone(), String::from("a")).unwrap());
-    match get(d.clone(), String::from("zzz")) {
+    println!("{}", get(d.clone(), "a").unwrap());
+    match get(d.clone(), "zzz") {
         Err(e) => println!("{e}"),
         Ok(v) => println!("unexpected {v}"),
     }
@@ -464,9 +464,9 @@ mod collections {
                 "def items(xs: list[int]) -> int:\n    return len(xs)\n",
             ),
             r#"
-    println!("{}", size(String::from("abc")).unwrap());
-    println!("{}", size(String::from("é")).unwrap());
-    println!("{}", size(String::from("héllo")).unwrap());
+    println!("{}", size("abc").unwrap());
+    println!("{}", size("é").unwrap());
+    println!("{}", size("héllo").unwrap());
     println!("{}", items(vec![1i64, 2, 3]).unwrap());
 "#,
         );
@@ -523,7 +523,7 @@ mod collections {
             r#"
     let mut d = compat::FastMap::default();
     d.insert(String::from("k"), vec![42i64, 43]);
-    println!("{}", inner(d, String::from("k")).unwrap());
+    println!("{}", inner(d, "k").unwrap());
 "#,
         );
         assert_eq!(out.trim(), "42");
@@ -868,8 +868,8 @@ fn a_nested_read_borrows_the_intermediate_rather_than_cloning_it() {
     println!("{}", summed(m.clone(), 1).unwrap());
     let mut d = compat::FastMap::default();
     d.insert(String::from("k"), vec![7i64, 8]);
-    println!("{}", through_a_mapping(d.clone(), String::from("k"), 1).unwrap());
-    println!("{}", missing_row(d, String::from("absent")).is_err());
+    println!("{}", through_a_mapping(d.clone(), "k", 1).unwrap());
+    println!("{}", missing_row(d, "absent").is_err());
     println!("{}", cell(m, 9, 0).is_err());
 "#,
     );
@@ -981,10 +981,10 @@ fn a_write_through_a_nested_collection_reaches_the_original() {
         ),
         r#"
     println!("{:?}", diagonal(3).unwrap());
-    println!("{:?}", through_a_mapping(String::from("k"), 7).unwrap());
-    println!("{:?}", appended_through(String::from("k"), 7).unwrap());
+    println!("{:?}", through_a_mapping("k", 7).unwrap());
+    println!("{:?}", appended_through("k", 7).unwrap());
     println!("{:?}", deeper(7).unwrap());
-    println!("{}", missing_row(String::from("k")).is_err());
+    println!("{}", missing_row("k").is_err());
 "#,
     );
     let lines: Vec<&str> = out.lines().collect();
@@ -1075,10 +1075,10 @@ fn assigning_a_mapping_key_creates_or_replaces_it() {
             "    return d[k]\n",
         ),
         r#"
-    println!("{}", inserted(String::from("k"), 7).unwrap());
+    println!("{}", inserted("k", 7).unwrap());
     println!("{}", replaced(5).unwrap());
-    println!("{}", sized(String::from("k")).unwrap());
-    println!("{}", missing(String::from("absent")).is_err());
+    println!("{}", sized("k").unwrap());
+    println!("{}", missing("absent").is_err());
 "#,
     );
     let lines: Vec<&str> = out.lines().collect();
@@ -1111,10 +1111,10 @@ fn membership_means_what_each_container_means_by_it() {
     println!("{}", in_set(compat::FastSet::from_iter([1i64, 2]), 2).unwrap());
     let mut d = compat::FastMap::default();
     d.insert(String::from("a"), 7i64);
-    println!("{}", in_map(d.clone(), String::from("a")).unwrap());
-    println!("{}", in_map(d, String::from("7")).unwrap());
-    println!("{}", in_str(String::from("cab"), String::from("ab")).unwrap());
-    println!("{}", in_str(String::from("cab"), String::from("ba")).unwrap());
+    println!("{}", in_map(d.clone(), "a").unwrap());
+    println!("{}", in_map(d, "7").unwrap());
+    println!("{}", in_str("cab", "ab").unwrap());
+    println!("{}", in_str("cab", "ba").unwrap());
     println!("{}", not_in_list(vec![1, 2], 9).unwrap());
     println!("{}", not_in_list(vec![1, 2], 1).unwrap());
     println!("{}", tested_then_measured(vec![1, 2, 3], 2).unwrap());
@@ -1613,9 +1613,9 @@ mod modes_python_cannot_write {
             "    let s = \"\u{1f980}\".to_string();\n\
              \x20   println!(\n\
              \x20       \"{} {} {}\",\n\
-             \x20       code_points(s.clone()).unwrap(),\n\
-             \x20       utf8_bytes(s.clone()).unwrap(),\n\
-             \x20       utf16_units(s).unwrap(),\n\
+             \x20       code_points(&s).unwrap(),\n\
+             \x20       utf8_bytes(&s).unwrap(),\n\
+             \x20       utf16_units(&s).unwrap(),\n\
              \x20   );",
         );
         // One character outside the basic plane is the only input that separates all three.
@@ -1842,7 +1842,7 @@ fn string_accumulation_builds_the_same_text_as_before() {
         String::from("beta"),
         String::from("gamma"),
     ];
-    println!("{}", joined(words, String::from("-")).unwrap());
+    println!("{}", joined(words, "-").unwrap());
 "#,
     );
     assert_eq!(out.trim(), "alpha-beta-gamma-");
@@ -1862,7 +1862,7 @@ fn accumulation_preserves_order_for_non_ascii_text() {
             "    return out\n",
         ),
         r#"
-    println!("{}", grow(String::from("héllo·"), String::from("wörld✓")).unwrap());
+    println!("{}", grow("héllo·", "wörld✓").unwrap());
 "#,
     );
     assert_eq!(out.trim(), "héllo·wörld✓");
@@ -1881,7 +1881,7 @@ fn the_mirrored_form_still_prepends() {
             "    return out\n",
         ),
         r#"
-    println!("{}", prefixed(String::from("<<"), String::from(">>")).unwrap());
+    println!("{}", prefixed("<<", ">>").unwrap());
 "#,
     );
     assert_eq!(out.trim(), "<<>>");
@@ -1979,9 +1979,9 @@ fn a_chain_accumulation_keeps_its_order() {
         String::from("beta"),
         String::from("gamma"),
     ];
-    println!("{}", joined(words, String::from("-")).unwrap());
-    println!("{}", joined(vec![String::from("solo")], String::from("-")).unwrap());
-    println!("[{}]", joined(vec![], String::from("-")).unwrap());
+    println!("{}", joined(words, "-").unwrap());
+    println!("{}", joined(vec![String::from("solo")], "-").unwrap());
+    println!("[{}]", joined(vec![], "-").unwrap());
 "#,
     );
     let lines: Vec<&str> = out.lines().collect();
@@ -2156,11 +2156,11 @@ fn a_fused_update_of_a_missing_key_still_reports_and_does_not_create_it() {
             "    return len(counts)\n",
         ),
         r#"
-    match bump(String::from("present")) {
+    match bump("present") {
         Ok(size) => println!("ok {size}"),
         Err(error) => println!("reported: {error}"),
     }
-    match bump(String::from("absent")) {
+    match bump("absent") {
         Ok(size) => println!("no error, size {size}"),
         Err(error) => println!("reported: {error}"),
     }

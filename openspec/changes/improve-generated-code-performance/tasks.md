@@ -126,16 +126,21 @@ These carry no design risk and land regardless of whether section 8 does.
 Staged last and separable. **Stop and reassess before starting**: this is the only item that
 changes generated signatures, and design D6 says it may become its own change.
 
-- [ ] 8.1 Confirm the premise still holds — that a text parameter is never mutated in the accepted
+- [x] 8.1 Confirm the premise still holds — that a text parameter is never mutated in the accepted
       subset, so borrowing it is always legal
-- [ ] 8.2 Write execution tests over text parameters: measurement, comparison, membership, and
+- [x] 8.2 Write execution tests over text parameters: measurement, comparison, membership, and
       passing one into a nested call, all with non-ASCII input
-- [ ] 8.3 Prototype a borrowed text parameter in the generated bindings and confirm the lifetime
+- [x] 8.3 Prototype a borrowed text parameter in the generated bindings and confirm the lifetime
       does not force a change to the uniform result type
-- [ ] 8.4 If it does force one, stop, record what was learned, and split the rest into its own
-      change rather than widening this one
-- [ ] 8.5 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; record every text workload
-- [ ] 8.6 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 8.4 If it does force one, stop, record what was learned, and split the rest into its own
+      change rather than widening this one. It did not: parameters borrow for the call while text
+      results remain owned `String` values in the existing `Result<T, RuntimeError>` shape.
+- [x] 8.5 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; record every text workload.
+      Clean run: `text.joined` 75.61us compiled / 421.34us interpreted (5.6x, 1% spread),
+      `text.word_count` 101.12us / 69.30us (0.7x, 23% spread), and `text.total_length`
+      64.24us / 33.55us (0.5x, 3% spread), against a 12% reference noise floor. Both modes
+      returned the same answer for every workload.
+- [x] 8.6 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 9. The regression guard

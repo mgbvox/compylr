@@ -148,6 +148,11 @@ const SOURCE: &str = concat!(
     "def ratio(a: int, b: int) -> float:\n    return a / b\n\n",
     "def is_big(n: int) -> bool:\n    return n > 100\n\n",
     "def shout(s: str) -> str:\n    return s + \"!\"\n\n",
+    "def text_size(s: str) -> int:\n    return len(s)\n\n",
+    "def same_text(a: str, b: str) -> bool:\n    return a == b\n\n",
+    "def has_text(haystack: str, needle: str) -> bool:\n    return needle in haystack\n\n",
+    "def inner_text(s: str) -> int:\n    return len(s)\n\n",
+    "def outer_text(s: str) -> int:\n    return inner_text(s)\n\n",
     "def nothing(n: int) -> None:\n    pass\n\n",
     "def half(n: int) -> int:\n    return n // 0\n\n",
     "def outer(n: int) -> int:\n    return half(n) + 1\n\n",
@@ -168,6 +173,14 @@ fn built() -> (PathBuf, String) {
 }
 
 #[test]
+fn read_only_text_is_borrowed_by_both_generated_layers() {
+    let unit = unit_from("def size(s: str) -> int:\n    return len(s)\n");
+    let emitted = emit_extension(&unit, &key_for(&unit)).expect("must emit");
+    assert!(emitted["src/generated.rs"].contains("size(s: &str)"));
+    assert!(emitted["src/bindings.rs"].contains("__compylr_export_0(s: &str)"));
+}
+
+#[test]
 fn every_function_is_exposed_and_nothing_else_is() {
     let (dir, name) = built();
     let out = python(
@@ -182,8 +195,31 @@ print(",".join(names))
     );
     assert_eq!(
         out.trim(),
-        "add,grow,half,is_big,nothing,outer,ratio,shout",
+        "add,grow,half,has_text,inner_text,is_big,nothing,outer,outer_text,ratio,same_text,shout,text_size",
         "the module must expose exactly the unit's functions, with no backend helpers leaking"
+    );
+}
+
+#[test]
+fn non_ascii_text_parameters_work_across_operations_and_nested_calls() {
+    let (dir, name) = built();
+    let out = python(
+        &dir,
+        &format!(
+            r#"
+import {name} as m
+print(m.text_size("café☕"))
+print(m.same_text("猫", "猫"))
+print(m.same_text("猫", "犬"))
+print(m.has_text("東京で猫", "京で"))
+print(m.has_text("東京で猫", "大阪"))
+print(m.outer_text("🦀é"))
+"#
+        ),
+    );
+    assert_eq!(
+        out.lines().collect::<Vec<_>>(),
+        ["5", "True", "False", "True", "False", "2"]
     );
 }
 

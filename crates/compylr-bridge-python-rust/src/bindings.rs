@@ -12,7 +12,7 @@
 
 use std::fmt::Write as _;
 
-use compylr_backend_rust::rust::{LIB_PATH, RustBackend, rust_ident, rust_ty};
+use compylr_backend_rust::rust::{LIB_PATH, RustBackend, rust_ident, rust_param_ty, rust_ty};
 
 use crate::BINDINGS_PATH;
 use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
@@ -83,14 +83,20 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
     out.push_str(PREAMBLE);
 
     for (index, class) in unit.classes().enumerate() {
-        out.push_str(&emit_class_binding(index, class));
+        out.push_str(&emit_class_binding(index, class, unit));
     }
 
     for (index, function) in unit.functions().enumerate() {
         let params = function
             .params
             .iter()
-            .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(&p.ty)))
+            .map(|p| {
+                format!(
+                    "{}: {}",
+                    rust_ident(&p.name),
+                    rust_param_ty(function, p, unit)
+                )
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let args = function
@@ -156,7 +162,7 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
 /// Rust value, and a method borrows it from there — so a mutated attribute is exactly what the
 /// caller sees on the next call. That asymmetry is why an attribute can be a cache while a
 /// parameter cannot be mutated.
-fn emit_class_binding(index: usize, class: &Class) -> String {
+fn emit_class_binding(index: usize, class: &Class, unit: &Unit) -> String {
     let mut out = String::new();
     let wrapper = format!("__compylr_class_{index}");
     let translated = rust_ident(&class.name);
@@ -209,7 +215,13 @@ fn emit_class_binding(index: usize, class: &Class) -> String {
         let params = method
             .params
             .iter()
-            .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(&p.ty)))
+            .map(|p| {
+                format!(
+                    "{}: {}",
+                    rust_ident(&p.name),
+                    rust_param_ty(method, p, unit)
+                )
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let separator = if params.is_empty() { "" } else { ", " };

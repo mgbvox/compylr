@@ -7,7 +7,7 @@ expression: functions.trim()
 use crate::compat::{
     FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
     PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
-    py_borrow, py_place, py_subscript,
+    py_borrow, py_place, py_str_add, py_str_owned, py_subscript,
 };
 
 #[derive(Clone)]
@@ -50,7 +50,7 @@ impl Grid {
                     }
                 }
                 {
-                    let __compylr_value = line.clone();
+                    let __compylr_value = Clone::clone(&(line));
                     (rows).push(__compylr_value);
                 }
             }
@@ -64,24 +64,24 @@ impl Grid {
 
     pub fn write(&mut self, row: i64, column: i64, value: i64) -> Result<(), RuntimeError> {
         {
-            let __compylr_value = value.clone();
-            let __compylr_index = column.clone();
+            let __compylr_value = Clone::clone(&(value));
+            let __compylr_index = Clone::clone(&(column));
             PySetItem::py_set(&mut ((*py_place(&mut ((self).rows), &(row), IndexOrigin::FromEitherEnd)?)), &__compylr_index, __compylr_value)?;
         }
         Ok(())
     }
 }
 
-pub fn bucket(key: String, value: i64) -> Result<FastMap<String, Vec<i64>>, RuntimeError> {
+pub fn bucket(key: &str, value: i64) -> Result<FastMap<String, Vec<i64>>, RuntimeError> {
     let mut buckets: FastMap<String, Vec<i64>> = FastMap::from_iter([]);
     let row: Vec<i64> = vec![];
     {
-        let __compylr_value = row.clone();
-        let __compylr_index = key.clone();
+        let __compylr_value = Clone::clone(&(row));
+        let __compylr_index = Clone::clone(&(key));
         PySetItem::py_set(&mut (buckets), &__compylr_index, __compylr_value)?;
     }
     {
-        let __compylr_value = value.clone();
+        let __compylr_value = Clone::clone(&(value));
         ((*py_place(&mut (buckets), &(key), IndexOrigin::FromEitherEnd)?)).push(__compylr_value);
     }
     Ok(buckets)
@@ -103,7 +103,7 @@ pub fn diagonal(size: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
             {
                 let __compylr_value = 1i64;
-                let __compylr_index = i.clone();
+                let __compylr_index = Clone::clone(&(i));
                 PySetItem::py_set(&mut ((*py_place(&mut (table), &(i), IndexOrigin::FromEitherEnd)?)), &__compylr_index, __compylr_value)?;
             }
         }
@@ -145,7 +145,7 @@ pub fn zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
                 }
             }
             {
-                let __compylr_value = line.clone();
+                let __compylr_value = Clone::clone(&(line));
                 (table).push(__compylr_value);
             }
         }
