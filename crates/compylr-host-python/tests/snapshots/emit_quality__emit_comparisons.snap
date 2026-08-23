@@ -7,7 +7,7 @@ expression: functions.trim()
 use crate::compat::{
     FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
     PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
-    py_borrow, py_place, py_str_add, py_str_owned, py_subscript,
+    py_borrow, py_place, py_subscript,
 };
 
 pub fn at_most(a: i64, b: i64) -> Result<bool, RuntimeError> {

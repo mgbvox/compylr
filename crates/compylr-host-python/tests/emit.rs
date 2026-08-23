@@ -50,19 +50,13 @@ fn every_type_gets_its_rust_spelling() {
     let emitted = functions_only(&emit(
         "def types(i: int, f: float, b: bool, s: str) -> str:\n    return s\n",
     ));
-    for spelling in ["i: i64", "f: f64", "b: bool", "s: &str"] {
+    for spelling in ["i: i64", "f: f64", "b: bool", "s: String"] {
         assert!(
             emitted.contains(spelling),
             "expected `{spelling}` in:\n{emitted}"
         );
     }
     assert!(emitted.contains("Result<String, RuntimeError>"));
-}
-
-#[test]
-fn a_reassigned_text_parameter_remains_owned() {
-    let emitted = emit("def replace(s: str) -> str:\n    s = \"new\"\n    return s\n");
-    assert!(emitted.contains("mut s: String"), "{emitted}");
 }
 
 #[test]
@@ -431,7 +425,7 @@ mod in_place_accumulation {
             !emitted.contains("py_add_assign"),
             "the mirrored form must use the ordinary emission:\n{emitted}"
         );
-        assert!(emitted.contains("py_str_add"), "{emitted}");
+        assert!(emitted.contains("py_add"), "{emitted}");
     }
 
     #[test]
@@ -623,8 +617,8 @@ mod moved_returns {
     #[test]
     fn a_returned_text_value_is_moved_too() {
         let emitted = emit("def echo(s: str) -> str:\n    return s\n");
-        assert!(emitted.contains("echo(s: &str)"), "{emitted}");
-        assert!(emitted.contains("Ok(py_str_owned(&(s)))"), "{emitted}");
+        assert!(emitted.contains("Ok(s)"), "{emitted}");
+        assert!(!emitted.contains("s.clone()"), "{emitted}");
     }
 
     #[test]

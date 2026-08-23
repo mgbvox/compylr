@@ -28,7 +28,7 @@ use compylr_ir::Guarantee;
 use std::collections::BTreeSet;
 
 use compylr_ir::{
-    BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param, RemSign, Rounding, Stmt,
+    BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, RemSign, Rounding, Stmt,
     TextUnits, Ty, Unit, returns_on_all_paths,
 };
 
@@ -92,20 +92,6 @@ pub fn rust_ty(ty: &Ty) -> String {
                 format!("({})", inner.join(", "))
             }
         }
-    }
-}
-
-/// Whether a text parameter can cross the generated boundary without an allocation.
-pub fn borrows_text_parameter(function: &Function, param: &Param, unit: &Unit) -> bool {
-    param.ty == Ty::Str && !is_assigned(&function.body, &param.name, unit)
-}
-
-/// The Rust spelling of a parameter, accounting for borrowed read-only text.
-pub fn rust_param_ty(function: &Function, param: &Param, unit: &Unit) -> String {
-    if borrows_text_parameter(function, param, unit) {
-        "&str".to_string()
-    } else {
-        rust_ty(&param.ty)
     }
 }
 
@@ -299,7 +285,7 @@ fn emit_generated(functions: &str) -> String {
          use crate::compat::{{\n\
          {}FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,\n\
          {}PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,\n\
-         {}py_borrow, py_place, py_str_add, py_str_owned, py_subscript,\n\
+         {}py_borrow, py_place, py_subscript,\n\
          }};\n\
          \n\
          {functions}",
@@ -352,11 +338,7 @@ fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendErro
             } else {
                 ""
             };
-            format!(
-                "{mutable}{}: {}",
-                rust_ident(&p.name),
-                rust_param_ty(function, p, unit)
-            )
+            format!("{mutable}{}: {}", rust_ident(&p.name), rust_ty(&p.ty))
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -674,11 +656,7 @@ fn emit_method(
             } else {
                 ""
             };
-            format!(
-                "{mutable}{}: {}",
-                rust_ident(&p.name),
-                rust_param_ty(method, p, unit)
-            )
+            format!("{mutable}{}: {}", rust_ident(&p.name), rust_ty(&p.ty))
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -1059,14 +1037,7 @@ fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
             // call, and moving out of a field would empty it.
             let value = match expr {
                 // `self` is the receiver, a borrow, and never movable.
-                Expr::Name(name)
-                    if name != "self"
-                        && !function.params.iter().any(|param| {
-                            param.name == *name && borrows_text_parameter(function, param, unit)
-                        }) =>
-                {
-                    rust_ident(name)
-                }
+                Expr::Name(name) if name != "self" => rust_ident(name),
                 _ => emit_expr(expr, unit, &function.ret)?,
             };
             let _ = writeln!(out, "    Ok({value})");
@@ -1386,10 +1357,8 @@ impl Emitter<'_> {
         // type error in the body rather than a copy avoided. The exclusion is what the saving
         // looks like when there is none — for a collection of owned values, the copy it removes
         // is an allocation per element per loop.
-        let borrowed = mutable.is_empty()
-            && !ty.is_trivially_copyable()
-            && !compared_in(body, name)
-            && !appended_in(body, name);
+        let borrowed =
+            mutable.is_empty() && !ty.is_trivially_copyable() && !compared_in(body, name);
         let iteration = if borrowed {
             "py_iter_borrowed"
         } else {
@@ -1615,7 +1584,7 @@ fn place_root(expr: &Expr) -> Option<&str> {
 /// wrong in that direction costs nothing.
 fn emit_owned_operand(expr: &Expr, unit: &Unit) -> Result<String, BackendError> {
     match expr {
-        Expr::Name(name) => Ok(format!("Clone::clone(&({}))", rust_ident(name))),
+        Expr::Name(name) => Ok(format!("{}.clone()", rust_ident(name))),
         other => emit_expr(other, unit, &Ty::Unit),
     }
 }
@@ -1703,18 +1672,6 @@ fn compared_in(stmts: &[Stmt], name: &str) -> bool {
         Stmt::While { test, body } => in_expr(test, name) || compared_in(body, name),
         Stmt::For { iter, body, .. } => in_expr(iter, name) || compared_in(body, name),
         Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => false,
-    })
-}
-
-/// Whether `name` is stored as a new sequence element and therefore must be owned.
-fn appended_in(stmts: &[Stmt], name: &str) -> bool {
-    stmts.iter().any(|stmt| match stmt {
-        Stmt::Append { value, .. } => matches!(value, Expr::Name(found) if found == name),
-        Stmt::If {
-            then, otherwise, ..
-        } => appended_in(then, name) || appended_in(otherwise, name),
-        Stmt::While { body, .. } | Stmt::For { body, .. } => appended_in(body, name),
-        _ => false,
     })
 }
 
@@ -1845,9 +1802,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
         Expr::Name(name) if name == "self" => "self".to_string(),
         Expr::Name(name) => {
             let name = rust_ident(name);
-            if *expected == Ty::Str {
-                format!("py_str_owned(&({name}))")
-            } else if !expected.is_trivially_copyable() {
+            if !expected.is_trivially_copyable() {
                 // Cloning rather than moving: the same name may be read again later, and Python
                 // has no notion of a value being consumed by being used.
                 format!("{name}.clone()")
@@ -2020,13 +1975,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             let rendered = args
                 .iter()
                 .zip(&signature.params)
-                .map(|(arg, param)| {
-                    if borrows_text_parameter(signature, param, unit) {
-                        Ok(format!("&({})", emit_expr(arg, unit, &Ty::Unit)?))
-                    } else {
-                        emit_expr(arg, unit, &param.ty)
-                    }
-                })
+                .map(|(arg, param)| emit_expr(arg, unit, &param.ty))
                 .collect::<Result<Vec<_>, _>>()?;
             format!("{}({})?", rust_ident(callee), rendered.join(", "))
         }
@@ -2088,12 +2037,6 @@ fn emit_binary(
 
     // Arithmetic operands share the expression's own type, except that a string operand must not
     // be cloned here: the trait takes a reference.
-    if op == BinOp::Add && *expected == Ty::Str {
-        let left = emit_expr(left, unit, &Ty::Unit)?;
-        let right = emit_expr(right, unit, &Ty::Unit)?;
-        return Ok(format!("py_str_add(&({left}), &({right}))"));
-    }
-
     let operand = if *expected == Ty::Str {
         Ty::Unit
     } else {

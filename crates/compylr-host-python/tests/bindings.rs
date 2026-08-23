@@ -173,14 +173,6 @@ fn built() -> (PathBuf, String) {
 }
 
 #[test]
-fn read_only_text_is_borrowed_by_both_generated_layers() {
-    let unit = unit_from("def size(s: str) -> int:\n    return len(s)\n");
-    let emitted = emit_extension(&unit, &key_for(&unit)).expect("must emit");
-    assert!(emitted["src/generated.rs"].contains("size(s: &str)"));
-    assert!(emitted["src/bindings.rs"].contains("__compylr_export_0(s: &str)"));
-}
-
-#[test]
 fn every_function_is_exposed_and_nothing_else_is() {
     let (dir, name) = built();
     let out = python(
@@ -200,6 +192,13 @@ print(",".join(names))
     );
 }
 
+/// Text crosses the boundary intact, whatever the parameter's Rust spelling is.
+///
+/// Measurement, comparison, membership, and a nested call, all over non-ASCII input — the four
+/// operations a text parameter reaches, exercised through the built extension rather than against
+/// emitted source. An attempt to pass text by reference rather than by value has to keep every one
+/// of these answering the same way, and a byte-oriented shortcut would show up here first: `café☕`
+/// is five code points and seven bytes.
 #[test]
 fn non_ascii_text_parameters_work_across_operations_and_nested_calls() {
     let (dir, name) = built();

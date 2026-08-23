@@ -163,8 +163,17 @@ Known gaps worth knowing before you trip on them:
   by iteration order is asserting behavior the language deliberately does not provide.
 * **The Python boundary has a measurable per-element price on every call.** On this machine an
   integer argument costs about 4 ns per element to convert, text about 42 ns, and returning an
-  element about 10 ns. Read-only scalar text parameters borrow as `&str`, but collections still
-  cross by value; a body doing O(log n) work over an O(n) argument can therefore lose compiled.
+  element about 10 ns. Every argument crosses by value, text and collections alike; a body doing
+  O(log n) work over an O(n) argument can therefore lose compiled.
+* **A parameter may not be borrowed just because it is never mutated.** Passing text as `&str` was
+  built and reverted: not mutating a value is not the same as tolerating a borrow of it, because a
+  parameter can also be *stored*. Four ordinary shapes need an owned `String` and emitted Rust that
+  did not compile — `xs.append(who)`, `d[k] = who`, `who < "m"` (`==` works only because std
+  happens to provide that cross-impl and `PartialOrd` does not), and `who in xs`. Deciding this
+  correctly needs the backend to know an expression's type, which it deliberately does not. The
+  whole suite passed while it was broken, so `a_text_parameter_is_usable_in_every_position` in
+  `tests/execution.rs` now compiles a text parameter in every position; check there before trying
+  again.
 * **Mutating a collection while iterating it is not rejected.** Rust's borrow checker will refuse
   it, so the failure is a rustc error rather than a located diagnostic. The honest fix is a
   lowering rule, and it belongs with whatever change first makes it reachable.

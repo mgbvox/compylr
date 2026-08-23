@@ -7,7 +7,7 @@ expression: functions.trim()
 use crate::compat::{
     FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
     PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
-    py_borrow, py_place, py_str_add, py_str_owned, py_subscript,
+    py_borrow, py_place, py_subscript,
 };
 
 #[derive(Clone)]
@@ -29,12 +29,12 @@ impl Cache {
 
     pub fn put(&mut self, k: i64, v: i64) -> Result<(), RuntimeError> {
         {
-            let __compylr_value = Clone::clone(&(v));
-            let __compylr_index = Clone::clone(&(k));
+            let __compylr_value = v.clone();
+            let __compylr_index = k.clone();
             PySetItem::py_set(&mut ((self).entries), &__compylr_index, __compylr_value)?;
         }
         {
-            let __compylr_value = Clone::clone(&(k));
+            let __compylr_value = k.clone();
             ((self).log).push(__compylr_value);
         }
         Ok(())

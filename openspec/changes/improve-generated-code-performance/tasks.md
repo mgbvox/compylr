@@ -126,22 +126,45 @@ These carry no design risk and land regardless of whether section 8 does.
 Staged last and separable. **Stop and reassess before starting**: this is the only item that
 changes generated signatures, and design D6 says it may become its own change.
 
+**Outcome: prototyped, found unsound, and split out — this is 8.4 firing.** The reassessment D6
+asked for happened after the prototype rather than before it, and the answer was no. What is kept
+is 8.2, whose tests describe how text parameters must behave whatever their Rust spelling, plus a
+guard that fails on the defect the prototype shipped.
+
 - [x] 8.1 Confirm the premise still holds — that a text parameter is never mutated in the accepted
-      subset, so borrowing it is always legal
+      subset, so borrowing it is always legal. **The premise is true and is not sufficient.** Not
+      mutating a value is not the same as tolerating a borrow of it: a text parameter may also be
+      *stored*, and storing needs ownership. That gap is what 8.3 then ran into.
 - [x] 8.2 Write execution tests over text parameters: measurement, comparison, membership, and
-      passing one into a nested call, all with non-ASCII input
+      passing one into a nested call, all with non-ASCII input. Kept — they assert behaviour at the
+      boundary, not a representation, so they hold either way.
 - [x] 8.3 Prototype a borrowed text parameter in the generated bindings and confirm the lifetime
-      does not force a change to the uniform result type
+      does not force a change to the uniform result type. The lifetime did not; **the element type
+      did.** A `&str` parameter reaches four ordinary positions that require an owned `String`, and
+      each emitted Rust that does not compile: stored into a list (`xs.append(who)`), used as a
+      mapping or element value (`d[k] = who`, `xs[0] = who`), ordered against a literal
+      (`who < "m"` — `==` happens to work because std provides that cross-impl and `PartialOrd`
+      does not), and tested for membership in a sequence (`who in xs`). A fifth, passing an owned
+      local to a method taking a borrowed parameter, was a plain omission at the call site.
 - [x] 8.4 If it does force one, stop, record what was learned, and split the rest into its own
-      change rather than widening this one. It did not: parameters borrow for the call while text
-      results remain owned `String` values in the existing `Result<T, RuntimeError>` shape.
+      change rather than widening this one. **It did, and this is that stop.** The emission is
+      reverted. Making it sound needs the backend to know an expression's type — which it
+      deliberately does not, dispatching every type-dependent choice through a trait so that Rust
+      selects the impl. The alternatives are a closed whitelist of positions that tolerate a
+      borrow, or the larger answer D6 already names: keeping collections Rust-side across calls.
+      Either is its own change. The measured case for hurrying is weak: borrowing saves one
+      allocation per *call*, not per element, and the text workloads it targeted did not move
+      outside the noise floor.
 - [x] 8.5 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; record every text workload.
-      Clean run: `text.joined` 75.61us compiled / 421.34us interpreted (5.6x, 1% spread),
-      `text.word_count` 101.12us / 69.30us (0.7x, 23% spread), and `text.total_length`
-      64.24us / 33.55us (0.5x, 3% spread), against a 12% reference noise floor. Both modes
-      returned the same answer for every workload.
+      Measured while the prototype was in: `text.joined` 5.6x, `text.word_count` 0.7x (23% spread),
+      `text.total_length` 0.5x, against a 12% noise floor — no text row resolved a change against
+      the section 7 build. Recorded because a rejected candidate keeps its measurement (D7).
 - [x] 8.6 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
-      `cargo test --workspace`; commit
+      `cargo test --workspace`; commit. Committed as the revert plus the retained tests. The whole
+      suite passed *with* the defect present, so a guard was added with it:
+      `a_text_parameter_is_usable_in_every_position` in `tests/execution.rs` puts a text parameter
+      in all five positions and compiles the generated crate. It was confirmed to fail against the
+      reverted emission before being kept.
 
 ## 9. The regression guard
 

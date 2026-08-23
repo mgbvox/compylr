@@ -2,8 +2,7 @@
 
 use crate::compat::{
     FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains, PyIterate, PyLen,
-    PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_str_add,
-    py_str_owned, py_subscript,
+    PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
 };
 
 /// A stack of integers, over a list that never shrinks.
@@ -62,13 +61,13 @@ impl IntStack {
         if ((&((self).height.clone())) < (&(PyLen::py_len(&((self).slots), TextUnits::CodePoints))))
         {
             {
-                let __compylr_value = Clone::clone(&(value));
+                let __compylr_value = value.clone();
                 let __compylr_index = (self).height.clone();
                 PySetItem::py_set(&mut ((self).slots), &__compylr_index, __compylr_value)?;
             }
         } else {
             {
-                let __compylr_value = Clone::clone(&(value));
+                let __compylr_value = value.clone();
                 ((self).slots).push(__compylr_value);
             }
         }
@@ -137,8 +136,8 @@ impl PrimeCache {
             }
         }
         {
-            let __compylr_value = Clone::clone(&(candidate));
-            let __compylr_index = Clone::clone(&(n));
+            let __compylr_value = candidate.clone();
+            let __compylr_index = n.clone();
             PySetItem::py_set(&mut ((self).known), &__compylr_index, __compylr_value)?;
         }
         Ok(candidate)
@@ -242,7 +241,7 @@ impl UnionFind {
                 let node: i64 = __compylr_cursor;
                 __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
                 {
-                    let __compylr_value = Clone::clone(&(node));
+                    let __compylr_value = node.clone();
                     (parent).push(__compylr_value);
                 }
                 {
@@ -284,8 +283,8 @@ impl UnionFind {
             let following: i64 =
                 py_subscript(&((self).parent), &(current), IndexOrigin::FromEitherEnd)?;
             {
-                let __compylr_value = Clone::clone(&(root));
-                let __compylr_index = Clone::clone(&(current));
+                let __compylr_value = root.clone();
+                let __compylr_index = current.clone();
                 PySetItem::py_set(&mut ((self).parent), &__compylr_index, __compylr_value)?;
             }
             current = following;
@@ -317,8 +316,8 @@ impl UnionFind {
             right = held;
         }
         {
-            let __compylr_value = Clone::clone(&(left));
-            let __compylr_index = Clone::clone(&(right));
+            let __compylr_value = left.clone();
+            let __compylr_index = right.clone();
             PySetItem::py_set(&mut ((self).parent), &__compylr_index, __compylr_value)?;
         }
         if ((&(py_subscript(&((self).rank), &(left), IndexOrigin::FromEitherEnd)?))
@@ -326,7 +325,7 @@ impl UnionFind {
         {
             {
                 let __compylr_delta = 1i64;
-                let __compylr_index = Clone::clone(&(left));
+                let __compylr_index = left.clone();
                 PyAddAssignAt::py_add_assign_at(
                     &mut ((self).rank),
                     &__compylr_index,
@@ -409,12 +408,12 @@ pub fn bfs_distances(
     let mut distance: FastMap<i64, i64> = FastMap::from_iter([]);
     {
         let __compylr_value = 0i64;
-        let __compylr_index = Clone::clone(&(start));
+        let __compylr_index = start.clone();
         PySetItem::py_set(&mut (distance), &__compylr_index, __compylr_value)?;
     }
     let mut queue: Vec<i64> = vec![];
     {
-        let __compylr_value = Clone::clone(&(start));
+        let __compylr_value = start.clone();
         (queue).push(__compylr_value);
     }
     let mut head: i64 = 0i64;
@@ -436,11 +435,11 @@ pub fn bfs_distances(
                         &(py_subscript(&(distance), &(node), IndexOrigin::FromEitherEnd)?),
                         &(1i64),
                     )?;
-                    let __compylr_index = Clone::clone(&(neighbour));
+                    let __compylr_index = neighbour.clone();
                     PySetItem::py_set(&mut (distance), &__compylr_index, __compylr_value)?;
                 }
                 {
-                    let __compylr_value = Clone::clone(&(neighbour));
+                    let __compylr_value = neighbour.clone();
                     (queue).push(__compylr_value);
                 }
             }
@@ -500,7 +499,7 @@ pub fn coin_change(coins: Vec<i64>, amount: i64) -> Result<i64, RuntimeError> {
             let _slot: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
             {
-                let __compylr_value = Clone::clone(&(unreachable));
+                let __compylr_value = unreachable.clone();
                 (best).push(__compylr_value);
             }
         }
@@ -541,8 +540,8 @@ pub fn coin_change(coins: Vec<i64>, amount: i64) -> Result<i64, RuntimeError> {
                         < (&(py_subscript(&(best), &(target), IndexOrigin::FromEitherEnd)?)))
                     {
                         {
-                            let __compylr_value = Clone::clone(&(candidate));
-                            let __compylr_index = Clone::clone(&(target));
+                            let __compylr_value = candidate.clone();
+                            let __compylr_index = target.clone();
                             PySetItem::py_set(&mut (best), &__compylr_index, __compylr_value)?;
                         }
                     }
@@ -614,7 +613,7 @@ pub fn copy_of(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let x: i64 = __compylr_item;
             {
-                let __compylr_value = Clone::clone(&(x));
+                let __compylr_value = x.clone();
                 (out).push(__compylr_value);
             }
         }
@@ -658,7 +657,7 @@ pub fn depth_first_order(
     let mut seen: FastMap<i64, i64> = FastMap::from_iter([]);
     let mut stack: Vec<i64> = vec![];
     {
-        let __compylr_value = Clone::clone(&(start));
+        let __compylr_value = start.clone();
         (stack).push(__compylr_value);
     }
     let mut top: i64 = 1i64;
@@ -670,11 +669,11 @@ pub fn depth_first_order(
         }
         {
             let __compylr_value = 1i64;
-            let __compylr_index = Clone::clone(&(node));
+            let __compylr_index = node.clone();
             PySetItem::py_set(&mut (seen), &__compylr_index, __compylr_value)?;
         }
         {
-            let __compylr_value = Clone::clone(&(node));
+            let __compylr_value = node.clone();
             (order).push(__compylr_value);
         }
         if !(PyContains::py_contains(&(graph), &(node))) {
@@ -690,7 +689,7 @@ pub fn depth_first_order(
                 {
                     let __compylr_value =
                         py_subscript(&(neighbours), &(index), IndexOrigin::FromEitherEnd)?;
-                    let __compylr_index = Clone::clone(&(top));
+                    let __compylr_index = top.clone();
                     PySetItem::py_set(&mut (stack), &__compylr_index, __compylr_value)?;
                 }
             } else {
@@ -758,7 +757,7 @@ pub fn edit_distance(left: Vec<String>, right: Vec<String>) -> Result<i64, Runti
             let i: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
             {
-                let __compylr_value = Clone::clone(&(i));
+                let __compylr_value = i.clone();
                 let __compylr_index = 0i64;
                 PySetItem::py_set(
                     &mut (*py_place(&mut (table), &(i), IndexOrigin::FromEitherEnd)?),
@@ -781,8 +780,8 @@ pub fn edit_distance(left: Vec<String>, right: Vec<String>) -> Result<i64, Runti
             let j: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
             {
-                let __compylr_value = Clone::clone(&(j));
-                let __compylr_index = Clone::clone(&(j));
+                let __compylr_value = j.clone();
+                let __compylr_index = j.clone();
                 PySetItem::py_set(
                     &mut (*py_place(&mut (table), &(0i64), IndexOrigin::FromEitherEnd)?),
                     &__compylr_index,
@@ -834,7 +833,7 @@ pub fn edit_distance(left: Vec<String>, right: Vec<String>) -> Result<i64, Runti
                                 &(PyNum::py_sub(&(j), &(1i64))?),
                                 IndexOrigin::FromEitherEnd,
                             )?;
-                            let __compylr_index = Clone::clone(&(j));
+                            let __compylr_index = j.clone();
                             PySetItem::py_set(
                                 &mut (*py_place(&mut (table), &(i), IndexOrigin::FromEitherEnd)?),
                                 &__compylr_index,
@@ -874,7 +873,7 @@ pub fn edit_distance(left: Vec<String>, right: Vec<String>) -> Result<i64, Runti
                                 )?),
                                 &(1i64),
                             )?;
-                            let __compylr_index = Clone::clone(&(j));
+                            let __compylr_index = j.clone();
                             PySetItem::py_set(
                                 &mut (*py_place(&mut (table), &(i), IndexOrigin::FromEitherEnd)?),
                                 &__compylr_index,
@@ -1003,7 +1002,7 @@ pub fn identity(size: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
             {
                 let __compylr_value = 1i64;
-                let __compylr_index = Clone::clone(&(i));
+                let __compylr_index = i.clone();
                 PySetItem::py_set(
                     &mut (*py_place(&mut (out), &(i), IndexOrigin::FromEitherEnd)?),
                     &__compylr_index,
@@ -1040,7 +1039,7 @@ pub fn insertion_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             }
         }
         {
-            let __compylr_value = Clone::clone(&(key));
+            let __compylr_value = key.clone();
             let __compylr_index = PyAdd::py_add(&(j), &(1i64))?;
             PySetItem::py_set(&mut (out), &__compylr_index, __compylr_value)?;
         }
@@ -1140,7 +1139,7 @@ pub fn iterative_primes_up_to_count(n: i64) -> Result<Vec<i64>, RuntimeError> {
         }
         if iterative_not_divisible(divisible)? {
             {
-                let __compylr_value = Clone::clone(&(candidate));
+                let __compylr_value = candidate.clone();
                 (found).push(__compylr_value);
             }
         }
@@ -1155,7 +1154,7 @@ pub fn iterative_primes_up_to_count(n: i64) -> Result<Vec<i64>, RuntimeError> {
 ///     quadratic — each `+` builds a new string — which `str.join` is not. Compiling something is
 ///     not the same as making it fast, and this is the clearest small example of that in the demo.
 ///     
-pub fn joined(words: Vec<String>, separator: &str) -> Result<String, RuntimeError> {
+pub fn joined(words: Vec<String>, separator: String) -> Result<String, RuntimeError> {
     let mut out: String = String::from("");
     let mut first: bool = true;
     {
@@ -1223,7 +1222,7 @@ pub fn knapsack(weights: Vec<i64>, values: Vec<i64>, capacity: i64) -> Result<i6
                             &(room),
                             IndexOrigin::FromEitherEnd,
                         )?;
-                        let __compylr_index = Clone::clone(&(room));
+                        let __compylr_index = room.clone();
                         PySetItem::py_set(
                             &mut (*py_place(&mut (table), &(i), IndexOrigin::FromEitherEnd)?),
                             &__compylr_index,
@@ -1269,8 +1268,8 @@ pub fn knapsack(weights: Vec<i64>, values: Vec<i64>, capacity: i64) -> Result<i6
                         )?)))
                     {
                         {
-                            let __compylr_value = Clone::clone(&(taken));
-                            let __compylr_index = Clone::clone(&(room));
+                            let __compylr_value = taken.clone();
+                            let __compylr_index = room.clone();
                             PySetItem::py_set(
                                 &mut (*py_place(&mut (table), &(i), IndexOrigin::FromEitherEnd)?),
                                 &__compylr_index,
@@ -1321,7 +1320,7 @@ pub fn longest(words: Vec<String>) -> Result<String, RuntimeError> {
         for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
             let word: &String = __compylr_item;
             if ((&(PyLen::py_len(&(word), TextUnits::CodePoints))) > (&(best_length))) {
-                best = py_str_owned(&(word));
+                best = word.clone();
                 best_length = PyLen::py_len(&(word), TextUnits::CodePoints);
             }
         }
@@ -1387,7 +1386,7 @@ pub fn longest_common_subsequence(left: Vec<i64>, right: Vec<i64>) -> Result<i64
                                 )?),
                                 &(1i64),
                             )?;
-                            let __compylr_index = Clone::clone(&(j));
+                            let __compylr_index = j.clone();
                             PySetItem::py_set(
                                 &mut (*py_place(&mut (table), &(i), IndexOrigin::FromEitherEnd)?),
                                 &__compylr_index,
@@ -1412,7 +1411,7 @@ pub fn longest_common_subsequence(left: Vec<i64>, right: Vec<i64>) -> Result<i64
                                     IndexOrigin::FromEitherEnd,
                                 )?,
                             )?;
-                            let __compylr_index = Clone::clone(&(j));
+                            let __compylr_index = j.clone();
                             PySetItem::py_set(
                                 &mut (*py_place(&mut (table), &(i), IndexOrigin::FromEitherEnd)?),
                                 &__compylr_index,
@@ -1559,12 +1558,12 @@ pub fn merge_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             let x: i64 = __compylr_item;
             if ((&(index)) < (&(middle))) {
                 {
-                    let __compylr_value = Clone::clone(&(x));
+                    let __compylr_value = x.clone();
                     (left).push(__compylr_value);
                 }
             } else {
                 {
-                    let __compylr_value = Clone::clone(&(x));
+                    let __compylr_value = x.clone();
                     (right).push(__compylr_value);
                 }
             }
@@ -1583,16 +1582,16 @@ pub fn merge_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
 ///     second form of membership: it lowers to the negation of one, so nothing downstream has to
 ///     remember to honour a flag.
 ///     
-pub fn missing(haystack: &str, needles: Vec<String>) -> Result<Vec<String>, RuntimeError> {
+pub fn missing(haystack: String, needles: Vec<String>) -> Result<Vec<String>, RuntimeError> {
     let mut out: Vec<String> =
         Vec::with_capacity(PyLen::py_len(&(needles), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &needles;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let needle: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let needle: &String = __compylr_item;
             if !(PyContains::py_contains(&(haystack), &(needle))) {
                 {
-                    let __compylr_value = Clone::clone(&(needle));
+                    let __compylr_value = needle.clone();
                     (out).push(__compylr_value);
                 }
             }
@@ -1619,14 +1618,14 @@ pub fn most_common(words: Vec<String>) -> Result<String, RuntimeError> {
             if ((&(py_subscript(&(counts), &(word), IndexOrigin::FromEitherEnd)?))
                 > (&(best_count)))
             {
-                best = py_str_owned(&(word));
+                best = word.clone();
                 best_count = py_subscript(&(counts), &(word), IndexOrigin::FromEitherEnd)?;
             } else {
                 if ((&(py_subscript(&(counts), &(word), IndexOrigin::FromEitherEnd)?))
                     == (&(best_count)))
                 {
                     if ((&(word)) < (&(best))) {
-                        best = py_str_owned(&(word));
+                        best = word.clone();
                     }
                 }
             }
@@ -1717,8 +1716,8 @@ pub fn multiply(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> Result<Vec<Vec<i64
                         }
                     }
                     {
-                        let __compylr_value = Clone::clone(&(total));
-                        let __compylr_index = Clone::clone(&(j));
+                        let __compylr_value = total.clone();
+                        let __compylr_index = j.clone();
                         PySetItem::py_set(
                             &mut (*py_place(&mut (out), &(i), IndexOrigin::FromEitherEnd)?),
                             &__compylr_index,
@@ -1750,11 +1749,11 @@ pub fn node_list(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError
             if !(PyContains::py_contains(&(seen), &(node))) {
                 {
                     let __compylr_value = 1i64;
-                    let __compylr_index = Clone::clone(&(node));
+                    let __compylr_index = node.clone();
                     PySetItem::py_set(&mut (seen), &__compylr_index, __compylr_value)?;
                 }
                 {
-                    let __compylr_value = Clone::clone(&(node));
+                    let __compylr_value = node.clone();
                     (raw).push(__compylr_value);
                 }
             }
@@ -1767,11 +1766,11 @@ pub fn node_list(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError
                     }
                     {
                         let __compylr_value = 1i64;
-                        let __compylr_index = Clone::clone(&(neighbour));
+                        let __compylr_index = neighbour.clone();
                         PySetItem::py_set(&mut (seen), &__compylr_index, __compylr_value)?;
                     }
                     {
-                        let __compylr_value = Clone::clone(&(neighbour));
+                        let __compylr_value = neighbour.clone();
                         (raw).push(__compylr_value);
                     }
                 }
@@ -1828,7 +1827,7 @@ pub fn normalize(xs: Vec<f64>) -> Result<Vec<f64>, RuntimeError> {
 ///     TypeScript too, which is why it is one of the three container behaviours the IR deliberately
 ///     does *not* make configurable.
 ///     
-pub fn occurrences(haystack: &str, needles: Vec<String>) -> Result<i64, RuntimeError> {
+pub fn occurrences(haystack: String, needles: Vec<String>) -> Result<i64, RuntimeError> {
     let mut total: i64 = 0i64;
     {
         let __compylr_iter = &needles;
@@ -1947,7 +1946,7 @@ pub fn row_sums(matrix: Vec<Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
                 }
             }
             {
-                let __compylr_value = Clone::clone(&(total));
+                let __compylr_value = total.clone();
                 (out).push(__compylr_value);
             }
         }
@@ -1982,7 +1981,7 @@ pub fn scale(matrix: Vec<Vec<i64>>, factor: i64) -> Result<Vec<Vec<i64>>, Runtim
                 }
             }
             {
-                let __compylr_value = Clone::clone(&(scaled));
+                let __compylr_value = scaled.clone();
                 (out).push(__compylr_value);
             }
         }
@@ -2012,12 +2011,12 @@ pub fn selection_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
         let held: i64 = py_subscript(&(out), &(i), IndexOrigin::FromEitherEnd)?;
         {
             let __compylr_value = py_subscript(&(out), &(smallest), IndexOrigin::FromEitherEnd)?;
-            let __compylr_index = Clone::clone(&(i));
+            let __compylr_index = i.clone();
             PySetItem::py_set(&mut (out), &__compylr_index, __compylr_value)?;
         }
         {
-            let __compylr_value = Clone::clone(&(held));
-            let __compylr_index = Clone::clone(&(smallest));
+            let __compylr_value = held.clone();
+            let __compylr_index = smallest.clone();
             PySetItem::py_set(&mut (out), &__compylr_index, __compylr_value)?;
         }
         PyAddAssign::py_add_assign(&mut i, &(1i64))?;
@@ -2065,7 +2064,7 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
         while ((&(multiple)) < (&(limit))) {
             {
                 let __compylr_value = true;
-                let __compylr_index = Clone::clone(&(multiple));
+                let __compylr_index = multiple.clone();
                 PySetItem::py_set(&mut (composite), &__compylr_index, __compylr_value)?;
             }
             PyAddAssign::py_add_assign(&mut multiple, &(candidate))?;
@@ -2089,7 +2088,7 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
                 continue;
             }
             {
-                let __compylr_value = Clone::clone(&(n));
+                let __compylr_value = n.clone();
                 (primes).push(__compylr_value);
             }
         }
@@ -2173,7 +2172,7 @@ pub fn table_of_zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeE
                 }
             }
             {
-                let __compylr_value = Clone::clone(&(line));
+                let __compylr_value = line.clone();
                 (table).push(__compylr_value);
             }
         }
@@ -2244,7 +2243,7 @@ pub fn topological_order(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, Runt
             let node: i64 = __compylr_item;
             {
                 let __compylr_value = 0i64;
-                let __compylr_index = Clone::clone(&(node));
+                let __compylr_index = node.clone();
                 PySetItem::py_set(&mut (indegree), &__compylr_index, __compylr_value)?;
             }
         }
@@ -2262,7 +2261,7 @@ pub fn topological_order(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, Runt
                     let neighbour: i64 = __compylr_item;
                     {
                         let __compylr_delta = 1i64;
-                        let __compylr_index = Clone::clone(&(neighbour));
+                        let __compylr_index = neighbour.clone();
                         PyAddAssignAt::py_add_assign_at(
                             &mut (indegree),
                             &__compylr_index,
@@ -2300,11 +2299,11 @@ pub fn topological_order(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, Runt
         if ready {
             {
                 let __compylr_value = 1i64;
-                let __compylr_index = Clone::clone(&(chosen));
+                let __compylr_index = chosen.clone();
                 PySetItem::py_set(&mut (placed), &__compylr_index, __compylr_value)?;
             }
             {
-                let __compylr_value = Clone::clone(&(chosen));
+                let __compylr_value = chosen.clone();
                 (order).push(__compylr_value);
             }
             if PyContains::py_contains(&(graph), &(chosen)) {
@@ -2322,7 +2321,7 @@ pub fn topological_order(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, Runt
                                 )?),
                                 &(1i64),
                             )?;
-                            let __compylr_index = Clone::clone(&(neighbour));
+                            let __compylr_index = neighbour.clone();
                             PySetItem::py_set(&mut (indegree), &__compylr_index, __compylr_value)?;
                         }
                     }
@@ -2436,7 +2435,7 @@ pub fn transpose(matrix: Vec<Vec<i64>>) -> Result<Vec<Vec<i64>>, RuntimeError> {
                             &(j),
                             IndexOrigin::FromEitherEnd,
                         )?;
-                        let __compylr_index = Clone::clone(&(i));
+                        let __compylr_index = i.clone();
                         PySetItem::py_set(
                             &mut (*py_place(&mut (out), &(j), IndexOrigin::FromEitherEnd)?),
                             &__compylr_index,
@@ -2465,18 +2464,18 @@ pub fn unique_words(words: Vec<String>) -> Result<Vec<String>, RuntimeError> {
         Vec::with_capacity(PyLen::py_len(&(words), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if PyContains::py_contains(&(seen), &(word)) {
                 continue;
             }
             {
                 let __compylr_value = 1i64;
-                let __compylr_index = Clone::clone(&(word));
+                let __compylr_index = word.clone();
                 PySetItem::py_set(&mut (seen), &__compylr_index, __compylr_value)?;
             }
             {
-                let __compylr_value = Clone::clone(&(word));
+                let __compylr_value = word.clone();
                 (out).push(__compylr_value);
             }
         }
@@ -2540,7 +2539,7 @@ pub fn word_count(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeErr
             if PyContains::py_contains(&(counts), &(word)) {
                 {
                     let __compylr_delta = 1i64;
-                    let __compylr_index = Clone::clone(&(word));
+                    let __compylr_index = word.clone();
                     PyAddAssignAt::py_add_assign_at(
                         &mut (counts),
                         &__compylr_index,
@@ -2551,7 +2550,7 @@ pub fn word_count(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeErr
             } else {
                 {
                     let __compylr_value = 1i64;
-                    let __compylr_index = Clone::clone(&(word));
+                    let __compylr_index = word.clone();
                     PySetItem::py_set(&mut (counts), &__compylr_index, __compylr_value)?;
                 }
             }

@@ -7,7 +7,7 @@ expression: functions.trim()
 use crate::compat::{
     FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
     PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
-    py_borrow, py_place, py_str_add, py_str_owned, py_subscript,
+    py_borrow, py_place, py_subscript,
 };
 
 pub fn counts(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeError> {
@@ -19,13 +19,13 @@ pub fn counts(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeError> 
             if PyContains::py_contains(&(seen), &(word)) {
                 {
                     let __compylr_delta = 1i64;
-                    let __compylr_index = Clone::clone(&(word));
+                    let __compylr_index = word.clone();
                     PyAddAssignAt::py_add_assign_at(&mut (seen), &__compylr_index, &__compylr_delta, IndexOrigin::FromEitherEnd)?;
                 }
             } else {
                 {
                     let __compylr_value = 1i64;
-                    let __compylr_index = Clone::clone(&(word));
+                    let __compylr_index = word.clone();
                     PySetItem::py_set(&mut (seen), &__compylr_index, __compylr_value)?;
                 }
             }
@@ -50,7 +50,7 @@ pub fn evens_below(limit: i64) -> Result<Vec<i64>, RuntimeError> {
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
             if ((&(PyNum::rem_floor(&(n), &(2i64))?)) == (&(0i64))) {
                 {
-                    let __compylr_value = Clone::clone(&(n));
+                    let __compylr_value = n.clone();
                     (found).push(__compylr_value);
                 }
             }
@@ -63,7 +63,7 @@ pub fn has_element(xs: Vec<i64>, x: i64) -> Result<bool, RuntimeError> {
     Ok(PyContains::py_contains(&(xs), &(x)))
 }
 
-pub fn has_key(d: FastMap<String, i64>, k: &str) -> Result<bool, RuntimeError> {
+pub fn has_key(d: FastMap<String, i64>, k: String) -> Result<bool, RuntimeError> {
     Ok(PyContains::py_contains(&(d), &(k)))
 }
 
@@ -71,7 +71,7 @@ pub fn has_member(s: FastSet<i64>, x: i64) -> Result<bool, RuntimeError> {
     Ok(PyContains::py_contains(&(s), &(x)))
 }
 
-pub fn has_substring(hay: &str, needle: &str) -> Result<bool, RuntimeError> {
+pub fn has_substring(hay: String, needle: String) -> Result<bool, RuntimeError> {
     Ok(PyContains::py_contains(&(hay), &(needle)))
 }
 
@@ -82,7 +82,7 @@ pub fn lacks_element(xs: Vec<i64>, x: i64) -> Result<bool, RuntimeError> {
 pub fn replace_first(n: i64) -> Result<Vec<i64>, RuntimeError> {
     let mut xs: Vec<i64> = vec![0i64, 0i64, 0i64];
     {
-        let __compylr_value = Clone::clone(&(n));
+        let __compylr_value = n.clone();
         let __compylr_index = 0i64;
         PySetItem::py_set(&mut (xs), &__compylr_index, __compylr_value)?;
     }
