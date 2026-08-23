@@ -29,18 +29,18 @@
 
 ## 2. In-place accumulation
 
-- [ ] 2.1 Write emission tests: `x = x + y` on a `str` local appends in place; on an `int` local it
+- [x] 2.1 Write emission tests: `x = x + y` on a `str` local appends in place; on an `int` local it
       still performs a checked addition; **`x = y + x` is left alone** — the mirrored form is the
       one that looks like it should work and would produce wrong text
-- [ ] 2.2 Write execution tests asserting on values, not emitted text: string accumulation in a
+- [x] 2.2 Write execution tests asserting on values, not emitted text: string accumulation in a
       loop produces the same result as today, and integer accumulation still reports overflow
-- [ ] 2.3 Add a `PyAddAssign` trait to `crates/compylr-backend-rust/src/runtime.rs` with
+- [x] 2.3 Add a `PyAddAssign` trait to `crates/compylr-backend-rust/src/runtime.rs` with
       implementations for the types `PyAdd` covers, so the choice stays type-directed and the
       backend still never derives an expression's type
-- [ ] 2.4 Recognise the accumulator shape in `Stmt::Assign` in `rust.rs` and emit through it
-- [ ] 2.5 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; `text.joined` is expected to move
+- [x] 2.4 Recognise the accumulator shape in `Stmt::Assign` in `rust.rs` and emit through it
+- [x] 2.5 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; `text.joined` is expected to move
       from roughly 0.9x to roughly 3.8x. Record it
-- [ ] 2.6 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 2.6 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 3. The hasher becomes a choice

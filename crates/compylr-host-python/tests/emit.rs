@@ -375,3 +375,188 @@ fn a_function_that_cannot_return_is_reported_rather_than_emitted_broken() {
     let error = lookup("rust").unwrap().emit(&unit).unwrap_err();
     assert!(error.to_string().contains("broken"), "got: {error}");
 }
+
+/// An accumulator that reads itself updates in place rather than building a fresh value.
+///
+/// The shape `x = x + y` is what makes string accumulation quadratic: building a new value per
+/// iteration copies everything accumulated so far, while CPython resizes in place when the target
+/// holds the only reference. The previous emission was therefore asymptotically *worse* than the
+/// interpreter it replaces.
+///
+/// The choice stays type-directed. The backend does not know an expression's type and must not
+/// learn it here, so every accumulator emits the same call and the trait's implementations differ
+/// per type — exactly as the ordinary addition already does.
+mod in_place_accumulation {
+    use super::*;
+
+    #[test]
+    fn a_string_accumulator_appends_in_place() {
+        let emitted = emit(
+            "def concat(a: str, b: str) -> str:\n    out = a\n    out = out + b\n    return out\n",
+        );
+        assert!(
+            emitted.contains("py_add_assign"),
+            "a str accumulator must update in place:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_numeric_accumulator_uses_the_same_in_place_call() {
+        // Same emitted call, different implementation. The backend cannot see the type, so the
+        // alternative would be a second type checker in the emitter.
+        let emitted = emit(
+            "def total(a: int, b: int) -> int:\n    out = a\n    out = out + b\n    return out\n",
+        );
+        assert!(
+            emitted.contains("py_add_assign"),
+            "the choice must be type-directed, not made in the emitter:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn the_mirrored_form_is_left_alone() {
+        // `x = y + x` is the one that looks like it should work. Appending `x` onto `y` in place
+        // would produce `y + x` written into `x` only if the append target were `y` — for text it
+        // silently yields the wrong string, so the rule pins the name to the LEFT operand.
+        let emitted = emit(
+            "def prefixed(a: str, b: str) -> str:\n    out = a\n    out = b + out\n    return out\n",
+        );
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "the mirrored form must use the ordinary emission:\n{emitted}"
+        );
+        assert!(emitted.contains("py_add"), "{emitted}");
+    }
+
+    #[test]
+    fn a_name_read_on_both_sides_is_left_alone() {
+        // `x = x + x` reads the value it would be modifying. The ordinary emission builds the sum
+        // from two unmodified reads, which is what Python means.
+        let emitted =
+            emit("def doubled(a: str) -> str:\n    out = a\n    out = out + out\n    return out\n");
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "a name appearing on the right too must not update in place:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_name_read_deeper_in_the_right_operand_is_left_alone() {
+        // The name does not have to be the whole right operand to be read by it.
+        let emitted = emit(
+            "def grow(a: str, b: str) -> str:\n    out = a\n    out = out + (out + b)\n    return out\n",
+        );
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "a nested read of the name must not update in place:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn only_addition_updates_in_place() {
+        // Subtraction has no in-place form here; the rule is about the one operator whose
+        // rebuild-per-step is quadratic.
+        let emitted = emit(
+            "def less(a: int, b: int) -> int:\n    out = a\n    out = out - b\n    return out\n",
+        );
+        assert!(!emitted.contains("py_add_assign"), "{emitted}");
+        assert!(emitted.contains("py_sub"), "{emitted}");
+    }
+
+    #[test]
+    fn an_assignment_to_a_different_name_is_left_alone() {
+        let emitted = emit(
+            "def other(a: str, b: str) -> str:\n    out = a\n    tail = out + b\n    return tail\n",
+        );
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "only the assigned name may be accumulated into:\n{emitted}"
+        );
+    }
+}
+
+/// A chain of additions accumulates in place too.
+///
+/// `a + b + c` parses as `(a + b) + c`, so a three-operand accumulation presents its left operand
+/// as a `Binary` rather than as the name. Handling only the two-operand pair looked complete and
+/// left the demo's `joined` — whose hot line is `out = out + separator + word` — rebuilding the
+/// whole accumulated string on every iteration. The pair rule fired on that function exactly
+/// once, on the line that runs once.
+mod accumulation_over_a_chain {
+    use super::*;
+
+    #[test]
+    fn a_three_operand_chain_appends_twice() {
+        let emitted = emit(concat!(
+            "def joined(words: list[str], sep: str) -> str:\n",
+            "    out = \"\"\n",
+            "    for word in words:\n",
+            "        out = out + sep + word\n",
+            "    return out\n",
+        ));
+        assert_eq!(
+            emitted.matches("py_add_assign").count(),
+            2,
+            "each operand in the chain is one append:\n{emitted}"
+        );
+        assert!(
+            !emitted.contains("PyAdd::py_add"),
+            "nothing in this function should still rebuild:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_chain_that_does_not_start_at_the_name_is_left_alone() {
+        // `out = sep + out + word` has the name in the middle of the spine, so the leftmost
+        // operand is `sep`. Appending would silently reorder the text.
+        let emitted = emit(concat!(
+            "def wrapped(words: list[str], sep: str) -> str:\n",
+            "    out = \"\"\n",
+            "    for word in words:\n",
+            "        out = sep + out + word\n",
+            "    return out\n",
+        ));
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "the name must be the leftmost operand:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_chain_reading_the_name_again_is_left_alone() {
+        let emitted = emit(concat!(
+            "def twice(words: list[str]) -> str:\n",
+            "    out = \"\"\n",
+            "    for word in words:\n",
+            "        out = out + word + out\n",
+            "    return out\n",
+        ));
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "an operand reading the target must decline the rewrite:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_chain_mixing_in_another_operator_is_left_alone() {
+        // `n = n + a - b` parses as `((n + a) - b)`, whose outermost operator is subtraction.
+        let emitted = emit(concat!(
+            "def drift(a: int, b: int) -> int:\n",
+            "    n = 0\n",
+            "    n = n + a - b\n",
+            "    return n\n",
+        ));
+        assert!(!emitted.contains("py_add_assign"), "{emitted}");
+    }
+
+    #[test]
+    fn a_long_chain_appends_once_per_operand() {
+        let emitted = emit(concat!(
+            "def four(a: str, b: str, c: str, d: str) -> str:\n",
+            "    out = a\n",
+            "    out = out + b + c + d\n",
+            "    return out\n",
+        ));
+        assert_eq!(emitted.matches("py_add_assign").count(), 3, "{emitted}");
+    }
+}

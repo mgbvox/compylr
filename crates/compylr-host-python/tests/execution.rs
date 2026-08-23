@@ -1815,3 +1815,226 @@ mod positions_the_backend_rendered_wrongly {
         assert_eq!(out.trim(), "9");
     }
 }
+
+/// In-place accumulation, checked by running it.
+///
+/// The emission tests assert that `x = x + y` compiles to an in-place update. That is a claim
+/// about text, and the thing that would actually hurt is an in-place update producing a different
+/// *answer* — text assembled in the wrong order, or an overflow that stopped being reported
+/// because the checked helper was traded for a raw `+=`. Only running it settles those.
+#[test]
+fn string_accumulation_builds_the_same_text_as_before() {
+    let out = run(
+        "accumulate_str",
+        concat!(
+            "def joined(words: list[str], sep: str) -> str:\n",
+            "    out = \"\"\n",
+            "    i = 0\n",
+            "    while i < len(words):\n",
+            "        out = out + words[i]\n",
+            "        out = out + sep\n",
+            "        i = i + 1\n",
+            "    return out\n",
+        ),
+        r#"
+    let words = vec![
+        String::from("alpha"),
+        String::from("beta"),
+        String::from("gamma"),
+    ];
+    println!("{}", joined(words, String::from("-")).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "alpha-beta-gamma-");
+}
+
+#[test]
+fn accumulation_preserves_order_for_non_ascii_text() {
+    // Appending in place and rebuilding differ in where the bytes are copied, and a rule that
+    // matched the mirrored form would reverse them. Non-ASCII makes a byte-level mistake visible
+    // as mojibake rather than as a merely reordered word.
+    let out = run(
+        "accumulate_unicode",
+        concat!(
+            "def grow(head: str, tail: str) -> str:\n",
+            "    out = head\n",
+            "    out = out + tail\n",
+            "    return out\n",
+        ),
+        r#"
+    println!("{}", grow(String::from("héllo·"), String::from("wörld✓")).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "héllo·wörld✓");
+}
+
+#[test]
+fn the_mirrored_form_still_prepends() {
+    // `x = y + x` must keep meaning `y` followed by `x`. This is the test that would fail if the
+    // rewrite over-fired onto the shape that looks like it should work.
+    let out = run(
+        "accumulate_mirrored",
+        concat!(
+            "def prefixed(head: str, tail: str) -> str:\n",
+            "    out = tail\n",
+            "    out = head + out\n",
+            "    return out\n",
+        ),
+        r#"
+    println!("{}", prefixed(String::from("<<"), String::from(">>")).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "<<>>");
+}
+
+#[test]
+fn integer_accumulation_still_reports_overflow() {
+    // The in-place numeric implementation keeps `checked_add`. An `+=` here would wrap silently
+    // in release and panic in debug, and both are a change of meaning rather than a speedup.
+    let out = run(
+        "accumulate_overflow",
+        concat!(
+            "def climb(start: int, step: int) -> int:\n",
+            "    total = start\n",
+            "    total = total + step\n",
+            "    return total\n",
+        ),
+        r#"
+    println!("{}", climb(1, 2).unwrap());
+    match climb(9223372036854775807, 1) {
+        Ok(value) => println!("no overflow reported: {value}"),
+        Err(error) => println!("reported: {error}"),
+    }
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "3");
+    assert_eq!(lines[1], "reported: integer overflow");
+}
+
+#[test]
+fn float_accumulation_sums_as_before() {
+    let out = run(
+        "accumulate_float",
+        concat!(
+            "def total(values: list[float]) -> float:\n",
+            "    sum = 0.0\n",
+            "    i = 0\n",
+            "    while i < len(values):\n",
+            "        sum = sum + values[i]\n",
+            "        i = i + 1\n",
+            "    return sum\n",
+        ),
+        r#"
+    println!("{}", total(vec![0.5, 1.25, 2.25]).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "4");
+}
+
+#[test]
+fn a_collection_built_in_a_loop_still_accumulates_correctly() {
+    // The loop counter is itself an accumulator (`i = i + 1`), so this exercises the rewrite in
+    // the position where getting it wrong hangs rather than answers wrongly.
+    let out = run(
+        "accumulate_counter",
+        concat!(
+            "def squares(n: int) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    i = 0\n",
+            "    while i < n:\n",
+            "        out.append(i * i)\n",
+            "        i = i + 1\n",
+            "    return out\n",
+        ),
+        r#"
+    println!("{:?}", squares(5).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "[0, 1, 4, 9, 16]");
+}
+
+#[test]
+fn a_chain_accumulation_keeps_its_order() {
+    // This is the demo's `joined`, which is the function the in-place rule exists for. The risk
+    // the emission test cannot see is ordering: two appends in the wrong order still compile and
+    // still produce a string of the right length.
+    let out = run(
+        "accumulate_chain",
+        concat!(
+            "def joined(words: list[str], separator: str) -> str:\n",
+            "    out = \"\"\n",
+            "    first = True\n",
+            "    for word in words:\n",
+            "        if first:\n",
+            "            out = out + word\n",
+            "            first = False\n",
+            "        else:\n",
+            "            out = out + separator + word\n",
+            "    return out\n",
+        ),
+        r#"
+    let words = vec![
+        String::from("alpha"),
+        String::from("beta"),
+        String::from("gamma"),
+    ];
+    println!("{}", joined(words, String::from("-")).unwrap());
+    println!("{}", joined(vec![String::from("solo")], String::from("-")).unwrap());
+    println!("[{}]", joined(vec![], String::from("-")).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "alpha-beta-gamma");
+    assert_eq!(lines[1], "solo");
+    assert_eq!(lines[2], "[]");
+}
+
+#[test]
+fn a_chain_accumulation_of_floats_rounds_identically() {
+    // Floating-point addition is not associative, so a rule that reassociated `((x + a) + b)`
+    // into `x + (a + b)` would change the last bits. Walking the left spine performs the same two
+    // additions in the same order; these values are chosen so the two groupings differ.
+    let out = run(
+        "accumulate_chain_float",
+        concat!(
+            "def drift(a: float, b: float) -> float:\n",
+            "    total = 1.0\n",
+            "    total = total + a + b\n",
+            "    return total\n",
+        ),
+        r#"
+    let a = 1e16_f64;
+    let b = -1e16_f64;
+    println!("{}", drift(a, b).unwrap());
+    println!("{}", (1.0_f64 + a) + b);
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(
+        lines[0], lines[1],
+        "the compiled chain must round exactly as the left-associative source does"
+    );
+}
+
+#[test]
+fn a_chain_accumulation_of_integers_still_reports_overflow() {
+    // Each step keeps its check, so the overflow is reported at the same operand it would have
+    // been reported at before.
+    let out = run(
+        "accumulate_chain_overflow",
+        concat!(
+            "def climb(a: int, b: int) -> int:\n",
+            "    total = 9223372036854775806\n",
+            "    total = total + a + b\n",
+            "    return total\n",
+        ),
+        r#"
+    println!("{:?}", climb(1, 0).map_err(|e| e.to_string()));
+    println!("{:?}", climb(1, 1).map_err(|e| e.to_string()));
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "Ok(9223372036854775807)");
+    assert_eq!(lines[1], "Err(\"integer overflow\")");
+}

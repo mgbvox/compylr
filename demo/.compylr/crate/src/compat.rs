@@ -163,6 +163,47 @@ impl PyAdd for String {
     }
 }
 
+/// In-place addition, for an accumulator that reads itself.
+///
+/// The shape `x = x + y` is ordinary Python and, for text, quadratic when emitted as a rebuild:
+/// every step allocates a fresh value and copies everything accumulated so far. CPython resizes in
+/// place when the target holds the only reference, so rebuilding was asymptotically *worse* than
+/// the interpreter being replaced — the one case where compiling made an algorithm slower rather
+/// than merely failing to make it faster.
+///
+/// A separate trait rather than a default method on [`PyAdd`], so each type states how it
+/// accumulates and the emitter never has to know which type it is looking at. The numeric
+/// implementations keep the checked arithmetic of `py_add` exactly: an in-place update that
+/// stopped reporting overflow would be a change of meaning wearing the costume of an optimization.
+pub trait PyAddAssign {
+    /// Add or concatenate `rhs` into `self`.
+    fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError>;
+}
+
+impl PyAddAssign for i64 {
+    /// Still checked. `py_add` reports overflow and so does this.
+    fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError> {
+        *self = self.checked_add(*rhs).ok_or(RuntimeError::Overflow)?;
+        Ok(())
+    }
+}
+
+impl PyAddAssign for f64 {
+    fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError> {
+        *self += *rhs;
+        Ok(())
+    }
+}
+
+impl PyAddAssign for String {
+    /// The reason the trait exists: append, rather than allocate a new string and copy both
+    /// halves into it.
+    fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError> {
+        self.push_str(rhs);
+        Ok(())
+    }
+}
+
 impl PyNum for i64 {
     fn py_sub(&self, rhs: &Self) -> Result<Self, RuntimeError> {
         self.checked_sub(*rhs).ok_or(RuntimeError::Overflow)

@@ -3,8 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits,
-    div_exact, py_borrow, py_place, py_subscript,
+    IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_borrow, py_place, py_subscript,
 };
 
 /// A stack of integers, over a list that never shrinks.
@@ -106,7 +106,7 @@ impl PrimeCache {
             if ((&(PyNum::rem_floor(&(n), &(d))?)) == (&(0i64))) {
                 return Ok(false);
             }
-            d = PyAdd::py_add(&(d), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut d, &(1i64))?;
         }
         Ok(true)
     }
@@ -132,9 +132,9 @@ impl PrimeCache {
         let mut found: i64 = 0i64;
         let mut candidate: i64 = 1i64;
         while ((&(found)) < (&(n))) {
-            candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
             if (self).is_prime(candidate)? {
-                found = PyAdd::py_add(&(found), &(1i64))?;
+                PyAddAssign::py_add_assign(&mut found, &(1i64))?;
             }
         }
         {
@@ -354,7 +354,7 @@ pub fn average_of_counts(counts: Vec<i64>) -> Result<f64, RuntimeError> {
         let __compylr_iter = &counts;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let count: i64 = __compylr_item;
-            total = PyAdd::py_add(&(total), &(count))?;
+            PyAddAssign::py_add_assign(&mut total, &(count))?;
         }
     }
     Ok(div_exact(
@@ -419,7 +419,7 @@ pub fn bfs_distances(
     let mut head: i64 = 0i64;
     while ((&(head)) < (&(PyLen::py_len(&(queue), TextUnits::CodePoints)))) {
         let node: i64 = py_subscript(&(queue), &(head), IndexOrigin::FromEitherEnd)?;
-        head = PyAdd::py_add(&(head), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut head, &(1i64))?;
         if !(PyContains::py_contains(&(graph), &(node))) {
             continue;
         }
@@ -576,7 +576,7 @@ pub fn collatz_length(n: i64) -> Result<i64, RuntimeError> {
         } else {
             current = PyAdd::py_add(&(PyNum::py_mul(&(3i64), &(current))?), &(1i64))?;
         }
-        steps = PyAdd::py_add(&(steps), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut steps, &(1i64))?;
     }
     Ok(steps)
 }
@@ -632,7 +632,7 @@ pub fn count_present(words: Vec<String>, wanted: HashSet<String>) -> Result<i64,
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let word: String = __compylr_item;
             if PyContains::py_contains(&(wanted), &(word)) {
-                total = PyAdd::py_add(&(total), &(1i64))?;
+                PyAddAssign::py_add_assign(&mut total, &(1i64))?;
             }
         }
     }
@@ -698,7 +698,7 @@ pub fn depth_first_order(
                     (stack).push(__compylr_value);
                 }
             }
-            top = PyAdd::py_add(&(top), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut top, &(1i64))?;
             index = PyNum::py_sub(&(index), &(1i64))?;
         }
     }
@@ -713,7 +713,7 @@ pub fn digit_sum(n: i64) -> Result<i64, RuntimeError> {
     }
     let mut total: i64 = 0i64;
     while ((&(current)) > (&(0i64))) {
-        total = PyAdd::py_add(&(total), &(PyNum::rem_floor(&(current), &(10i64))?))?;
+        PyAddAssign::py_add_assign(&mut total, &(PyNum::rem_floor(&(current), &(10i64))?))?;
         current = PyNum::div_floor(&(current), &(10i64))?;
     }
     Ok(total)
@@ -934,7 +934,7 @@ pub fn fibonacci(n: i64) -> Result<i64, RuntimeError> {
         let held: i64 = current;
         current = PyAdd::py_add(&(previous), &(current))?;
         previous = held;
-        step = PyAdd::py_add(&(step), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut step, &(1i64))?;
     }
     Ok(previous)
 }
@@ -1042,7 +1042,7 @@ pub fn insertion_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             let __compylr_index = PyAdd::py_add(&(j), &(1i64))?;
             PySetItem::py_set(&mut (out), &__compylr_index, __compylr_value)?;
         }
-        i = PyAdd::py_add(&(i), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
     Ok(out.clone())
 }
@@ -1087,7 +1087,7 @@ pub fn is_sorted(xs: Vec<i64>) -> Result<bool, RuntimeError> {
         {
             return Ok(false);
         }
-        i = PyAdd::py_add(&(i), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
     Ok(true)
 }
@@ -1142,7 +1142,7 @@ pub fn iterative_primes_up_to_count(n: i64) -> Result<Vec<i64>, RuntimeError> {
                 (found).push(__compylr_value);
             }
         }
-        candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
     }
     Ok(found.clone())
 }
@@ -1161,10 +1161,11 @@ pub fn joined(words: Vec<String>, separator: String) -> Result<String, RuntimeEr
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let word: String = __compylr_item;
             if first {
-                out = PyAdd::py_add(&(out), &(word))?;
+                PyAddAssign::py_add_assign(&mut out, &(word))?;
                 first = false;
             } else {
-                out = PyAdd::py_add(&(PyAdd::py_add(&(out), &(separator))?), &(word))?;
+                PyAddAssign::py_add_assign(&mut out, &(separator))?;
+                PyAddAssign::py_add_assign(&mut out, &(word))?;
             }
         }
     }
@@ -1443,7 +1444,7 @@ pub fn mean(xs: Vec<f64>) -> Result<f64, RuntimeError> {
         let __compylr_iter = &xs;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let x: f64 = __compylr_item;
-            total = PyAdd::py_add(&(total), &(x))?;
+            PyAddAssign::py_add_assign(&mut total, &(x))?;
         }
     }
     Ok(div_exact(
@@ -1506,13 +1507,13 @@ pub fn merge(left: Vec<i64>, right: Vec<i64>) -> Result<Vec<i64>, RuntimeError> 
                 let __compylr_value = py_subscript(&(left), &(i), IndexOrigin::FromEitherEnd)?;
                 (out).push(__compylr_value);
             }
-            i = PyAdd::py_add(&(i), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut i, &(1i64))?;
         } else {
             {
                 let __compylr_value = py_subscript(&(right), &(j), IndexOrigin::FromEitherEnd)?;
                 (out).push(__compylr_value);
             }
-            j = PyAdd::py_add(&(j), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut j, &(1i64))?;
         }
     }
     while ((&(i)) < (&(PyLen::py_len(&(left), TextUnits::CodePoints)))) {
@@ -1520,14 +1521,14 @@ pub fn merge(left: Vec<i64>, right: Vec<i64>) -> Result<Vec<i64>, RuntimeError> 
             let __compylr_value = py_subscript(&(left), &(i), IndexOrigin::FromEitherEnd)?;
             (out).push(__compylr_value);
         }
-        i = PyAdd::py_add(&(i), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
     while ((&(j)) < (&(PyLen::py_len(&(right), TextUnits::CodePoints)))) {
         {
             let __compylr_value = py_subscript(&(right), &(j), IndexOrigin::FromEitherEnd)?;
             (out).push(__compylr_value);
         }
-        j = PyAdd::py_add(&(j), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut j, &(1i64))?;
     }
     Ok(out.clone())
 }
@@ -1563,7 +1564,7 @@ pub fn merge_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
                     (right).push(__compylr_value);
                 }
             }
-            index = PyAdd::py_add(&(index), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut index, &(1i64))?;
         }
     }
     Ok(merge(
@@ -1693,8 +1694,8 @@ pub fn multiply(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> Result<Vec<Vec<i64
                             let k: i64 = __compylr_cursor;
                             __compylr_cursor =
                                 PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-                            total = PyAdd::py_add(
-                                &(total),
+                            PyAddAssign::py_add_assign(
+                                &mut total,
                                 &(PyNum::py_mul(
                                     &(py_subscript(
                                         &(*py_borrow(&(left), &(i), IndexOrigin::FromEitherEnd)?),
@@ -1829,7 +1830,7 @@ pub fn occurrences(haystack: String, needles: Vec<String>) -> Result<i64, Runtim
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let needle: String = __compylr_item;
             if PyContains::py_contains(&(haystack), &(needle)) {
-                total = PyAdd::py_add(&(total), &(1i64))?;
+                PyAddAssign::py_add_assign(&mut total, &(1i64))?;
             }
         }
     }
@@ -1872,7 +1873,7 @@ pub fn recursive_is_prime(n: i64) -> Result<bool, RuntimeError> {
         if ((&(PyNum::rem_floor(&(n), &(d))?)) == (&(0i64))) {
             return Ok(false);
         }
-        d = PyAdd::py_add(&(d), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut d, &(1i64))?;
     }
     Ok(true)
 }
@@ -1885,7 +1886,7 @@ pub fn recursive_next_prime(after: i64) -> Result<i64, RuntimeError> {
         if recursive_is_prime(candidate)? {
             found = candidate;
         }
-        candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
     }
     Ok(found)
 }
@@ -1936,7 +1937,7 @@ pub fn row_sums(matrix: Vec<Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
                 let __compylr_iter = &row;
                 for __compylr_item in PyIterate::py_iter(__compylr_iter) {
                     let value: i64 = __compylr_item;
-                    total = PyAdd::py_add(&(total), &(value))?;
+                    PyAddAssign::py_add_assign(&mut total, &(value))?;
                 }
             }
             {
@@ -1998,7 +1999,7 @@ pub fn selection_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             {
                 smallest = j;
             }
-            j = PyAdd::py_add(&(j), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut j, &(1i64))?;
         }
         let held: i64 = py_subscript(&(out), &(i), IndexOrigin::FromEitherEnd)?;
         {
@@ -2011,7 +2012,7 @@ pub fn selection_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             let __compylr_index = smallest.clone();
             PySetItem::py_set(&mut (out), &__compylr_index, __compylr_value)?;
         }
-        i = PyAdd::py_add(&(i), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
     Ok(out.clone())
 }
@@ -2049,7 +2050,7 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
     let mut candidate: i64 = 2i64;
     while ((&(PyNum::py_mul(&(candidate), &(candidate))?)) < (&(limit))) {
         if py_subscript(&(composite), &(candidate), IndexOrigin::FromEitherEnd)? {
-            candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
             continue;
         }
         let mut multiple: i64 = PyNum::py_mul(&(candidate), &(candidate))?;
@@ -2059,9 +2060,9 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
                 let __compylr_index = multiple.clone();
                 PySetItem::py_set(&mut (composite), &__compylr_index, __compylr_value)?;
             }
-            multiple = PyAdd::py_add(&(multiple), &(candidate))?;
+            PyAddAssign::py_add_assign(&mut multiple, &(candidate))?;
         }
-        candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
     }
     let mut primes: Vec<i64> = vec![];
     {
@@ -2113,7 +2114,7 @@ pub fn square_root(value: f64) -> Result<f64, RuntimeError> {
             &(PyAdd::py_add(&(guess), &(div_exact(&(value), &(guess))?))?),
             &(2.0f64),
         )?;
-        step = PyAdd::py_add(&(step), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut step, &(1i64))?;
     }
     Ok(guess)
 }
@@ -2332,7 +2333,10 @@ pub fn total_length(words: Vec<String>) -> Result<i64, RuntimeError> {
         let __compylr_iter = &words;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let word: String = __compylr_item;
-            total = PyAdd::py_add(&(total), &(PyLen::py_len(&(word), TextUnits::CodePoints)))?;
+            PyAddAssign::py_add_assign(
+                &mut total,
+                &(PyLen::py_len(&(word), TextUnits::CodePoints)),
+            )?;
         }
     }
     Ok(total)
@@ -2365,8 +2369,8 @@ pub fn trace(matrix: Vec<Vec<i64>>) -> Result<i64, RuntimeError> {
         {
             let i: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-            total = PyAdd::py_add(
-                &(total),
+            PyAddAssign::py_add_assign(
+                &mut total,
                 &(py_subscript(
                     &(*py_borrow(&(matrix), &(i), IndexOrigin::FromEitherEnd)?),
                     &(i),
@@ -2480,7 +2484,7 @@ pub fn variance(xs: Vec<f64>) -> Result<f64, RuntimeError> {
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let x: f64 = __compylr_item;
             let deviation: f64 = PyNum::py_sub(&(x), &(centre))?;
-            total = PyAdd::py_add(&(total), &(PyNum::py_mul(&(deviation), &(deviation))?))?;
+            PyAddAssign::py_add_assign(&mut total, &(PyNum::py_mul(&(deviation), &(deviation))?))?;
         }
     }
     Ok(div_exact(

@@ -283,8 +283,8 @@ fn emit_generated(functions: &str) -> String {
          use std::collections::{{HashMap, HashSet}};\n\
          \n\
          use crate::compat::{{\n\
-         {}IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,\n\
-         {}TextUnits, div_exact, py_borrow, py_place, py_subscript,\n\
+         {}IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum, PySetItem,\n\
+         {}RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,\n\
          }};\n\
          \n\
          {functions}",
@@ -835,6 +835,109 @@ fn expr_calls_any_of(expr: &Expr, named: &BTreeSet<String>) -> bool {
     }
 }
 
+/// The operands appended by `name = name + a + b + ...`, in evaluation order.
+///
+/// Three conditions, and each is what makes the in-place form mean what the source meant:
+///
+/// * every operator in the chain is addition — it is the one whose rebuild-per-step is quadratic;
+/// * the assigned name is the **leftmost** operand, so nothing reads a value that has already
+///   been modified. `x = y + x` is the mirrored form, it looks like it should work, and for text
+///   it would silently produce the wrong string;
+/// * no operand reads the name **anywhere**. `x = x + x` and `x = x + (x + y)` are the shapes
+///   that would otherwise reach here, and both read the target being modified.
+///
+/// Stated as a condition rather than as an analysis: the rule is checkable from the node in hand,
+/// so the transformation is safe by construction rather than safe if some inference is right.
+///
+/// **The chain, not just the pair, is the point.** `a + b + c` parses as `(a + b) + c`, so a
+/// three-operand accumulation presents its left operand as a `Binary` rather than as the name.
+/// Handling only the pair looked complete and left the hot line of the demo's `joined` — which is
+/// `out = out + separator + word`, run once per word — rebuilding the whole accumulated string
+/// every iteration. The narrow rule fired on that function exactly once, on the line that runs
+/// once.
+///
+/// Walking the left spine preserves evaluation order exactly rather than reassociating, which is
+/// what makes it safe for floats: `((x + a) + b)` and `x += a; x += b` perform the same two
+/// additions in the same order, so they round identically. Nothing here assumes `+` is
+/// associative, because for `f64` it is not.
+///
+/// **When an unchecked arithmetic mode reaches the IR**, the mode on each `BinOp::Add` in this
+/// chain has to be carried to the call site rather than dropped — an accumulator that kept a
+/// check the user asked to drop would be as wrong as one that dropped a check they wanted.
+fn accumulated_operands<'a>(name: &str, value: &'a Expr) -> Option<Vec<&'a Expr>> {
+    let mut operands = Vec::new();
+    let mut node = value;
+    loop {
+        let Expr::Binary {
+            op: BinOp::Add,
+            left,
+            right,
+        } = node
+        else {
+            return None;
+        };
+        operands.push(right.as_ref());
+        match left.as_ref() {
+            // The chain bottomed out on the accumulated name itself.
+            Expr::Name(target) if target == name => {
+                // Collected from the outside in, so put them back in evaluation order.
+                operands.reverse();
+                // No operand anywhere in the chain may read the name, because each append is
+                // applied before the next operand is evaluated.
+                if operands.iter().any(|expr| expr_reads_name(expr, name)) {
+                    return None;
+                }
+                return Some(operands);
+            }
+            // `a + b + c` parses as `(a + b) + c`, so keep walking down the left spine.
+            inner @ Expr::Binary { op: BinOp::Add, .. } => node = inner,
+            _ => return None,
+        }
+    }
+}
+
+/// Whether `expr` reads `name` anywhere inside it.
+///
+/// Deliberately conservative: a name reached through a subscript, a call argument, or a container
+/// literal all count. The caller uses this to *decline* a rewrite, so over-reporting costs a
+/// missed optimization and under-reporting would cost a wrong answer.
+fn expr_reads_name(expr: &Expr, name: &str) -> bool {
+    match expr {
+        Expr::Name(found) => found == name,
+        Expr::Literal(_) => false,
+        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => expr_reads_name(inner, name),
+        Expr::Len { value, .. } => expr_reads_name(value, name),
+        Expr::Attribute { object, .. } => expr_reads_name(object, name),
+        Expr::TupleIndex { base, .. } => expr_reads_name(base, name),
+        Expr::Binary { left, right, .. } => {
+            expr_reads_name(left, name) || expr_reads_name(right, name)
+        }
+        Expr::Subscript { base, index, .. } => {
+            expr_reads_name(base, name) || expr_reads_name(index, name)
+        }
+        Expr::Contains { value, container } => {
+            expr_reads_name(value, name) || expr_reads_name(container, name)
+        }
+        Expr::Range { start, stop, step } => {
+            expr_reads_name(start, name)
+                || expr_reads_name(stop, name)
+                || expr_reads_name(step, name)
+        }
+        Expr::ListLit(items) | Expr::SetLit(items) | Expr::TupleLit(items) => {
+            items.iter().any(|item| expr_reads_name(item, name))
+        }
+        Expr::DictLit(pairs) => pairs
+            .iter()
+            .any(|(key, value)| expr_reads_name(key, name) || expr_reads_name(value, name)),
+        Expr::Call { args, .. } | Expr::Construct { args, .. } => {
+            args.iter().any(|arg| expr_reads_name(arg, name))
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            expr_reads_name(receiver, name) || args.iter().any(|arg| expr_reads_name(arg, name))
+        }
+    }
+}
+
 /// Emit a function body, ending in a tail expression rather than a `return`.
 ///
 /// The final statement becomes the tail so the generated function has no unreachable trailing
@@ -918,8 +1021,27 @@ impl Emitter<'_> {
                     );
                 }
                 Stmt::Assign { name, ty, value } => {
-                    let value = emit_expr(value, self.unit, ty)?;
-                    let _ = writeln!(self.out, "{pad}{} = {value};", rust_ident(name));
+                    if let Some(operands) = accumulated_operands(name, value) {
+                        // `x = x + a + b` updates in place. For text the rebuild form is
+                        // quadratic — it copies everything accumulated so far on every step —
+                        // which made compiling asymptotically worse than the interpreter rather
+                        // than merely no better. The operand type follows the same rule the
+                        // ordinary addition uses, so a string operand is borrowed, not cloned.
+                        let operand = if *ty == Ty::Str { Ty::Unit } else { ty.clone() };
+                        // One append per operand, left to right: the same additions the rebuild
+                        // form performed, in the same order, without the intermediate values.
+                        for expr in operands {
+                            let rhs = emit_expr(expr, self.unit, &operand)?;
+                            let _ = writeln!(
+                                self.out,
+                                "{pad}PyAddAssign::py_add_assign(&mut {}, &({rhs}))?;",
+                                rust_ident(name)
+                            );
+                        }
+                    } else {
+                        let value = emit_expr(value, self.unit, ty)?;
+                        let _ = writeln!(self.out, "{pad}{} = {value};", rust_ident(name));
+                    }
                 }
                 Stmt::Return(expr) => {
                     let value = emit_expr(expr, self.unit, &self.function.ret)?;
