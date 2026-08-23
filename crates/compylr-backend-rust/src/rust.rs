@@ -283,9 +283,9 @@ fn emit_generated(functions: &str) -> String {
         "//! Translated by compylr.\n\
          \n\
          use crate::compat::{{\n\
-         {}FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen,\n\
-         {}PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place,\n\
-         {}py_subscript,\n\
+         {}FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,\n\
+         {}PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,\n\
+         {}py_borrow, py_place, py_subscript,\n\
          }};\n\
          \n\
          {functions}",
@@ -939,6 +939,70 @@ fn expr_reads_name(expr: &Expr, name: &str) -> bool {
     }
 }
 
+/// The added operand of `d[k] = d[k] + v`, when the statement has exactly that shape.
+///
+/// Four conditions, and each is a way the fused form would otherwise mean something else:
+///
+/// * the operator is addition, and the *read* is the left operand — `d[k] = v + d[k]` is the
+///   mirrored form and would concatenate text the wrong way round;
+/// * the read is of the **same** collection at the **same** index, compared structurally. `d[k] =
+///   d[j] + 1` is two different slots and must stay two operations;
+/// * the read's index origin is the one assignment uses. `Stmt::SetItem` carries no origin and
+///   resolves a negative index from either end, so fusing a read that counts from the start
+///   would move which element is written;
+/// * the added operand does not touch the collection. The fused form holds it mutably for the
+///   duration, and `d[k] = d[k] + d[j]` would ask for a shared borrow inside that.
+///
+/// Returns the origin alongside the operand so the emitter does not have to re-derive it.
+fn indexed_accumulation<'a>(
+    collection: &Expr,
+    index: &Expr,
+    value: &'a Expr,
+) -> Option<(&'a Expr, IndexOrigin)> {
+    let Expr::Binary {
+        op: BinOp::Add,
+        left,
+        right,
+    } = value
+    else {
+        return None;
+    };
+    let Expr::Subscript {
+        base,
+        index: read_at,
+        origin,
+    } = left.as_ref()
+    else {
+        return None;
+    };
+    if *origin != ASSIGNMENT_ORIGIN {
+        return None;
+    }
+    if base.as_ref() != collection || read_at.as_ref() != index {
+        return None;
+    }
+    if let Some(root) = place_root(collection)
+        && expr_reads_name(right, root)
+    {
+        return None;
+    }
+    Some((right, *origin))
+}
+
+/// The origin `Stmt::SetItem` resolves an index under.
+///
+/// Assignment carries no origin of its own — see the note on the sequence implementation of
+/// `PySetItem` — so a read may only be fused into an assignment when it agrees with this.
+const ASSIGNMENT_ORIGIN: IndexOrigin = IndexOrigin::FromEitherEnd;
+
+/// How an origin is spelled in generated code.
+fn origin_expr(origin: IndexOrigin) -> &'static str {
+    match origin {
+        IndexOrigin::FromEitherEnd => "IndexOrigin::FromEitherEnd",
+        IndexOrigin::FromStart => "IndexOrigin::FromStart",
+    }
+}
+
 /// Emit a function body, ending in a tail expression rather than a `return`.
 ///
 /// The final statement becomes the tail so the generated function has no unreachable trailing
@@ -1092,17 +1156,36 @@ impl Emitter<'_> {
                     // target's index. That is not cosmetic: `d[k] = d[k] + 1` reads the same
                     // collection it writes, and evaluating inline would ask for a shared borrow
                     // inside a mutable one.
-                    let collection = emit_place(collection, self.unit, Access::Mutable)?;
+                    // `d[k] = d[k] + v` is one entry being updated, and was emitted as a read
+                    // and then a write — two lookups of the same key, so two hashes on a
+                    // statement whose whole purpose is to touch one slot. Counting occurrences
+                    // is the most common thing anyone does with a mapping, and it paid for that
+                    // once per element.
+                    let fused = indexed_accumulation(collection, index, value);
+                    let place = emit_place(collection, self.unit, Access::Mutable)?;
                     let index = emit_owned_operand(index, self.unit)?;
-                    let value = emit_owned_operand(value, self.unit)?;
-                    let _ = writeln!(self.out, "{pad}{{");
-                    let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
-                    let _ = writeln!(self.out, "{pad}    let __compylr_index = {index};");
-                    let _ = writeln!(
-                        self.out,
-                        "{pad}    PySetItem::py_set(&mut ({collection}), &__compylr_index, __compylr_value)?;"
-                    );
-                    let _ = writeln!(self.out, "{pad}}}");
+                    if let Some((delta, origin)) = fused {
+                        let delta = emit_owned_operand(delta, self.unit)?;
+                        let _ = writeln!(self.out, "{pad}{{");
+                        let _ = writeln!(self.out, "{pad}    let __compylr_delta = {delta};");
+                        let _ = writeln!(self.out, "{pad}    let __compylr_index = {index};");
+                        let _ = writeln!(
+                            self.out,
+                            "{pad}    PyAddAssignAt::py_add_assign_at(&mut ({place}), &__compylr_index, &__compylr_delta, {})?;",
+                            origin_expr(origin)
+                        );
+                        let _ = writeln!(self.out, "{pad}}}");
+                    } else {
+                        let value = emit_owned_operand(value, self.unit)?;
+                        let _ = writeln!(self.out, "{pad}{{");
+                        let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
+                        let _ = writeln!(self.out, "{pad}    let __compylr_index = {index};");
+                        let _ = writeln!(
+                            self.out,
+                            "{pad}    PySetItem::py_set(&mut ({place}), &__compylr_index, __compylr_value)?;"
+                        );
+                        let _ = writeln!(self.out, "{pad}}}");
+                    }
                 }
                 Stmt::Append { sequence, value } => {
                     // Bound first for the same reason: `xs.append(xs[0])` reads what it extends.

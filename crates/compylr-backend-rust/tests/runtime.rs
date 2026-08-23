@@ -862,3 +862,144 @@ mod borrowed_values_satisfy_the_reading_traits {
         );
     }
 }
+
+/// Behaviour pinned before the runtime is made to stop repeating itself.
+///
+/// Every change in this section is supposed to be invisible: the same answers, the same failures,
+/// fewer instructions. These tests are what makes "invisible" checkable rather than asserted —
+/// they are written against the behaviour as it is *now*, so a sweep that changes an answer fails
+/// here rather than in somebody's program.
+mod pinned_before_the_runtime_sweep {
+    use super::*;
+    use compylr_backend_rust::runtime::{
+        FastMap, IndexOrigin, PyBorrow, PyIndexable, PyPlace, PySetItem, TextUnits, py_index,
+        py_key, py_str_len,
+    };
+
+    #[test]
+    fn an_index_past_either_end_reports_rather_than_panicking() {
+        let items = vec![1i64, 2, 3];
+        for origin in [IndexOrigin::FromEitherEnd, IndexOrigin::FromStart] {
+            assert_eq!(
+                py_index(&items, 3, origin),
+                Err(RuntimeError::IndexOutOfRange),
+                "one past the end, {origin:?}"
+            );
+            assert_eq!(
+                py_index(&items, i64::MAX, origin),
+                Err(RuntimeError::IndexOutOfRange)
+            );
+            assert_eq!(
+                py_index(&items, i64::MIN, origin),
+                Err(RuntimeError::IndexOutOfRange),
+                "the extreme negative must not wrap into range"
+            );
+        }
+    }
+
+    #[test]
+    fn a_negative_index_means_what_the_origin_says() {
+        let items = vec![10i64, 20, 30];
+        // Counting back from the end.
+        assert_eq!(py_index(&items, -1, IndexOrigin::FromEitherEnd), Ok(30));
+        assert_eq!(py_index(&items, -3, IndexOrigin::FromEitherEnd), Ok(10));
+        assert_eq!(
+            py_index(&items, -4, IndexOrigin::FromEitherEnd),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+        // ...and not counting back at all.
+        assert_eq!(
+            py_index(&items, -1, IndexOrigin::FromStart),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+    }
+
+    #[test]
+    fn an_empty_sequence_is_out_of_range_at_every_index() {
+        let empty: Vec<i64> = vec![];
+        for index in [0i64, -1, 1] {
+            assert_eq!(
+                py_index(&empty, index, IndexOrigin::FromEitherEnd),
+                Err(RuntimeError::IndexOutOfRange)
+            );
+        }
+    }
+
+    #[test]
+    fn borrowing_and_placing_agree_with_reading_on_range() {
+        let mut items = vec![1i64, 2];
+        for index in [2i64, -3, i64::MIN, i64::MAX] {
+            assert!(PyBorrow::py_borrow(&items, &index, IndexOrigin::FromEitherEnd).is_err());
+            assert!(PyPlace::py_place(&mut items, &index, IndexOrigin::FromEitherEnd).is_err());
+            assert!(PySetItem::py_set(&mut items, &index, 9).is_err());
+        }
+        // ...and still succeed where reading does.
+        assert_eq!(
+            PyBorrow::py_borrow(&items, &(-1i64), IndexOrigin::FromEitherEnd).copied(),
+            Ok(2)
+        );
+        PySetItem::py_set(&mut items, &(-1i64), 9).unwrap();
+        assert_eq!(items, vec![1, 9]);
+    }
+
+    #[test]
+    fn text_length_is_unchanged_for_non_ascii_under_every_reading() {
+        // The shortcut added below applies only to ASCII, so these are the inputs that prove it
+        // did not change the answer for anything else.
+        let cases: [(&str, i64, i64, i64); 5] = [
+            // (text, code points, utf-8 bytes, utf-16 units)
+            ("", 0, 0, 0),
+            ("abc", 3, 3, 3),
+            ("héllo", 5, 6, 5),
+            ("日本語", 3, 9, 3),
+            // Outside the basic plane: one code point, four bytes, two UTF-16 units.
+            ("😀", 1, 4, 2),
+        ];
+        for (text, points, bytes, utf16) in cases {
+            assert_eq!(py_str_len(text, TextUnits::CodePoints), points, "{text:?}");
+            assert_eq!(py_str_len(text, TextUnits::Utf8Bytes), bytes, "{text:?}");
+            assert_eq!(py_str_len(text, TextUnits::Utf16Units), utf16, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_mixed_string_is_measured_as_a_whole() {
+        // An ASCII prefix must not let a shortcut answer for the rest of the string.
+        let mixed = "abc日本語def";
+        assert_eq!(py_str_len(mixed, TextUnits::CodePoints), 9);
+        assert_eq!(py_str_len(mixed, TextUnits::Utf8Bytes), 15);
+        assert_eq!(py_str_len(mixed, TextUnits::Utf16Units), 9);
+    }
+
+    #[test]
+    fn a_missing_mapping_key_reports_and_is_not_created() {
+        let mut counts: FastMap<String, i64> = FastMap::default();
+        counts.insert(String::from("a"), 1);
+
+        assert!(matches!(
+            py_key(&counts, &String::from("b")),
+            Err(RuntimeError::MissingKey(_))
+        ));
+        assert!(matches!(
+            PyIndexable::py_get(&counts, &String::from("b"), IndexOrigin::FromStart),
+            Err(RuntimeError::MissingKey(_))
+        ));
+        assert!(matches!(
+            PyPlace::py_place(&mut counts, &String::from("b"), IndexOrigin::FromStart),
+            Err(RuntimeError::MissingKey(_))
+        ));
+        assert_eq!(counts.len(), 1, "no read may insert a key");
+        assert!(!counts.contains_key("b"));
+    }
+
+    #[test]
+    fn the_reported_key_names_itself() {
+        // The message carries the key, because "missing key" without saying which one is a worse
+        // diagnostic than Python's.
+        let counts: FastMap<String, i64> = FastMap::default();
+        match py_key(&counts, &String::from("absent")) {
+            Err(RuntimeError::MissingKey(named)) => assert!(named.contains("absent"), "{named}"),
+            other => panic!("expected a missing key, got {other:?}"),
+        }
+    }
+}

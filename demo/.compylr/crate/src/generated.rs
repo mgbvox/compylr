@@ -1,8 +1,8 @@
 //! Translated by compylr.
 
 use crate::compat::{
-    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum,
-    PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains, PyIterate, PyLen,
+    PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
 };
 
 /// A stack of integers, over a list that never shrinks.
@@ -324,12 +324,14 @@ impl UnionFind {
             == (&(py_subscript(&((self).rank), &(right), IndexOrigin::FromEitherEnd)?)))
         {
             {
-                let __compylr_value = PyAdd::py_add(
-                    &(py_subscript(&((self).rank), &(left), IndexOrigin::FromEitherEnd)?),
-                    &(1i64),
-                )?;
+                let __compylr_delta = 1i64;
                 let __compylr_index = left.clone();
-                PySetItem::py_set(&mut ((self).rank), &__compylr_index, __compylr_value)?;
+                PyAddAssignAt::py_add_assign_at(
+                    &mut ((self).rank),
+                    &__compylr_index,
+                    &__compylr_delta,
+                    IndexOrigin::FromEitherEnd,
+                )?;
             }
         }
         (self).groups = PyNum::py_sub(&((self).groups.clone()), &(1i64))?;
@@ -2248,12 +2250,14 @@ pub fn topological_order(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, Runt
                 for __compylr_item in PyIterate::py_iter(__compylr_iter) {
                     let neighbour: i64 = __compylr_item;
                     {
-                        let __compylr_value = PyAdd::py_add(
-                            &(py_subscript(&(indegree), &(neighbour), IndexOrigin::FromEitherEnd)?),
-                            &(1i64),
-                        )?;
+                        let __compylr_delta = 1i64;
                         let __compylr_index = neighbour.clone();
-                        PySetItem::py_set(&mut (indegree), &__compylr_index, __compylr_value)?;
+                        PyAddAssignAt::py_add_assign_at(
+                            &mut (indegree),
+                            &__compylr_index,
+                            &__compylr_delta,
+                            IndexOrigin::FromEitherEnd,
+                        )?;
                     }
                 }
             }
@@ -2520,12 +2524,14 @@ pub fn word_count(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeErr
             let word: &String = __compylr_item;
             if PyContains::py_contains(&(counts), &(word)) {
                 {
-                    let __compylr_value = PyAdd::py_add(
-                        &(py_subscript(&(counts), &(word), IndexOrigin::FromEitherEnd)?),
-                        &(1i64),
-                    )?;
+                    let __compylr_delta = 1i64;
                     let __compylr_index = word.clone();
-                    PySetItem::py_set(&mut (counts), &__compylr_index, __compylr_value)?;
+                    PyAddAssignAt::py_add_assign_at(
+                        &mut (counts),
+                        &__compylr_index,
+                        &__compylr_delta,
+                        IndexOrigin::FromEitherEnd,
+                    )?;
                 }
             } else {
                 {

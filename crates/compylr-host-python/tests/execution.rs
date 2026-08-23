@@ -2110,3 +2110,139 @@ fn a_non_tail_return_still_answers_correctly() {
     assert_eq!(lines[0], "[1]");
     assert_eq!(lines[1], "[2]");
 }
+
+#[test]
+fn a_fused_mapping_update_counts_correctly() {
+    let out = run(
+        "fused_tally",
+        concat!(
+            "def tally(words: list[str]) -> dict[str, int]:\n",
+            "    counts: dict[str, int] = {}\n",
+            "    for word in words:\n",
+            "        if word in counts:\n",
+            "            counts[word] = counts[word] + 1\n",
+            "        else:\n",
+            "            counts[word] = 1\n",
+            "    return counts\n",
+        ),
+        r#"
+    let words = vec![
+        String::from("a"),
+        String::from("b"),
+        String::from("a"),
+        String::from("a"),
+    ];
+    let counts = tally(words).unwrap();
+    // Sorted before printing: mapping iteration order is not guaranteed and varies between runs.
+    let mut pairs: Vec<(String, i64)> = counts.into_iter().collect();
+    pairs.sort();
+    println!("{pairs:?}");
+"#,
+    );
+    assert_eq!(out.trim(), r#"[("a", 3), ("b", 1)]"#);
+}
+
+#[test]
+fn a_fused_update_of_a_missing_key_still_reports_and_does_not_create_it() {
+    // The whole risk of fusing a read into a write is that the fused form quietly *inserts*.
+    // Reading a key that is absent is an error in this subset; assignment is what creates one.
+    let out = run(
+        "fused_missing_key",
+        concat!(
+            "def bump(k: str) -> int:\n",
+            "    counts: dict[str, int] = {}\n",
+            "    counts[\"present\"] = 1\n",
+            "    counts[k] = counts[k] + 1\n",
+            "    return len(counts)\n",
+        ),
+        r#"
+    match bump(String::from("present")) {
+        Ok(size) => println!("ok {size}"),
+        Err(error) => println!("reported: {error}"),
+    }
+    match bump(String::from("absent")) {
+        Ok(size) => println!("no error, size {size}"),
+        Err(error) => println!("reported: {error}"),
+    }
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "ok 1");
+    assert_eq!(
+        lines[1], "reported: \"absent\"",
+        "a fused update must not invent the key it was told to add to"
+    );
+}
+
+#[test]
+fn a_fused_sequence_update_reports_out_of_range() {
+    let out = run(
+        "fused_sequence",
+        concat!(
+            "def bump(n: int, at: int) -> list[int]:\n",
+            "    xs: list[int] = []\n",
+            "    i = 0\n",
+            "    while i < n:\n",
+            "        xs.append(i)\n",
+            "        i = i + 1\n",
+            "    xs[at] = xs[at] + 10\n",
+            "    return xs\n",
+        ),
+        r#"
+    println!("{:?}", bump(3, 0).unwrap());
+    println!("{:?}", bump(3, -1).unwrap());
+    println!("{:?}", bump(3, 5).map_err(|e| e.to_string()));
+    println!("{:?}", bump(3, -9).map_err(|e| e.to_string()));
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[10, 1, 2]");
+    assert_eq!(
+        lines[1], "[0, 1, 12]",
+        "a negative index counts from the end"
+    );
+    assert_eq!(lines[2], r#"Err("index out of range")"#);
+    assert_eq!(lines[3], r#"Err("index out of range")"#);
+}
+
+#[test]
+fn a_fused_text_update_concatenates_in_the_right_order() {
+    let out = run(
+        "fused_text",
+        concat!(
+            "def build(parts: list[str]) -> dict[str, str]:\n",
+            "    out: dict[str, str] = {}\n",
+            "    out[\"k\"] = \"\"\n",
+            "    for part in parts:\n",
+            "        out[\"k\"] = out[\"k\"] + part\n",
+            "    return out\n",
+        ),
+        r#"
+    let parts = vec![String::from("a"), String::from("b"), String::from("c")];
+    let built = build(parts).unwrap();
+    println!("{}", built["k"]);
+"#,
+    );
+    assert_eq!(out.trim(), "abc");
+}
+
+#[test]
+fn a_fused_integer_update_still_reports_overflow() {
+    let out = run(
+        "fused_overflow",
+        concat!(
+            "def climb(step: int) -> list[int]:\n",
+            "    xs: list[int] = []\n",
+            "    xs.append(9223372036854775807)\n",
+            "    xs[0] = xs[0] + step\n",
+            "    return xs\n",
+        ),
+        r#"
+    println!("{:?}", climb(0).unwrap());
+    println!("{:?}", climb(1).map_err(|e| e.to_string()));
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[9223372036854775807]");
+    assert_eq!(lines[1], r#"Err("integer overflow")"#);
+}

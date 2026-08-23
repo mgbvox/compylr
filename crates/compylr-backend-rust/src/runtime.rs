@@ -338,27 +338,42 @@ pub fn div_exact(lhs: &f64, rhs: &f64) -> Result<f64, RuntimeError> {
 /// The element is cloned out, which is what lets the read-only subset work without threading
 /// borrows through generated code. For a scalar that is free.
 pub fn py_index<T: Clone>(items: &[T], index: i64, origin: IndexOrigin) -> Result<T, RuntimeError> {
-    Ok(items[resolve_index(index, items.len(), origin)?].clone())
+    items
+        .get(resolve_index(index, items.len(), origin)?)
+        .cloned()
+        .ok_or(RuntimeError::IndexOutOfRange)
 }
 
-/// Turn a declared index into an offset, or report that it is out of range.
+/// Turn a declared index into an offset, reporting only what the lookup cannot.
 ///
 /// Shared by every sequence operation that takes an index — reading, assigning, and borrowing a
 /// place to write through. Three copies of this was two too many: they are the same rule, and the
 /// one that drifted would disagree with the others on exactly the inputs (a negative index, an
 /// index one past the end) that a test suite is least likely to cover.
+///
+/// **The upper bound is deliberately not checked here.** Every caller follows this with a lookup
+/// that has to test it anyway — `get`, `get_mut` — so checking it here made every element read
+/// test the same bound twice and carry a panic path for a case that had just been ruled out.
+/// What is left is the part a lookup genuinely cannot do: turn a negative index into an offset
+/// under the origin the frontend declared, and reject one that is still negative.
+///
+/// `saturating_add` rather than `+`: `i64::MIN + length` overflows, which is a panic in a debug
+/// build for an index that is simply out of range. Saturating leaves it enormously negative,
+/// which is rejected on the next line.
 fn resolve_index(index: i64, length: usize, origin: IndexOrigin) -> Result<usize, RuntimeError> {
-    let length = length as i64;
     let resolved = match origin {
-        IndexOrigin::FromEitherEnd if index < 0 => index + length,
-        // Left as it is, so it fails the range check below rather than wrapping into an enormous
+        IndexOrigin::FromEitherEnd if index < 0 => index.saturating_add(length as i64),
+        // Left as it is, so it fails the range check rather than wrapping into an enormous
         // positive index — which is what a target's native indexing would do with it.
         IndexOrigin::FromEitherEnd | IndexOrigin::FromStart => index,
     };
-    if resolved < 0 || resolved >= length {
+    if resolved < 0 {
         return Err(RuntimeError::IndexOutOfRange);
     }
-    Ok(resolved as usize)
+    // Still `usize`-sized on a 32-bit target, where a huge positive index would truncate. The
+    // lookup rejects it either way, but truncating first could make it land *inside* the
+    // collection, which would be a wrong answer rather than a slow one.
+    usize::try_from(resolved).map_err(|_| RuntimeError::IndexOutOfRange)
 }
 
 /// The hasher generated containers use, and the reason it is not the standard one.
@@ -505,6 +520,11 @@ where
 /// `String::len` is the UTF-8 byte count, so it is the *only* one of the three that comes for free.
 pub fn py_str_len(value: &str, units: TextUnits) -> i64 {
     match units {
+        // The shortcut is **exact**, not approximate: in ASCII every byte is one code point and
+        // one UTF-16 unit, so the byte count is the answer rather than an estimate of it. It
+        // matters because `chars().count()` decodes the whole string on every `len()`, and
+        // `is_ascii` is a vectorized scan that the common case passes.
+        TextUnits::CodePoints | TextUnits::Utf16Units if value.is_ascii() => value.len() as i64,
         TextUnits::CodePoints => value.chars().count() as i64,
         TextUnits::Utf8Bytes => value.len() as i64,
         TextUnits::Utf16Units => value.chars().map(char::len_utf16).sum::<usize>() as i64,
@@ -581,7 +601,9 @@ impl<T> PySetItem<i64, T> for Vec<T> {
         // is a gap for one that declares `FromStart` — recorded here rather than papered over,
         // because closing it is an IR change and not a runtime one.
         let resolved = resolve_index(*index, self.len(), IndexOrigin::FromEitherEnd)?;
-        self[resolved] = value;
+        *self
+            .get_mut(resolved)
+            .ok_or(RuntimeError::IndexOutOfRange)? = value;
         Ok(())
     }
 }
@@ -614,7 +636,8 @@ pub trait PyBorrow<I> {
 impl<T> PyBorrow<i64> for Vec<T> {
     type Item = T;
     fn py_borrow(&self, index: &i64, origin: IndexOrigin) -> Result<&T, RuntimeError> {
-        Ok(&self[resolve_index(*index, self.len(), origin)?])
+        self.get(resolve_index(*index, self.len(), origin)?)
+            .ok_or(RuntimeError::IndexOutOfRange)
     }
 }
 
@@ -666,7 +689,7 @@ impl<T> PyPlace<i64> for Vec<T> {
     type Item = T;
     fn py_place(&mut self, index: &i64, origin: IndexOrigin) -> Result<&mut T, RuntimeError> {
         let resolved = resolve_index(*index, self.len(), origin)?;
-        Ok(&mut self[resolved])
+        self.get_mut(resolved).ok_or(RuntimeError::IndexOutOfRange)
     }
 }
 
@@ -888,5 +911,69 @@ where
     }
     fn py_iter_borrowed(&self) -> impl Iterator<Item = &Self::Item> + '_ {
         (**self).py_iter_borrowed()
+    }
+}
+
+/// Add into an indexed slot, resolving the index **once**.
+///
+/// `d[k] = d[k] + 1` is ordinary Python and was emitted as a read followed by a write: two
+/// separate lookups of the same key, so two hashes, on a statement whose whole purpose is to
+/// touch one entry. Counting occurrences — the single most common thing anyone does with a
+/// mapping — paid for it once per element.
+///
+/// The trait is indexed rather than mapping-specific because the emitter cannot tell a mapping
+/// from a sequence: it does not know an expression's type, so it emits one call and Rust selects
+/// the implementation, exactly as every other container operation here works.
+///
+/// A missing key still **reports** and is still not created. The fused form reaches for an
+/// existing slot and fails when there is none, which is what reading one already did — assignment
+/// is what creates a key, and this is not an assignment.
+pub trait PyAddAssignAt<I> {
+    /// What one slot holds.
+    type Value;
+    /// Add `delta` into the slot at `index`.
+    fn py_add_assign_at(
+        &mut self,
+        index: &I,
+        delta: &Self::Value,
+        origin: IndexOrigin,
+    ) -> Result<(), RuntimeError>;
+}
+
+impl<T> PyAddAssignAt<i64> for Vec<T>
+where
+    T: PyAddAssign,
+{
+    type Value = T;
+    fn py_add_assign_at(
+        &mut self,
+        index: &i64,
+        delta: &T,
+        origin: IndexOrigin,
+    ) -> Result<(), RuntimeError> {
+        let resolved = resolve_index(*index, self.len(), origin)?;
+        self.get_mut(resolved)
+            .ok_or(RuntimeError::IndexOutOfRange)?
+            .py_add_assign(delta)
+    }
+}
+
+impl<K, V, S> PyAddAssignAt<K> for std::collections::HashMap<K, V, S>
+where
+    K: std::hash::Hash + Eq + std::fmt::Debug,
+    V: PyAddAssign,
+    S: std::hash::BuildHasher,
+{
+    type Value = V;
+    /// A key is not an offset, so there is nothing for the origin to decide.
+    fn py_add_assign_at(
+        &mut self,
+        key: &K,
+        delta: &V,
+        _origin: IndexOrigin,
+    ) -> Result<(), RuntimeError> {
+        self.get_mut(key)
+            .ok_or_else(|| RuntimeError::MissingKey(format!("{key:?}")))?
+            .py_add_assign(delta)
     }
 }

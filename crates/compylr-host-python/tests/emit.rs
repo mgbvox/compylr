@@ -751,3 +751,98 @@ fn a_compared_loop_variable_is_not_borrowed() {
     );
     assert!(emitted.contains("let word: String"), "{emitted}");
 }
+
+/// `d[k] = d[k] + v` looks up the key once.
+///
+/// It was a read followed by a write — two hashes on a statement whose whole purpose is to touch
+/// one slot. Counting occurrences is the most common thing anyone does with a mapping, and it
+/// paid for that once per element.
+///
+/// The fixtures build their container locally rather than taking one as a parameter: a collection
+/// parameter is a copy, so the subset rejects mutating it or an alias of it.
+mod fused_indexed_accumulation {
+    use super::*;
+
+    /// A function that fills a list, then does `body` to it.
+    fn over_a_list(body: &str) -> String {
+        emit(&format!(
+            "def run(n: int) -> list[int]:\n\
+             \x20   xs: list[int] = []\n\
+             \x20   i = 0\n\
+             \x20   while i < n:\n\
+             \x20       xs.append(i)\n\
+             \x20       i = i + 1\n\
+             {body}\
+             \x20   return xs\n"
+        ))
+    }
+
+    /// Whether the emitted source *calls* the separate read, rather than merely importing it.
+    fn reads_separately(emitted: &str) -> bool {
+        emitted.contains("py_subscript(")
+    }
+
+    #[test]
+    fn a_mapping_increment_is_one_lookup() {
+        let emitted = emit(concat!(
+            "def tally(words: list[str]) -> dict[str, int]:\n",
+            "    counts: dict[str, int] = {}\n",
+            "    for word in words:\n",
+            "        if word in counts:\n",
+            "            counts[word] = counts[word] + 1\n",
+            "        else:\n",
+            "            counts[word] = 1\n",
+            "    return counts\n",
+        ));
+        assert!(emitted.contains("py_add_assign_at"), "{emitted}");
+        assert!(
+            !reads_separately(&emitted),
+            "the fused form performs no separate read:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_sequence_increment_is_one_lookup_too() {
+        // The emitter cannot tell a mapping from a sequence, so the choice is type-directed and
+        // both containers have to work.
+        let emitted = over_a_list("    xs[0] = xs[0] + 1\n");
+        assert!(emitted.contains("py_add_assign_at"), "{emitted}");
+        assert!(!reads_separately(&emitted), "{emitted}");
+    }
+
+    #[test]
+    fn the_mirrored_form_is_left_alone() {
+        // `xs[0] = 1 + xs[0]` puts the read on the right. For text that is the other string.
+        let emitted = over_a_list("    xs[0] = 1 + xs[0]\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+        assert!(reads_separately(&emitted), "{emitted}");
+    }
+
+    #[test]
+    fn a_different_index_is_left_alone() {
+        // Reading one slot and writing another is two operations, not one.
+        let emitted = over_a_list("    xs[0] = xs[1] + 1\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+    }
+
+    #[test]
+    fn an_operand_touching_the_collection_is_left_alone() {
+        // The fused form holds the collection mutably, so a right operand that reads it would
+        // ask for a shared borrow inside a mutable one.
+        let emitted = over_a_list("    xs[0] = xs[0] + xs[1]\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+    }
+
+    #[test]
+    fn a_plain_assignment_is_unchanged() {
+        let emitted = over_a_list("    xs[0] = 1\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+        assert!(emitted.contains("PySetItem::py_set"), "{emitted}");
+    }
+
+    #[test]
+    fn subtraction_is_left_alone() {
+        let emitted = over_a_list("    xs[0] = xs[0] - 1\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+    }
+}

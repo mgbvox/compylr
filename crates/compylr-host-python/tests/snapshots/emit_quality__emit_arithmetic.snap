@@ -5,9 +5,9 @@ expression: functions.trim()
 //! Translated by compylr.
 
 use crate::compat::{
-    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen,
-    PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place,
-    py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
+    PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
+    py_borrow, py_place, py_subscript,
 };
 
 pub fn add(a: i64, b: i64) -> Result<i64, RuntimeError> {
