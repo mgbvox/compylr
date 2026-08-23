@@ -20,7 +20,7 @@ pub use bridge::{BridgeError, BuildKey, HostArtifact, HostBridge};
 // what its language means should name one type, not reach past this crate into the IR for it.
 pub use compylr_ir::{Axis, Behavior, Guarantee, LanguageBehavior, Stance};
 pub use folding::ConstantFolding;
-pub use frontend::{Frontend, FrontendError, LoweringError};
+pub use frontend::{Frontend, FrontendError, LoweringError, Source};
 pub use negotiation::{TargetOption, UnmetGuarantee, WithheldOption, negotiate};
 pub use pass::{DirectedPass, Optimization, Pass, PassConfig, PipelineReport};
 pub use verify::{VerificationError, verify};

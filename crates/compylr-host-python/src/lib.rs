@@ -15,16 +15,20 @@
 //! compilation logic can be tested without a Python interpreter and the wrappers have nothing in
 //! them that could disagree with what they wrap.
 
+use std::collections::BTreeMap;
+
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
 use compylr_core::backend::{BackendError, GeneratedFiles};
+use compylr_core::behavior::{BehaviorError, BehaviorRequest, LanguagePair};
 use compylr_core::bridge::{BridgeError, BuildKey};
-use compylr_core::frontend::{FrontendError, LoweringError};
+use compylr_core::frontend::{FrontendError, LoweringError, Source};
 use compylr_core::negotiation::{UnmetGuarantee, negotiate};
 use compylr_core::pass::{self, PassConfig};
 use compylr_core::verify::verify;
+use compylr_core::{Axis, Behavior, Frontend};
 use compylr_diagnostics::error::LowerError;
 use compylr_frontend_python::error::SourceError;
 use compylr_frontend_python::frontend::parse_source;
@@ -96,6 +100,9 @@ pub enum CompileFailure {
     Bridge(BridgeError),
     /// The target cannot preserve something the source language requires.
     Guarantee(UnmetGuarantee),
+    /// The requested behavior names something that is not one of this compilation's two
+    /// languages, or an axis that does not exist.
+    Behavior(BehaviorError),
 }
 
 impl CompileFailure {
@@ -147,7 +154,7 @@ impl From<LoweringError> for CompileFailure {
 /// source call a function in another — the arrangement a project of separately decorated functions
 /// always produces. Because callee resolution happens over the assembled unit rather than during
 /// lowering, the result does not depend on the order the sources arrive.
-pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, CompileFailure> {
+pub fn compile(sources: &[Source], backend_name: &str) -> Result<Compiled, CompileFailure> {
     compile_with(
         sources,
         DEFAULT_FRONTEND,
@@ -156,13 +163,41 @@ pub fn compile(sources: &[String], backend_name: &str) -> Result<Compiled, Compi
     )
 }
 
+/// Resolve a behavior request against the two languages a compilation runs between.
+///
+/// Both declarations come from the components themselves, and the recognised names are the union
+/// of the two registries — which is what lets a user who names a reserved target be told it is not
+/// one of *these* two rather than that no such language exists.
+pub fn resolve_behavior(
+    request: &BehaviorRequest,
+    frontend_name: &str,
+    backend_name: &str,
+) -> Result<Behavior, CompileFailure> {
+    let frontend = frontends::lookup(frontend_name).map_err(CompileFailure::Frontend)?;
+    let backend = backends::lookup(backend_name).map_err(CompileFailure::Backend)?;
+
+    let mut known: Vec<&str> = frontends::names();
+    known.extend(backends::names());
+    known.sort_unstable();
+    known.dedup();
+
+    let pair = LanguagePair {
+        source: frontend.name(),
+        source_behavior: frontend.behavior(),
+        target: backend.name(),
+        target_behavior: backend.behavior(),
+        known: &known,
+    };
+    compylr_core::resolve(request, &pair, None).map_err(CompileFailure::Behavior)
+}
+
 /// The same, with the pass pipeline configured explicitly.
 ///
 /// Separate rather than a defaulted argument so that the common call stays short, and so that a
 /// caller turning optimization off has to say so — the two produce different artifacts, and one
 /// silently standing in for the other is the failure this split prevents.
 pub fn compile_with(
-    sources: &[String],
+    sources: &[Source],
     frontend_name: &str,
     backend_name: &str,
     config: &PassConfig,
@@ -272,6 +307,14 @@ create_exception!(
     CompylrError,
     "The requested backend is unknown, or reserved but not implemented."
 );
+create_exception!(
+    _core,
+    InvalidBehaviorError,
+    CompylrError,
+    "A behavior named a language that is not one of this compilation's two, or an axis that does \
+     not exist. Carries `code`, which is one of `unknown_language`, `language_not_in_pair`, or \
+     `unknown_axis`."
+);
 
 impl CompileFailure {
     /// Turn a failure into the Python exception that describes it.
@@ -309,6 +352,15 @@ impl CompileFailure {
             // A backend that cannot preserve what Python needs is not a usable backend, which is
             // what `BackendNotAvailableError` already means. The message names the guarantee.
             Self::Guarantee(error) => (BackendNotAvailableError::new_err(error.to_string()), None),
+            // Carries its category as an attribute rather than only in the message. The three
+            // rejections read very differently to a user — a typo, a language that exists but not
+            // here, a misspelled axis — and the Python surface turns each into its own sentence.
+            // It must not do so by matching the prose it is about to replace.
+            Self::Behavior(error) => {
+                let err = InvalidBehaviorError::new_err(error.to_string());
+                let _ = err.value(py).setattr("code", error.code());
+                return err;
+            }
         };
 
         if let Some((line, column, code)) = location {
@@ -375,19 +427,67 @@ impl From<Compiled> for PyCompiledUnit {
     }
 }
 
-/// Compile source texts for a backend.
+/// Compile source texts for a backend, each under its own behavior.
+///
+/// Each source arrives paired with a mapping from behavior axis to language name. An empty
+/// mapping means every axis inherits, which resolves to the source language's stance — so a
+/// caller that never mentions behavior gets exactly what it got before the setting existed.
+///
+/// Pairs rather than two parallel lists: the behavior is a property of the *member*, and two
+/// lists indexed together are two lists that can come apart. The failure that would produce is a
+/// function compiled under its neighbour's meanings, with nothing in its source saying so.
 #[pyfunction]
 #[pyo3(signature = (sources, backend = "rust", frontend = DEFAULT_FRONTEND))]
 fn compile_unit(
     py: Python<'_>,
-    sources: Vec<String>,
+    sources: Vec<(String, BTreeMap<String, String>)>,
     backend: &str,
     frontend: &str,
 ) -> PyResult<PyCompiledUnit> {
-    match compile_with(&sources, frontend, backend, &PassConfig::default()) {
+    let mut resolved = Vec::with_capacity(sources.len());
+    for (text, axes) in sources {
+        // Resolved before anything is parsed, so an invalid behavior is reported without the
+        // user's syntax getting a chance to be wrong first.
+        let request = BehaviorRequest::from_pairs(axes)
+            .map_err(|error| CompileFailure::Behavior(error).into_py_err(py))?;
+        let behavior = resolve_behavior(&request, frontend, backend)
+            .map_err(|failure| failure.into_py_err(py))?;
+        resolved.push(Source::new(text, behavior));
+    }
+
+    match compile_with(&resolved, frontend, backend, &PassConfig::default()) {
         Ok(compiled) => Ok(compiled.into()),
         Err(failure) => Err(failure.into_py_err(py)),
     }
+}
+
+/// Check a behavior against a source and target pair without compiling anything.
+///
+/// The same shape as `check_backend`, and for the same reason: a bad value should be reported by
+/// the decorator that named it rather than by a build reached much later. Nothing is parsed and
+/// no target source is generated — this resolves the request and discards the result.
+#[pyfunction]
+#[pyo3(signature = (axes, backend = "rust", frontend = DEFAULT_FRONTEND))]
+fn check_behavior(
+    py: Python<'_>,
+    axes: BTreeMap<String, String>,
+    backend: &str,
+    frontend: &str,
+) -> PyResult<()> {
+    let request = BehaviorRequest::from_pairs(axes)
+        .map_err(|error| CompileFailure::Behavior(error).into_py_err(py))?;
+    resolve_behavior(&request, frontend, backend)
+        .map(|_| ())
+        .map_err(|failure| failure.into_py_err(py))
+}
+
+/// Every behavior axis, by its stable identifier.
+///
+/// Exposed so the Python surface can check its own field names against the compiler's rather than
+/// carrying a second list that drifts.
+#[pyfunction]
+fn behavior_axes() -> Vec<&'static str> {
+    Axis::codes()
 }
 
 /// Check that a single function's source is inside the supported subset.
@@ -413,7 +513,12 @@ fn validate_source(py: Python<'_>, source: &str) -> PyResult<Vec<String>> {
         }
     })?;
 
-    let (functions, classes) = lower_source_members(&parsed)
+    // Any behavior would give the same answer here, and that is the point: acceptance does not
+    // depend on which language supplies a meaning. The source language's own stance is used
+    // because it is the default, not because validation needs it — a validation that varied with
+    // the behavior would mean the decorator could accept a function and the build reject it.
+    let behavior = Behavior::of(compylr_frontend_python::PythonFrontend.behavior());
+    let (functions, classes) = lower_source_members(&parsed, behavior)
         .map_err(|error| CompileFailure::from_lower(&error, source).into_py_err(py))?;
     Ok(functions
         .into_iter()
@@ -451,6 +556,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(backend_names, m)?)?;
     m.add_function(wrap_pyfunction!(implemented_backends, m)?)?;
     m.add_function(wrap_pyfunction!(check_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(check_behavior, m)?)?;
+    m.add_function(wrap_pyfunction!(behavior_axes, m)?)?;
 
     let py = m.py();
     m.add("CompylrError", py.get_type::<CompylrError>())?;
@@ -463,6 +570,10 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "BackendNotAvailableError",
         py.get_type::<BackendNotAvailableError>(),
+    )?;
+    m.add(
+        "InvalidBehaviorError",
+        py.get_type::<InvalidBehaviorError>(),
     )?;
     Ok(())
 }

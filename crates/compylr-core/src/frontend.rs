@@ -13,7 +13,7 @@
 use std::error::Error;
 use std::fmt;
 
-use compylr_ir::{Guarantee, LanguageBehavior, Unit};
+use compylr_ir::{Behavior, Guarantee, LanguageBehavior, Unit};
 
 /// A source language frontend.
 ///
@@ -47,7 +47,36 @@ pub trait Frontend: fmt::Debug + Send + Sync {
     /// Every source is available to every other: a call from one to another must type, which is
     /// the arrangement a project of separately marked functions always produces. The result does
     /// not depend on the order the sources arrive in.
-    fn lower(&self, sources: &[String]) -> Result<Unit, LoweringError>;
+    ///
+    /// The behavior rides on each [`Source`] rather than on the call, because it is a property of
+    /// the *member*: a project may mark one function for the source language's meanings and its
+    /// neighbour for the target's, and a call between them is an ordinary call. A per-call
+    /// setting could not express that at all.
+    fn lower(&self, sources: &[Source]) -> Result<Unit, LoweringError>;
+}
+
+/// One source text and what its operations mean.
+///
+/// Paired rather than passed alongside, so the two cannot come apart. Lowering a source under
+/// somebody else's behavior is not an error any type could catch once the two are separate lists
+/// indexed in parallel — and the failure would be a program that computes different answers with
+/// nothing in its source saying so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Source {
+    /// The text to lower.
+    pub text: String,
+    /// Which language supplies the meaning of each operation in it.
+    pub behavior: Behavior,
+}
+
+impl Source {
+    /// A source and the behavior it lowers under.
+    pub fn new(text: impl Into<String>, behavior: Behavior) -> Self {
+        Self {
+            text: text.into(),
+            behavior,
+        }
+    }
 }
 
 /// Why a frontend could not produce a unit.

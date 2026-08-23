@@ -13,12 +13,13 @@ use compylr_registry::backends::lookup;
 
 fn lower(source: &str) -> Vec<Function> {
     let parsed = parse_source(source).expect("fixture must parse");
-    lower_source(&parsed).unwrap_or_else(|e| panic!("should lower: {}", e.render(source)))
+    lower_source(&parsed, python_stance())
+        .unwrap_or_else(|e| panic!("should lower: {}", e.render(source)))
 }
 
 fn reject(source: &str) -> LowerErrorKind {
     let parsed = parse_source(source).expect("fixture must parse");
-    match lower_source(&parsed) {
+    match lower_source(&parsed, python_stance()) {
         Ok(_) => panic!("should have been rejected but lowered:\n{source}"),
         Err(error) => error.kind(),
     }
@@ -403,4 +404,12 @@ mod emission {
             panic!("emitted source did not compile:\n{stderr}");
         }
     }
+}
+
+/// Python's own stance, which is what an unconfigured compilation resolves to.
+///
+/// Read from the frontend's declaration rather than rebuilt here, so these tests lower under the
+/// same bundle the pipeline uses.
+fn python_stance() -> compylr_ir::Behavior {
+    compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
 }

@@ -30,7 +30,7 @@ fn fixtures_dir() -> PathBuf {
 
 fn lower_fixture(path: &Path) -> Result<Vec<Function>, compylr_diagnostics::error::LowerError> {
     let parsed = parse_file(path).expect("fixture must parse as valid Python");
-    lower_source_members(&parsed).map(|(functions, _)| functions)
+    lower_source_members(&parsed, python_stance()).map(|(functions, _)| functions)
 }
 
 fn accepted(name: &str) -> Vec<Function> {
@@ -202,7 +202,7 @@ fn formatting_differences_do_not_change_fingerprints() {
 
     let lower_text = |source: &str| {
         let parsed = compylr_frontend_python::frontend::parse_source(source).unwrap();
-        lower_source_members(&parsed).unwrap().0
+        lower_source_members(&parsed, python_stance()).unwrap().0
     };
 
     let a = lower_text(plain);
@@ -232,4 +232,12 @@ fn unit_fingerprint_is_stable_across_addition_order() {
         unit
     };
     assert_eq!(build(false).fingerprint(), build(true).fingerprint());
+}
+
+/// Python's own stance, which is what an unconfigured compilation resolves to.
+///
+/// Read from the frontend's declaration rather than rebuilt here, so these tests lower under the
+/// same bundle the pipeline uses.
+fn python_stance() -> compylr_ir::Behavior {
+    compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
 }

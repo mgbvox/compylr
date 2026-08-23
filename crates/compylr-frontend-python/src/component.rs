@@ -6,7 +6,7 @@
 //! then lower — is Python's typing rules, and it belongs to Python rather than to whoever asked
 //! for a compilation.
 
-use compylr_core::{Frontend, Guarantee, LanguageBehavior, LoweringError};
+use compylr_core::{Frontend, Guarantee, LanguageBehavior, LoweringError, Source};
 use compylr_diagnostics::error::LowerError;
 use compylr_ir::{
     Checked, IndexOrigin, IntegerDivision, RemSign, Remainder, Rounding, SequenceIndex, TextUnits,
@@ -86,7 +86,7 @@ impl Frontend for PythonFrontend {
         &PYTHON_BEHAVIOR
     }
 
-    fn lower(&self, sources: &[String]) -> Result<Unit, LoweringError> {
+    fn lower(&self, sources: &[Source]) -> Result<Unit, LoweringError> {
         // Every source is parsed before any is lowered, so signatures can be gathered across all
         // of them. The decorator submits each function as its own source, which makes a call
         // between two decorated functions a call *across* sources; without this, such a call
@@ -94,7 +94,8 @@ impl Frontend for PythonFrontend {
         // the arrangement the decorator always produces.
         let mut parsed_sources = Vec::with_capacity(sources.len());
         for source in sources {
-            let parsed = parse_source(source).map_err(|error| syntax_error(&error, source))?;
+            let parsed =
+                parse_source(&source.text).map_err(|error| syntax_error(&error, &source.text))?;
             parsed_sources.push((source, parsed));
         }
 
@@ -111,18 +112,21 @@ impl Frontend for PythonFrontend {
             class_signatures.extend(collect_class_signatures(parsed, &class_names));
         }
 
+        // Each source is lowered under **its own** behavior. Two members of one project may
+        // disagree about what `-7 // 2` means, and a call between them is still an ordinary call:
+        // the meanings ride on the nodes, so one unit holds both without any of it being special.
         let mut unit = Unit::new();
         for (source, parsed) in &parsed_sources {
             let (functions, classes) =
-                lower_source_members_with(parsed, &signatures, &class_signatures)
-                    .map_err(|error| unsupported(&error, source))?;
+                lower_source_members_with(parsed, &signatures, &class_signatures, source.behavior)
+                    .map_err(|error| unsupported(&error, &source.text))?;
             for function in functions {
                 unit.add_function(function)
-                    .map_err(|error| unsupported(&error, source))?;
+                    .map_err(|error| unsupported(&error, &source.text))?;
             }
             for class in classes {
                 unit.add_class(class)
-                    .map_err(|error| unsupported(&error, source))?;
+                    .map_err(|error| unsupported(&error, &source.text))?;
             }
         }
 

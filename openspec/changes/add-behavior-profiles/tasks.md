@@ -61,22 +61,22 @@
 
 ## 4. Lowering takes a behavior
 
-- [ ] 4.1 Write tests: the same source under two behaviors differing on one axis produces units
+- [x] 4.1 Write tests: the same source under two behaviors differing on one axis produces units
       that differ only in the modes that axis governs; under Python's stance the unit is byte-equal
       to what lowering produced before this change
-- [ ] 4.2 Write tests that acceptance is behavior-independent — every fixture in
+- [x] 4.2 Write tests that acceptance is behavior-independent — every fixture in
       `python/fixtures/accepted/` lowers under each behavior, and every fixture in `rejected/` is
       rejected under each with the same diagnostic code
-- [ ] 4.3 Write a test that `a / b` on integers is typed float under every behavior, and that
+- [x] 4.3 Write a test that `a / b` on integers is typed float under every behavior, and that
       `xs[-1]` lowers successfully under `index` taking Rust's stance (design D10)
-- [ ] 4.4 Wrap `Names<'a>` in a `Copy` carrier holding the behavior alongside it, and thread it
+- [x] 4.4 Wrap `Names<'a>` in a `Copy` carrier holding the behavior alongside it, and thread it
       through `lower_expr` and its callers. Mechanical — no logic moves (design D14)
-- [ ] 4.5 Add the behavior to `Ctx<'a>`; delete `PY_TRUE_DIV`, `PY_FLOOR_DIV`, `PY_MOD`,
+- [x] 4.5 Add the behavior to `Ctx<'a>`; delete `PY_TRUE_DIV`, `PY_FLOOR_DIV`, `PY_MOD`,
       `PY_INDEX_ORIGIN`, and `PY_TEXT_UNITS`; set every mode from the behavior
-- [ ] 4.6 Add the behavior parameter to `Frontend::lower` and to the Python frontend's
+- [x] 4.6 Add the behavior parameter to `Frontend::lower` and to the Python frontend's
       implementation, per source rather than per call, so one unit can hold members lowered under
       different behaviors
-- [ ] 4.7 fmt, clippy, test; commit
+- [x] 4.7 fmt, clippy, test; commit
 
 ## 5. Guarantees become a property of the program
 

@@ -8,6 +8,14 @@
 use compylr_core::frontend::FrontendError;
 use compylr_registry::frontends as frontend;
 
+/// A source lowered under Python's own stance, which is what an unconfigured project resolves to.
+fn py_source(text: &str) -> compylr_core::Source {
+    compylr_core::Source::new(
+        text,
+        compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR),
+    )
+}
+
 #[test]
 fn python_is_implemented() {
     let frontend = frontend::lookup("python").expect("python must be implemented");
@@ -82,7 +90,7 @@ fn every_reserved_name_is_listed_but_only_some_can_compile() {
 fn the_frontend_lowers_source_text_into_a_unit() {
     let frontend = frontend::lookup("python").unwrap();
     let unit = frontend
-        .lower(&["def double(n: int) -> int:\n    return n * 2\n".to_string()])
+        .lower(&[py_source("def double(n: int) -> int:\n    return n * 2\n")])
         .expect("a supported program must lower");
     assert_eq!(unit.functions().count(), 1);
 }
@@ -93,8 +101,8 @@ fn sources_assemble_into_one_unit_across_files() {
     let frontend = frontend::lookup("python").unwrap();
     let unit = frontend
         .lower(&[
-            "def double(n: int) -> int:\n    return n * 2\n".to_string(),
-            "def quadruple(n: int) -> int:\n    return double(double(n))\n".to_string(),
+            py_source("def double(n: int) -> int:\n    return n * 2\n"),
+            py_source("def quadruple(n: int) -> int:\n    return double(double(n))\n"),
         ])
         .expect("a call across sources must type");
     assert_eq!(unit.functions().count(), 2);
@@ -104,10 +112,10 @@ fn sources_assemble_into_one_unit_across_files() {
 fn a_syntax_failure_and_a_subset_rejection_are_different_kinds() {
     let frontend = frontend::lookup("python").unwrap();
     let syntax = frontend
-        .lower(&["def broken(:\n".to_string()])
+        .lower(&[py_source("def broken(:\n")])
         .expect_err("must fail");
     let unsupported = frontend
-        .lower(&["def f(a):\n    return a\n".to_string()])
+        .lower(&[py_source("def f(a):\n    return a\n")])
         .expect_err("must fail");
 
     assert!(syntax.is_syntax(), "{syntax}");
@@ -121,7 +129,7 @@ fn a_syntax_failure_and_a_subset_rejection_are_different_kinds() {
 fn a_failure_carries_a_resolved_line_and_column() {
     let frontend = frontend::lookup("python").unwrap();
     let error = frontend
-        .lower(&["def f(a: int) -> int:\n    return a + \"x\"\n".to_string()])
+        .lower(&[py_source("def f(a: int) -> int:\n    return a + \"x\"\n")])
         .expect_err("must fail");
     assert_eq!(error.line(), 2);
     assert!(error.column() > 1, "{error}");
@@ -260,7 +268,7 @@ mod declared_meanings {
 
     fn operator_of(source: &str) -> BinOp {
         let frontend = frontend::lookup("python").unwrap();
-        let unit = frontend.lower(&[source.to_string()]).expect("must lower");
+        let unit = frontend.lower(&[py_source(source)]).expect("must lower");
         match &unit.get("op").expect("the fixture defines op").body[0] {
             Stmt::Return(Expr::Binary { op, .. }) => *op,
             other => panic!("unexpected body: {other:?}"),
@@ -310,7 +318,9 @@ mod declared_meanings {
         use compylr_ir::IndexOrigin;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
-            .lower(&["def op(xs: list[int], i: int) -> int:\n    return xs[i]\n".to_string()])
+            .lower(&[py_source(
+                "def op(xs: list[int], i: int) -> int:\n    return xs[i]\n",
+            )])
             .expect("must lower");
         match &unit.get("op").unwrap().body[0] {
             Stmt::Return(Expr::Subscript { origin, .. }) => {
@@ -325,7 +335,7 @@ mod declared_meanings {
         use compylr_ir::TextUnits;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
-            .lower(&["def op(s: str) -> int:\n    return len(s)\n".to_string()])
+            .lower(&[py_source("def op(s: str) -> int:\n    return len(s)\n")])
             .expect("must lower");
         match &unit.get("op").unwrap().body[0] {
             Stmt::Return(Expr::Len { units, .. }) => assert_eq!(*units, TextUnits::CodePoints),
@@ -343,7 +353,9 @@ mod declared_meanings {
         use compylr_ir::IndexOrigin;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
-            .lower(&["def op(d: dict[str, int], k: str) -> int:\n    return d[k]\n".to_string()])
+            .lower(&[py_source(
+                "def op(d: dict[str, int], k: str) -> int:\n    return d[k]\n",
+            )])
             .expect("must lower");
         match &unit.get("op").unwrap().body[0] {
             Stmt::Return(Expr::Subscript { origin, .. }) => {
@@ -359,7 +371,9 @@ mod declared_meanings {
         use compylr_ir::Guarantee;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
-            .lower(&["def op(a: int, b: int) -> int:\n    return a + b\n".to_string()])
+            .lower(&[py_source(
+                "def op(a: int, b: int) -> int:\n    return a + b\n",
+            )])
             .unwrap();
 
         let origin = unit.origin().expect("a lowered unit is claimed");

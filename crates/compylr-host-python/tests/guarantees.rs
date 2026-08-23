@@ -20,12 +20,20 @@ use compylr_ir::{
     Remainder, Rounding, SequenceIndex, Stmt, TextUnits, Ty, Unit,
 };
 
+/// A source lowered under Python's own stance, which is what an unconfigured project resolves to.
+fn py_source(text: &str) -> compylr_core::Source {
+    compylr_core::Source::new(
+        text,
+        compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR),
+    )
+}
+
 const DOUBLE: &str = "def double(n: int) -> int:\n    return n * 2\n";
 
 fn python_unit() -> Unit {
     compylr_registry::frontends::lookup("python")
         .unwrap()
-        .lower(&[DOUBLE.to_string()])
+        .lower(&[py_source(DOUBLE)])
         .expect("must lower")
 }
 
@@ -50,7 +58,7 @@ fn the_rust_backend_covers_everything_the_python_frontend_requires() {
 
 #[test]
 fn a_covered_combination_compiles() {
-    assert!(compile(&[DOUBLE.to_string()], "rust").is_ok());
+    assert!(compile(&[py_source(DOUBLE)], "rust").is_ok());
 }
 
 /// A backend that drops a guarantee is refused before anything is emitted.

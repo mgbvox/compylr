@@ -7,11 +7,19 @@
 
 use compylr::{CompileFailure, compile};
 
+/// A source lowered under Python's own stance, which is what an unconfigured project resolves to.
+fn py_source(text: &str) -> compylr_core::Source {
+    compylr_core::Source::new(
+        text,
+        compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR),
+    )
+}
+
 const ADD: &str = "def add(a: int, b: int) -> int:\n    return a + b\n";
 
 #[test]
 fn one_source_compiles_to_target_source_ir_and_a_fingerprint() {
-    let compiled = compile(&[ADD.to_string()], "rust").expect("must compile");
+    let compiled = compile(&[py_source(ADD)], "rust").expect("must compile");
 
     assert!(compiled.target_sources.contains_key("src/generated.rs"));
     assert!(
@@ -40,7 +48,7 @@ fn an_empty_collection_of_sources_succeeds_with_an_empty_unit() {
 fn source_text_needs_no_file_behind_it() {
     // What `inspect.getsource` hands back: text with no path, possibly never written to disk.
     let compiled = compile(
-        &["def f(a: int) -> int:\n    return a\n".to_string()],
+        &[py_source("def f(a: int) -> int:\n    return a\n")],
         "rust",
     )
     .expect("text-only source must compile");
@@ -49,8 +57,8 @@ fn source_text_needs_no_file_behind_it() {
 
 #[test]
 fn sources_are_assembled_into_one_unit_so_cross_source_calls_resolve() {
-    let caller = "def caller(a: int) -> int:\n    return callee(a)\n".to_string();
-    let callee = "def callee(a: int) -> int:\n    return a * 2\n".to_string();
+    let caller = py_source("def caller(a: int) -> int:\n    return callee(a)\n");
+    let callee = py_source("def callee(a: int) -> int:\n    return a * 2\n");
 
     let forward = compile(&[caller.clone(), callee.clone()], "rust").expect("must compile");
     let backward = compile(&[callee, caller], "rust").expect("order must not matter");
@@ -65,7 +73,9 @@ fn sources_are_assembled_into_one_unit_so_cross_source_calls_resolve() {
 #[test]
 fn a_call_to_a_function_in_no_source_is_rejected() {
     let failure = compile(
-        &["def caller(a: int) -> int:\n    return missing(a)\n".to_string()],
+        &[py_source(
+            "def caller(a: int) -> int:\n    return missing(a)\n",
+        )],
         "rust",
     )
     .expect_err("an unresolved call must fail");
@@ -77,8 +87,8 @@ fn a_call_to_a_function_in_no_source_is_rejected() {
 
 #[test]
 fn duplicate_function_names_across_sources_are_reported() {
-    let failure = compile(&[ADD.to_string(), ADD.to_string()], "rust")
-        .expect_err("a duplicate name must fail");
+    let failure =
+        compile(&[py_source(ADD), py_source(ADD)], "rust").expect_err("a duplicate name must fail");
     match failure {
         CompileFailure::Unsupported { message, .. } => assert!(message.contains("add")),
         other => panic!("expected an unsupported-program failure, got {other:?}"),
@@ -87,11 +97,13 @@ fn duplicate_function_names_across_sources_are_reported() {
 
 #[test]
 fn a_syntax_error_is_distinguishable_from_a_subset_rejection() {
-    let syntax = compile(&["def broken(:\n".to_string()], "rust").expect_err("must fail");
+    let syntax = compile(&[py_source("def broken(:\n")], "rust").expect_err("must fail");
     assert!(matches!(syntax, CompileFailure::Syntax { .. }));
 
     let unsupported = compile(
-        &["def loops(a: int) -> int:\n    while a:\n        pass\n    return a\n".to_string()],
+        &[py_source(
+            "def loops(a: int) -> int:\n    while a:\n        pass\n    return a\n",
+        )],
         "rust",
     )
     .expect_err("must fail");
@@ -102,7 +114,9 @@ fn a_syntax_error_is_distinguishable_from_a_subset_rejection() {
 fn diagnostics_carry_their_location() {
     // The rejection is on the third line; a diagnostic that lost that would send a user hunting.
     let failure = compile(
-        &["def f(a: int) -> int:\n    b = a + 1\n    return \"x\"\n".to_string()],
+        &[py_source(
+            "def f(a: int) -> int:\n    b = a + 1\n    return \"x\"\n",
+        )],
         "rust",
     )
     .expect_err("must fail");
@@ -120,11 +134,11 @@ fn diagnostics_carry_their_location() {
 
 #[test]
 fn the_backend_registry_surfaces_through_the_bridge() {
-    match compile(&[ADD.to_string()], "typescript") {
+    match compile(&[py_source(ADD)], "typescript") {
         Err(CompileFailure::Backend(error)) => assert!(error.is_not_implemented()),
         other => panic!("reserved backend should fail as unimplemented, got {other:?}"),
     }
-    match compile(&[ADD.to_string()], "nonesuch") {
+    match compile(&[py_source(ADD)], "nonesuch") {
         Err(CompileFailure::Backend(error)) => assert!(error.is_unknown()),
         other => panic!("unknown backend should fail as unknown, got {other:?}"),
     }
@@ -134,7 +148,7 @@ fn the_backend_registry_surfaces_through_the_bridge() {
 fn an_unusable_backend_is_reported_before_the_source_is_even_parsed() {
     // The source below is not valid Python. Asking for an unusable backend must still report the
     // backend, since that is the thing the caller got wrong.
-    match compile(&["def broken(:\n".to_string()], "nonesuch") {
+    match compile(&[py_source("def broken(:\n")], "nonesuch") {
         Err(CompileFailure::Backend(_)) => {}
         other => panic!("expected the backend failure to win, got {other:?}"),
     }
@@ -142,16 +156,15 @@ fn an_unusable_backend_is_reported_before_the_source_is_even_parsed() {
 
 #[test]
 fn the_fingerprint_ignores_formatting_but_follows_meaning() {
-    let plain = compile(&[ADD.to_string()], "rust").unwrap();
+    let plain = compile(&[py_source(ADD)], "rust").unwrap();
     let noisy = compile(
-        &[concat!(
+        &[py_source(concat!(
             "# a leading comment\n",
             "def add(a: int, b: int) -> int:\n",
             "\n",
             "        # an indented comment\n",
             "        return a + b\n",
-        )
-        .to_string()],
+        ))],
         "rust",
     )
     .unwrap();
@@ -162,7 +175,9 @@ fn the_fingerprint_ignores_formatting_but_follows_meaning() {
     assert_eq!(plain.module_name, noisy.module_name);
 
     let changed = compile(
-        &["def add(a: int, b: int) -> int:\n    return a - b\n".to_string()],
+        &[py_source(
+            "def add(a: int, b: int) -> int:\n    return a - b\n",
+        )],
         "rust",
     )
     .unwrap();
@@ -171,6 +186,7 @@ fn the_fingerprint_ignores_formatting_but_follows_meaning() {
 
 /// The exception hierarchy, checked under a real interpreter.
 mod python_exceptions {
+    use super::*;
     use compylr::compile;
     use pyo3::Python;
     use pyo3::types::{PyAnyMethods, PyStringMethods, PyTypeMethods};
@@ -178,7 +194,7 @@ mod python_exceptions {
     /// Compile something that must fail, and return the exception's class name.
     fn failure_class(source: &str) -> String {
         Python::attach(|py| {
-            let failure = compile(&[source.to_string()], "rust").expect_err("must fail");
+            let failure = compile(&[py_source(source)], "rust").expect_err("must fail");
             failure
                 .into_py_err(py)
                 .value(py)
@@ -193,7 +209,7 @@ mod python_exceptions {
     /// The `line` and `column` attributes of a failure's exception.
     fn failure_location(source: &str) -> (Option<usize>, Option<usize>) {
         Python::attach(|py| {
-            let failure = compile(&[source.to_string()], "rust").expect_err("must fail");
+            let failure = compile(&[py_source(source)], "rust").expect_err("must fail");
             let err = failure.into_py_err(py);
             let value = err.value(py);
             (
@@ -232,7 +248,7 @@ mod python_exceptions {
                 "def broken(:\n",
                 "def loops(a: int) -> int:\n    while a:\n        pass\n    return a\n",
             ] {
-                let failure = compile(&[source.to_string()], "rust").expect_err("must fail");
+                let failure = compile(&[py_source(source)], "rust").expect_err("must fail");
                 let err = failure.into_py_err(py);
                 assert!(
                     err.is_instance_of::<compylr::CompylrError>(py),
@@ -249,7 +265,9 @@ mod python_exceptions {
         // handling one should not accidentally swallow the other.
         Python::attach(|py| {
             let failure = compile(
-                &["def add(a: int, b: int) -> int:\n    return a + b\n".to_string()],
+                &[py_source(
+                    "def add(a: int, b: int) -> int:\n    return a + b\n",
+                )],
                 "typescript",
             )
             .expect_err("must fail");
@@ -275,15 +293,15 @@ mod cross_source_inference {
 
     #[test]
     fn a_call_into_another_source_is_typed() {
-        let compiled = compile(&[DOUBLE.to_string(), USES.to_string()], "rust")
+        let compiled = compile(&[py_source(DOUBLE), py_source(USES)], "rust")
             .expect("a cross-source call must be typed, not demand an annotation");
         assert_eq!(compiled.function_names, ["double", "uses"]);
     }
 
     #[test]
     fn source_order_does_not_matter() {
-        let forward = compile(&[DOUBLE.to_string(), USES.to_string()], "rust").unwrap();
-        let backward = compile(&[USES.to_string(), DOUBLE.to_string()], "rust").unwrap();
+        let forward = compile(&[py_source(DOUBLE), py_source(USES)], "rust").unwrap();
+        let backward = compile(&[py_source(USES), py_source(DOUBLE)], "rust").unwrap();
         assert_eq!(
             forward.fingerprint, backward.fingerprint,
             "signatures are gathered before any body is lowered, so arrival order cannot matter"
@@ -295,7 +313,9 @@ mod cross_source_inference {
         // Deferring is not the same as ignoring: once every source is present, a binding that
         // still cannot be typed is an error.
         let failure = compile(
-            &["def f(n: int) -> int:\n    b = nowhere(n)\n    return b\n".to_string()],
+            &[py_source(
+                "def f(n: int) -> int:\n    b = nowhere(n)\n    return b\n",
+            )],
             "rust",
         )
         .expect_err("a callee that exists nowhere must fail");
@@ -311,7 +331,7 @@ mod cross_source_inference {
     fn the_failure_category_is_machine_readable() {
         // The decorator branches on this to decide what to defer, so it must not be prose.
         let failure = compile(
-            &["def f(n: int) -> int:\n    return n ** 2\n".to_string()],
+            &[py_source("def f(n: int) -> int:\n    return n ** 2\n")],
             "rust",
         )
         .expect_err("must fail");

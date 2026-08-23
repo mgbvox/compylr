@@ -31,8 +31,8 @@ fn functions_of(unit: &Unit) -> String {
 
 fn unit_from(source: &str) -> Unit {
     let parsed = parse_source(source).expect("fixture must parse");
-    let functions =
-        lower_source(&parsed).unwrap_or_else(|e| panic!("should lower: {}", e.render(source)));
+    let functions = lower_source(&parsed, python_stance())
+        .unwrap_or_else(|e| panic!("should lower: {}", e.render(source)));
     let mut unit = Unit::new();
     for function in functions {
         unit.add_function(function).unwrap();
@@ -330,7 +330,7 @@ fn emission_is_byte_identical_across_runs_and_addition_orders() {
         "def gamma(c: int) -> int:\n    return c - 3\n",
     );
     let parsed = parse_source(source).unwrap();
-    let functions = lower_source(&parsed).unwrap();
+    let functions = lower_source(&parsed, python_stance()).unwrap();
     let backend = lookup("rust").unwrap();
 
     let build = |reverse: bool| {
@@ -375,4 +375,12 @@ fn a_function_that_cannot_return_is_reported_rather_than_emitted_broken() {
 
     let error = lookup("rust").unwrap().emit(&unit).unwrap_err();
     assert!(error.to_string().contains("broken"), "got: {error}");
+}
+
+/// Python's own stance, which is what an unconfigured compilation resolves to.
+///
+/// Read from the frontend's declaration rather than rebuilt here, so these tests lower under the
+/// same bundle the pipeline uses.
+fn python_stance() -> compylr_ir::Behavior {
+    compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
 }

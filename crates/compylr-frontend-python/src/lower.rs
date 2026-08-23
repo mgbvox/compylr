@@ -36,58 +36,10 @@ use ruff_text_size::Ranged;
 use crate::span_of;
 use crate::spelling::{PythonOperator, PythonTypeName};
 
-/// Python's `/`: both operands become floating point, so `7 / 2` is `3.5`.
-///
-/// Declared here rather than left for a backend to infer. Rust, Go, and C++ all spell integer
-/// division `/` too, and a backend reading the operator's name instead of its mode would emit
-/// `3`.
-const PY_TRUE_DIV: BinOp = BinOp::Div {
-    mode: DivMode::Exact,
-    checked: PY_CHECKED,
-};
-
-/// Python reports every arithmetic failure: an overflow, a zero divisor, an index out of range.
-///
-/// One constant rather than five because Python's answer is the same on every axis that has one.
-/// A language whose answers differed per axis would need five, which is why the *behavior* model
-/// carries them separately even though this frontend does not.
-const PY_CHECKED: Checked = Checked::Reported;
-
-/// Python's `//`: integer division rounding toward negative infinity, so `-7 // 2` is `-4`.
-///
-/// Most targets' `/` truncates toward zero and would give `-3`. The mode on the node is what
-/// makes the difference something a backend reproduces rather than something it guesses.
-const PY_FLOOR_DIV: BinOp = BinOp::Div {
-    mode: DivMode::Integer(Rounding::TowardNegInf),
-    checked: PY_CHECKED,
-};
-
-/// Python's `%`: the result takes the sign of the divisor, so `-7 % 2` is `1`.
-///
-/// Rust's `%` takes the sign of the dividend and would give `-1`. Paired with [`PY_FLOOR_DIV`]:
-/// `(a // b) * b + (a % b) == a` holds for Python's pair and fails if either half is swapped for
-/// the truncating one.
-const PY_MOD: BinOp = BinOp::Rem {
-    sign: RemSign::Divisor,
-    checked: PY_CHECKED,
-};
-
-/// Python's `xs[i]`: a negative index counts backwards from the end, so `xs[-1]` is the last.
-///
-/// Go, C++, and TypeScript all treat a negative index as out of range or undefined. Declared here
-/// rather than assumed downstream, for the same reason the rounding mode is.
-const PY_INDEX_ORIGIN: IndexOrigin = IndexOrigin::FromEitherEnd;
-
-/// Python's `len(s)`: code points, so `len("é")` is 1.
-///
-/// Go's `len` counts UTF-8 bytes and would give 2; TypeScript's `.length` counts UTF-16 units and
-/// would give 1 here but 2 for a character outside the basic plane. All three agree on ASCII, which
-/// is what makes assuming one of them survive most tests.
-const PY_TEXT_UNITS: TextUnits = TextUnits::CodePoints;
 use compylr_diagnostics::error::{LowerError, LowerErrorKind};
 use compylr_ir::{
-    Attribute, BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin, Literal, Param,
-    RemSign, Rounding, Stmt, TextUnits, Ty, returns_on_all_paths,
+    Attribute, Behavior, BinOp, Class, DivMode, Expr, Function, Literal, Param, Stmt, Ty,
+    returns_on_all_paths,
 };
 
 /// Remove a trailing bare `return` from a constructor, and reject one anywhere else.
@@ -267,7 +219,7 @@ struct Ctx<'a> {
     /// The enclosing function's declared return type.
     ret: &'a Ty,
     /// Everything nameable while lowering: functions and classes.
-    names: Names<'a>,
+    lowering: Lowering<'a>,
     /// Whether the body being lowered is a constructor, where attributes may be declared.
     in_init: bool,
     /// Names that arrived as parameters.
@@ -361,6 +313,26 @@ pub struct Names<'a> {
     pub classes: &'a ClassSignatures,
     /// Just the class names, which is all an annotation needs.
     pub class_names: &'a ClassNames,
+}
+
+/// Everything lowering an expression needs beyond the expression itself.
+///
+/// [`Names`] wrapped rather than extended, because a behavior is not a name and a struct called
+/// "everything nameable" should not quietly start carrying one. Wrapped rather than passed
+/// alongside, because [`lower_expr`] takes this and not [`Ctx`], and a second parameter would
+/// have meant editing forty call sites to thread a value none of them look at.
+///
+/// `Copy`, like the `Names` it holds, so passing it down costs nothing and no call site has to
+/// decide whether to borrow.
+#[derive(Clone, Copy)]
+pub struct Lowering<'a> {
+    /// Functions and classes in scope.
+    pub names: Names<'a>,
+    /// Which language supplies the meaning of each operation this source lowers.
+    ///
+    /// Held here rather than looked up, because it is per *source*: one unit may hold members
+    /// lowered under different behaviors, and a call between two of them is an ordinary call.
+    pub behavior: Behavior,
 }
 
 /// The name a method's receiver must carry.
@@ -526,8 +498,11 @@ fn method_parameters(
 /// Only function definitions are permitted at top level; a module-level statement such as an
 /// `if __name__ == '__main__':` guard has no meaning once the function is compiled into a
 /// shared artifact, so it is rejected rather than silently dropped.
-pub fn lower_source(parsed: &Parsed<ModModule>) -> Result<Vec<Function>, LowerError> {
-    lower_source_with(parsed, &Signatures::new())
+pub fn lower_source(
+    parsed: &Parsed<ModModule>,
+    behavior: Behavior,
+) -> Result<Vec<Function>, LowerError> {
+    lower_source_with(parsed, &Signatures::new(), behavior)
 }
 
 /// Lower a source into its functions **and** its classes.
@@ -536,8 +511,14 @@ pub fn lower_source(parsed: &Parsed<ModModule>) -> Result<Vec<Function>, LowerEr
 /// since a unit holds both.
 pub fn lower_source_members(
     parsed: &Parsed<ModModule>,
+    behavior: Behavior,
 ) -> Result<(Vec<Function>, Vec<Class>), LowerError> {
-    lower_source_members_with(parsed, &Signatures::new(), &ClassSignatures::new())
+    lower_source_members_with(
+        parsed,
+        &Signatures::new(),
+        &ClassSignatures::new(),
+        behavior,
+    )
 }
 
 /// Lower a source with signatures from elsewhere already known.
@@ -552,8 +533,9 @@ pub fn lower_source_members(
 pub fn lower_source_with(
     parsed: &Parsed<ModModule>,
     external: &Signatures,
+    behavior: Behavior,
 ) -> Result<Vec<Function>, LowerError> {
-    Ok(lower_source_members_with(parsed, external, &ClassSignatures::new())?.0)
+    Ok(lower_source_members_with(parsed, external, &ClassSignatures::new(), behavior)?.0)
 }
 
 /// Lower a source into both kinds of member, with names from elsewhere already known.
@@ -561,6 +543,7 @@ pub fn lower_source_members_with(
     parsed: &Parsed<ModModule>,
     external: &Signatures,
     external_classes: &ClassSignatures,
+    behavior: Behavior,
 ) -> Result<(Vec<Function>, Vec<Class>), LowerError> {
     // Pass one: every signature in the source, so a call to a function or class defined later
     // types the same as one defined earlier.
@@ -572,18 +555,23 @@ pub fn lower_source_members_with(
     signatures.extend(collect_signatures(parsed, &class_names));
     let mut class_signatures = external_classes.clone();
     class_signatures.extend(collect_class_signatures(parsed, &class_names));
-    let names = Names {
-        sigs: &signatures,
-        classes: &class_signatures,
-        class_names: &class_names,
+    let lowering = Lowering {
+        names: Names {
+            sigs: &signatures,
+            classes: &class_signatures,
+            class_names: &class_names,
+        },
+        behavior,
     };
 
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     for stmt in &parsed.syntax().body {
         match stmt {
-            PyStmt::FunctionDef(def) => functions.push(lower_function_in(def, names, None, false)?),
-            PyStmt::ClassDef(def) => classes.push(lower_class(def, names)?),
+            PyStmt::FunctionDef(def) => {
+                functions.push(lower_function_in(def, lowering, None, false)?)
+            }
+            PyStmt::ClassDef(def) => classes.push(lower_class(def, lowering)?),
             PyStmt::Import(_) | PyStmt::ImportFrom(_) => {
                 return Err(err(
                     LowerErrorKind::UnsupportedConstruct,
@@ -606,7 +594,7 @@ pub fn lower_source_members_with(
 /// Lower a class definition.
 pub fn lower_class(
     def: &ruff_python_ast::StmtClassDef,
-    names: Names<'_>,
+    lowering: Lowering<'_>,
 ) -> Result<Class, LowerError> {
     if !def.decorator_list.is_empty() {
         return Err(err(
@@ -695,7 +683,7 @@ pub fn lower_class(
     };
 
     let name = def.name.to_string();
-    let mut init = lower_function_in(init_def, names, Some(&name), true)?;
+    let mut init = lower_function_in(init_def, lowering, Some(&name), true)?;
     if init.ret != Ty::Unit {
         return Err(err(
             LowerErrorKind::TypeMismatch,
@@ -721,7 +709,7 @@ pub fn lower_class(
 
     let mut methods = BTreeMap::new();
     for method in method_defs {
-        let lowered = lower_function_in(method, names, Some(&name), false)?;
+        let lowered = lower_function_in(method, lowering, Some(&name), false)?;
         methods.insert(lowered.name.clone(), lowered);
     }
 
@@ -736,13 +724,20 @@ pub fn lower_class(
 }
 
 /// Lower a single top-level function definition.
-pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Function, LowerError> {
+pub fn lower_function(
+    def: &StmtFunctionDef,
+    sigs: &Signatures,
+    behavior: Behavior,
+) -> Result<Function, LowerError> {
     lower_function_in(
         def,
-        Names {
-            sigs,
-            classes: &ClassSignatures::new(),
-            class_names: &ClassNames::new(),
+        Lowering {
+            names: Names {
+                sigs,
+                classes: &ClassSignatures::new(),
+                class_names: &ClassNames::new(),
+            },
+            behavior,
         },
         None,
         false,
@@ -755,7 +750,7 @@ pub fn lower_function(def: &StmtFunctionDef, sigs: &Signatures) -> Result<Functi
 /// `in_init` permits attribute declarations, which are legal in exactly one place.
 pub fn lower_function_in(
     def: &StmtFunctionDef,
-    names: Names<'_>,
+    lowering: Lowering<'_>,
     enclosing: Option<&str>,
     in_init: bool,
 ) -> Result<Function, LowerError> {
@@ -827,12 +822,16 @@ pub fn lower_function_in(
     // A method's receiver is stripped and re-introduced as a typed name below, so every remaining
     // parameter goes through exactly the rules a free function's would.
     let params = match enclosing {
-        Some(_) => method_parameters(def, names.class_names)?,
-        None => lower_parameters(&def.parameters, def.name.as_str(), names.class_names)?,
+        Some(_) => method_parameters(def, lowering.names.class_names)?,
+        None => lower_parameters(
+            &def.parameters,
+            def.name.as_str(),
+            lowering.names.class_names,
+        )?,
     };
 
     let ret = match def.returns.as_deref() {
-        Some(annotation) => lower_annotation(annotation, true, names.class_names)?,
+        Some(annotation) => lower_annotation(annotation, true, lowering.names.class_names)?,
         None => {
             return Err(err(
                 LowerErrorKind::MissingAnnotation,
@@ -851,7 +850,7 @@ pub fn lower_function_in(
     }
     let ctx = Ctx {
         ret: &ret,
-        names,
+        lowering,
         in_init,
         params: &param_names,
         in_loop: false,
@@ -1029,14 +1028,14 @@ fn lower_annotation(
 fn unify_elements(
     elements: &[PyExpr],
     scope: &Scope,
-    names: Names<'_>,
+    lowering: Lowering<'_>,
     node: &PyExpr,
     what: &str,
 ) -> Result<(Vec<Expr>, Option<Ty>), LowerError> {
     let mut lowered = Vec::with_capacity(elements.len());
     let mut types = Vec::with_capacity(elements.len());
     for element in elements {
-        let (expr, ty) = lower_expr(element, scope, names)?;
+        let (expr, ty) = lower_expr(element, scope, lowering)?;
         lowered.push(expr);
         types.push(ty);
     }
@@ -1092,7 +1091,7 @@ fn agree(types: &[Option<Ty>], node: &PyExpr, what: &str) -> Result<Option<Ty>, 
 fn lower_subscript(
     subscript: &ruff_python_ast::ExprSubscript,
     scope: &Scope,
-    names: Names<'_>,
+    lowering: Lowering<'_>,
     node: &PyExpr,
 ) -> Result<(Expr, TyResult), LowerError> {
     if matches!(subscript.slice.as_ref(), PyExpr::Slice(_)) {
@@ -1103,8 +1102,8 @@ fn lower_subscript(
         ));
     }
 
-    let (base, base_ty) = lower_expr(&subscript.value, scope, names)?;
-    let (index, index_ty) = lower_expr(&subscript.slice, scope, names)?;
+    let (base, base_ty) = lower_expr(&subscript.value, scope, lowering)?;
+    let (index, index_ty) = lower_expr(&subscript.slice, scope, lowering)?;
 
     let Some(base_ty) = base_ty else {
         // The collection's own type is undetermined, so the element's is too.
@@ -1112,8 +1111,8 @@ fn lower_subscript(
             Expr::Subscript {
                 base: Box::new(base),
                 index: Box::new(index),
-                origin: PY_INDEX_ORIGIN,
-                checked: PY_CHECKED,
+                origin: lowering.behavior.index_origin(),
+                checked: lowering.behavior.index_checked(),
             },
             None,
         ));
@@ -1171,8 +1170,8 @@ fn lower_subscript(
         Expr::Subscript {
             base: Box::new(base),
             index: Box::new(index),
-            origin: PY_INDEX_ORIGIN,
-            checked: PY_CHECKED,
+            origin: lowering.behavior.index_origin(),
+            checked: lowering.behavior.index_checked(),
         },
         result,
     ))
@@ -1340,7 +1339,7 @@ fn lower_block(body: &[PyStmt], scope: &mut Scope, ctx: Ctx<'_>) -> Result<Vec<S
 /// everywhere should not then infer that an integer means a condition — requiring a boolean keeps
 /// the meaning of a test written down rather than guessed.
 fn lower_test(test: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<Expr, LowerError> {
-    let (lowered, ty) = lower_expr(test, scope, ctx.names)?;
+    let (lowered, ty) = lower_expr(test, scope, ctx.lowering)?;
     match ty {
         // Undetermined means the test calls a function this source does not define; taken on
         // trust here exactly as a returned call is.
@@ -1453,7 +1452,7 @@ fn lower_iterable(iter: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<(Expr, T
     if let Some(range) = lower_range(iter, scope, ctx)? {
         return Ok((range, Ty::Int));
     }
-    let (lowered, ty) = lower_expr(iter, scope, ctx.names)?;
+    let (lowered, ty) = lower_expr(iter, scope, ctx.lowering)?;
     let Some(ty) = ty else {
         return Err(err(
             LowerErrorKind::UndeterminedBinding,
@@ -1517,7 +1516,7 @@ fn lower_range(iter: &PyExpr, scope: &Scope, ctx: Ctx<'_>) -> Result<Option<Expr
 
     let mut lowered = Vec::with_capacity(args.len());
     for arg in args {
-        let (expr, ty) = lower_expr(arg, scope, ctx.names)?;
+        let (expr, ty) = lower_expr(arg, scope, ctx.lowering)?;
         match ty {
             // Undetermined is taken on trust, as everywhere else a cross-source call appears.
             None | Some(Ty::Int) => lowered.push(expr),
@@ -1659,11 +1658,11 @@ fn lower_set_item(
         ));
     }
 
-    let (collection, collection_ty) = lower_expr(&target.value, scope, ctx.names)?;
+    let (collection, collection_ty) = lower_expr(&target.value, scope, ctx.lowering)?;
     reject_mutating_a_parameter(&collection, scope, ctx, stmt)?;
 
-    let (index, index_ty) = lower_expr(&target.slice, scope, ctx.names)?;
-    let (value, value_ty) = lower_expr(value, scope, ctx.names)?;
+    let (index, index_ty) = lower_expr(&target.slice, scope, ctx.lowering)?;
+    let (value, value_ty) = lower_expr(value, scope, ctx.lowering)?;
 
     let Some(collection_ty) = collection_ty else {
         return Err(err(
@@ -1735,15 +1734,16 @@ fn lower_method_statement(
 
     // A method call on an instance, made for its effect. Accepted only when the method returns
     // nothing, so no value is actually discarded.
-    let (_, receiver_ty) = lower_expr(&attribute.value, scope, ctx.names)?;
+    let (_, receiver_ty) = lower_expr(&attribute.value, scope, ctx.lowering)?;
     if let Some(Ty::Instance(class)) = &receiver_ty
         && ctx
+            .lowering
             .names
             .classes
             .get(class)
             .is_some_and(|signature| signature.methods.contains_key(method))
     {
-        let (lowered, ty) = lower_expr(value, scope, ctx.names)?;
+        let (lowered, ty) = lower_expr(value, scope, ctx.lowering)?;
         if ty != Some(Ty::Unit) {
             return Err(err(
                 LowerErrorKind::UnsupportedConstruct,
@@ -1784,10 +1784,10 @@ fn lower_method_statement(
         ));
     }
 
-    let (sequence, sequence_ty) = lower_expr(&attribute.value, scope, ctx.names)?;
+    let (sequence, sequence_ty) = lower_expr(&attribute.value, scope, ctx.lowering)?;
     reject_mutating_a_parameter(&sequence, scope, ctx, stmt)?;
 
-    let (value, value_ty) = lower_expr(&call.arguments.args[0], scope, ctx.names)?;
+    let (value, value_ty) = lower_expr(&call.arguments.args[0], scope, ctx.lowering)?;
 
     let Some(sequence_ty) = sequence_ty else {
         return Err(err(
@@ -1835,11 +1835,11 @@ fn lower_membership(
     container: &PyExpr,
     negated: bool,
     scope: &Scope,
-    names: Names<'_>,
+    lowering: Lowering<'_>,
     node: &PyExpr,
 ) -> Result<(Expr, TyResult), LowerError> {
-    let (value, value_ty) = lower_expr(value, scope, names)?;
-    let (container, container_ty) = lower_expr(container, scope, names)?;
+    let (value, value_ty) = lower_expr(value, scope, lowering)?;
+    let (container, container_ty) = lower_expr(container, scope, lowering)?;
 
     if let Some(container_ty) = container_ty {
         let expected = match &container_ty {
@@ -1891,7 +1891,7 @@ fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ctx: Ctx<'_>) -> Result<Stmt, Lo
         PyStmt::Return(node) => match node.value.as_deref() {
             Some(value) => {
                 let ret = ctx.ret;
-                let (lowered, ty) = lower_expr(value, scope, ctx.names)?;
+                let (lowered, ty) = lower_expr(value, scope, ctx.lowering)?;
                 if *ret == Ty::Unit {
                     return Err(err(
                         LowerErrorKind::TypeMismatch,
@@ -2053,16 +2053,16 @@ fn lower_method_call(
     call: &ruff_python_ast::ExprCall,
     receiver: &ruff_python_ast::ExprAttribute,
     scope: &Scope,
-    names: Names<'_>,
+    lowering: Lowering<'_>,
     expr: &PyExpr,
 ) -> Result<(Expr, TyResult), LowerError> {
     let method = receiver.attr.as_str();
-    let (object, object_ty) = lower_expr(&receiver.value, scope, names)?;
+    let (object, object_ty) = lower_expr(&receiver.value, scope, lowering)?;
 
     let mut args = Vec::with_capacity(call.arguments.args.len());
     let mut arg_types = Vec::with_capacity(call.arguments.args.len());
     for arg in &call.arguments.args {
-        let (lowered, ty) = lower_expr(arg, scope, names)?;
+        let (lowered, ty) = lower_expr(arg, scope, lowering)?;
         args.push(lowered);
         arg_types.push(ty);
     }
@@ -2082,7 +2082,7 @@ fn lower_method_call(
     let Some(Ty::Instance(class)) = object_ty else {
         return Ok((node(args), None));
     };
-    let Some(signature) = names.classes.get(&class) else {
+    let Some(signature) = lowering.names.classes.get(&class) else {
         return Ok((node(args), None));
     };
     let Some(method_sig) = signature.methods.get(method) else {
@@ -2122,7 +2122,7 @@ fn lower_set_attr(
     scope: &mut Scope,
     ctx: Ctx<'_>,
 ) -> Result<Stmt, LowerError> {
-    let (object, object_ty) = lower_expr(&target.value, scope, ctx.names)?;
+    let (object, object_ty) = lower_expr(&target.value, scope, ctx.lowering)?;
     let attribute = target.attr.as_str();
 
     let Some(Ty::Instance(class)) = object_ty else {
@@ -2134,6 +2134,7 @@ fn lower_set_attr(
     };
 
     let declared = ctx
+        .lowering
         .names
         .classes
         .get(&class)
@@ -2162,7 +2163,7 @@ fn lower_set_attr(
             )
         })?;
 
-    let (value, actual) = lower_expr(value, scope, ctx.names)?;
+    let (value, actual) = lower_expr(value, scope, ctx.lowering)?;
     let value = match actual {
         Some(actual) => coerce(value, &actual, &declared).ok_or_else(|| {
             err(
@@ -2204,7 +2205,7 @@ fn lower_attribute_declaration(
             stmt,
         ));
     }
-    let declared = lower_annotation(&assign.annotation, false, ctx.names.class_names)?;
+    let declared = lower_annotation(&assign.annotation, false, ctx.lowering.names.class_names)?;
     let Some(value) = assign.value.as_deref() else {
         return Err(err(
             LowerErrorKind::UnsupportedConstruct,
@@ -2212,7 +2213,7 @@ fn lower_attribute_declaration(
             stmt,
         ));
     };
-    let (value, actual) = lower_expr(value, scope, ctx.names)?;
+    let (value, actual) = lower_expr(value, scope, ctx.lowering)?;
     let value = match actual {
         Some(actual) => coerce(value, &actual, &declared).ok_or_else(|| {
             err(
@@ -2248,7 +2249,7 @@ fn lower_annotated_binding(
     let name = binding_target(&assign.target, stmt)?.to_string();
     ensure_undeclared(&name, scope, stmt)?;
 
-    let declared = lower_annotation(&assign.annotation, false, ctx.names.class_names)?;
+    let declared = lower_annotation(&assign.annotation, false, ctx.lowering.names.class_names)?;
     let Some(value) = assign.value.as_deref() else {
         return Err(err(
             LowerErrorKind::UnsupportedConstruct,
@@ -2256,7 +2257,7 @@ fn lower_annotated_binding(
             stmt,
         ));
     };
-    let (lowered, actual) = lower_expr(value, scope, ctx.names)?;
+    let (lowered, actual) = lower_expr(value, scope, ctx.lowering)?;
 
     // An undetermined initializer cannot be checked; the declared type is taken on trust.
     let value = match actual {
@@ -2302,7 +2303,7 @@ fn lower_bare_binding(
     // so the value is checked against that rather than inferring a fresh one — the alternative is
     // a name that denotes different things at different points in the same function.
     if let Some(existing) = scope.get(&name).cloned() {
-        let (value, actual) = lower_expr(&assign.value, scope, ctx.names)?;
+        let (value, actual) = lower_expr(&assign.value, scope, ctx.lowering)?;
         let value = match actual {
             Some(actual) => coerce(value, &actual, &existing).ok_or_else(|| {
                 err(
@@ -2327,7 +2328,7 @@ fn lower_bare_binding(
         });
     }
 
-    let (value, inferred) = lower_expr(&assign.value, scope, ctx.names)?;
+    let (value, inferred) = lower_expr(&assign.value, scope, ctx.lowering)?;
 
     // Infer when the initializer's type is determined; otherwise the answer is genuinely
     // unknown here and an annotation is the only way to supply it.
@@ -2359,7 +2360,13 @@ fn arithmetic_result(op: BinOp, left: &Ty, right: &Ty) -> Option<Ty> {
     // Exact division always yields a float, even for two integers. This is the single most
     // likely place for a backend to be accidentally wrong, which is why the node says so rather
     // than leaving a backend to infer it from the operator's name.
-    if op == PY_TRUE_DIV {
+    if matches!(
+        op,
+        BinOp::Div {
+            mode: DivMode::Exact,
+            ..
+        }
+    ) {
         return Some(Ty::Float);
     }
     if *left == Ty::Float || *right == Ty::Float {
@@ -2431,7 +2438,7 @@ fn build_binary(
 fn lower_expr(
     expr: &PyExpr,
     scope: &Scope,
-    names: Names<'_>,
+    lowering: Lowering<'_>,
 ) -> Result<(Expr, TyResult), LowerError> {
     match expr {
         PyExpr::NumberLiteral(literal) => match &literal.value {
@@ -2480,12 +2487,12 @@ fn lower_expr(
         }
         PyExpr::UnaryOp(unary) => match unary.op {
             UnaryOp::USub => {
-                let (operand, ty) = lower_expr(&unary.operand, scope, names)?;
+                let (operand, ty) = lower_expr(&unary.operand, scope, lowering)?;
                 match ty {
                     Some(ty) if ty.is_numeric() => Ok((
                         Expr::Neg {
                             value: Box::new(operand),
-                            checked: PY_CHECKED,
+                            checked: lowering.behavior.arithmetic(),
                         },
                         Some(ty),
                     )),
@@ -2497,7 +2504,7 @@ fn lower_expr(
                     None => Ok((
                         Expr::Neg {
                             value: Box::new(operand),
-                            checked: PY_CHECKED,
+                            checked: lowering.behavior.arithmetic(),
                         },
                         None,
                     )),
@@ -2522,17 +2529,17 @@ fn lower_expr(
         PyExpr::BinOp(binary) => {
             let op = match binary.op {
                 Operator::Add => BinOp::Add {
-                    checked: PY_CHECKED,
+                    checked: lowering.behavior.arithmetic(),
                 },
                 Operator::Sub => BinOp::Sub {
-                    checked: PY_CHECKED,
+                    checked: lowering.behavior.arithmetic(),
                 },
                 Operator::Mult => BinOp::Mul {
-                    checked: PY_CHECKED,
+                    checked: lowering.behavior.arithmetic(),
                 },
-                Operator::Div => PY_TRUE_DIV,
-                Operator::FloorDiv => PY_FLOOR_DIV,
-                Operator::Mod => PY_MOD,
+                Operator::Div => lowering.behavior.exact_division(),
+                Operator::FloorDiv => lowering.behavior.integer_division(),
+                Operator::Mod => lowering.behavior.remainder(),
                 other => {
                     return Err(err(
                         LowerErrorKind::UnsupportedConstruct,
@@ -2541,8 +2548,8 @@ fn lower_expr(
                     ));
                 }
             };
-            let (left, left_ty) = lower_expr(&binary.left, scope, names)?;
-            let (right, right_ty) = lower_expr(&binary.right, scope, names)?;
+            let (left, left_ty) = lower_expr(&binary.left, scope, lowering)?;
+            let (right, right_ty) = lower_expr(&binary.right, scope, lowering)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
                     let (node, ty) = build_binary(op, left, &l, right, &r, expr)?;
@@ -2566,7 +2573,7 @@ fn lower_expr(
                     &compare.comparators[0],
                     matches!(compare.ops[0], CmpOp::NotIn),
                     scope,
-                    names,
+                    lowering,
                     expr,
                 );
             }
@@ -2585,8 +2592,8 @@ fn lower_expr(
                     ));
                 }
             };
-            let (left, left_ty) = lower_expr(&compare.left, scope, names)?;
-            let (right, right_ty) = lower_expr(&compare.comparators[0], scope, names)?;
+            let (left, left_ty) = lower_expr(&compare.left, scope, lowering)?;
+            let (right, right_ty) = lower_expr(&compare.comparators[0], scope, lowering)?;
             match (left_ty, right_ty) {
                 (Some(l), Some(r)) => {
                     let (node, ty) = build_binary(op, left, &l, right, &r, expr)?;
@@ -2596,14 +2603,14 @@ fn lower_expr(
             }
         }
         PyExpr::List(list) => {
-            let (items, element) = unify_elements(&list.elts, scope, names, expr, "list")?;
+            let (items, element) = unify_elements(&list.elts, scope, lowering, expr, "list")?;
             Ok((
                 Expr::ListLit(items),
                 element.map(|ty| Ty::List(Box::new(ty))),
             ))
         }
         PyExpr::Set(set) => {
-            let (items, element) = unify_elements(&set.elts, scope, names, expr, "set")?;
+            let (items, element) = unify_elements(&set.elts, scope, lowering, expr, "set")?;
             let element = match element {
                 Some(ty) if !ty.can_key() => {
                     return Err(err(
@@ -2626,7 +2633,7 @@ fn lower_expr(
             let mut types = Vec::with_capacity(tuple.elts.len());
             let mut determined = true;
             for element in &tuple.elts {
-                let (lowered, ty) = lower_expr(element, scope, names)?;
+                let (lowered, ty) = lower_expr(element, scope, lowering)?;
                 items.push(lowered);
                 match ty {
                     Some(ty) => types.push(ty),
@@ -2652,8 +2659,8 @@ fn lower_expr(
                         expr,
                     ));
                 };
-                let (key, key_ty) = lower_expr(key_expr, scope, names)?;
-                let (value, value_ty) = lower_expr(&item.value, scope, names)?;
+                let (key, key_ty) = lower_expr(key_expr, scope, lowering)?;
+                let (value, value_ty) = lower_expr(&item.value, scope, lowering)?;
                 pairs.push((key, value));
                 keys.push(key_ty);
                 values.push(value_ty);
@@ -2681,9 +2688,9 @@ fn lower_expr(
             };
             Ok((Expr::DictLit(pairs), ty))
         }
-        PyExpr::Subscript(subscript) => lower_subscript(subscript, scope, names, expr),
+        PyExpr::Subscript(subscript) => lower_subscript(subscript, scope, lowering, expr),
         PyExpr::Attribute(attribute) => {
-            let (object, object_ty) = lower_expr(&attribute.value, scope, names)?;
+            let (object, object_ty) = lower_expr(&attribute.value, scope, lowering)?;
             let node = Expr::Attribute {
                 object: Box::new(object),
                 name: attribute.attr.to_string(),
@@ -2692,7 +2699,7 @@ fn lower_expr(
             let Some(Ty::Instance(class)) = object_ty else {
                 return Ok((node, None));
             };
-            let Some(signature) = names.classes.get(&class) else {
+            let Some(signature) = lowering.names.classes.get(&class) else {
                 return Ok((node, None));
             };
             let ty = signature
@@ -2722,7 +2729,7 @@ fn lower_expr(
                 ));
             }
             if let PyExpr::Attribute(receiver) = call.func.as_ref() {
-                return lower_method_call(call, receiver, scope, names, expr);
+                return lower_method_call(call, receiver, scope, lowering, expr);
             }
             let PyExpr::Name(callee) = call.func.as_ref() else {
                 return Err(err(
@@ -2734,7 +2741,7 @@ fn lower_expr(
             let mut args = Vec::with_capacity(call.arguments.args.len());
             let mut arg_types = Vec::with_capacity(call.arguments.args.len());
             for arg in &call.arguments.args {
-                let (lowered, ty) = lower_expr(arg, scope, names)?;
+                let (lowered, ty) = lower_expr(arg, scope, lowering)?;
                 args.push(lowered);
                 arg_types.push(ty);
             }
@@ -2744,7 +2751,7 @@ fn lower_expr(
             // A class name is a construction, not a call. Unit validation would otherwise try to
             // resolve it against functions, and the type rules differ enough that one form would
             // make each path carry the other's cases.
-            if let Some(signature) = names.classes.get(name) {
+            if let Some(signature) = lowering.names.classes.get(name) {
                 if signature.init.len() != args.len() {
                     return Err(err(
                         LowerErrorKind::ArityMismatch,
@@ -2808,7 +2815,7 @@ fn lower_expr(
                     Some(Ty::List(_) | Ty::Dict(_, _) | Ty::Set(_) | Ty::Str) | None => Ok((
                         Expr::Len {
                             value: Box::new(operand),
-                            units: PY_TEXT_UNITS,
+                            units: lowering.behavior.text_units(),
                         },
                         Some(Ty::Int),
                     )),
@@ -2820,7 +2827,7 @@ fn lower_expr(
                 };
             }
 
-            let Some(signature) = names.sigs.get(name) else {
+            let Some(signature) = lowering.names.sigs.get(name) else {
                 // The callee is defined in another source, which lowering cannot see: it handles
                 // one source at a time, and a decorated function may legitimately call one in a
                 // module that has not been marked yet. Rejecting here would make acceptance
@@ -2886,12 +2893,23 @@ fn lower_expr(
 }
 #[cfg(test)]
 mod tests {
+    use compylr_ir::Checked;
+
     use super::*;
     use crate::frontend::parse_source;
 
+    /// Python's own stance, which is what an unconfigured compilation resolves to.
+    ///
+    /// Read from the frontend's declaration rather than rebuilt here, so these tests exercise the
+    /// same bundle the pipeline uses. A local copy would keep passing after the declaration
+    /// changed, which is the whole failure the declaration exists to prevent.
+    fn python() -> Behavior {
+        Behavior::of(&crate::component::PYTHON_BEHAVIOR)
+    }
+
     fn lower(source: &str) -> Result<Vec<Function>, LowerError> {
         let parsed = parse_source(source).expect("fixture must parse");
-        lower_source(&parsed)
+        lower_source(&parsed, python())
     }
 
     fn lower_one(source: &str) -> Function {
@@ -2902,31 +2920,6 @@ mod tests {
 
     fn error_for(source: &str) -> LowerError {
         lower(source).expect_err("expected lowering to fail")
-    }
-
-    /// The stance declared in `component.rs` reproduces every constant this module still holds.
-    ///
-    /// These constants are on their way out — the behavior becomes a parameter, and lowering sets
-    /// each mode from it rather than from a constant belonging to Python. This test is what makes
-    /// that swap safe rather than hopeful: it pins that the declaration says exactly what the
-    /// constants say *before* the constants are deleted, so a typo in the declaration is caught
-    /// while there is still something to compare it against.
-    #[test]
-    fn the_declared_stance_reproduces_every_constant_it_replaces() {
-        use compylr_ir::Behavior;
-
-        let python = Behavior::of(&crate::component::PYTHON_BEHAVIOR);
-
-        assert_eq!(python.exact_division(), PY_TRUE_DIV);
-        assert_eq!(python.integer_division(), PY_FLOOR_DIV);
-        assert_eq!(python.remainder(), PY_MOD);
-        assert_eq!(python.index_origin(), PY_INDEX_ORIGIN);
-        assert_eq!(python.text_units(), PY_TEXT_UNITS);
-
-        // The sixth axis has no constant to compare against — overflow had no mode before this
-        // change, which is why it is the one axis that moved the IR's shape.
-        assert_eq!(python.arithmetic(), PY_CHECKED);
-        assert_eq!(python.index_checked(), PY_CHECKED);
     }
 
     // ---- happy path -------------------------------------------------------
@@ -2943,7 +2936,7 @@ mod tests {
             f.body,
             vec![Stmt::Return(Expr::binary(
                 BinOp::Add {
-                    checked: PY_CHECKED
+                    checked: Checked::Reported
                 },
                 Expr::name("a"),
                 Expr::name("b")
@@ -3011,23 +3004,23 @@ mod tests {
             (
                 "+",
                 BinOp::Add {
-                    checked: PY_CHECKED,
+                    checked: Checked::Reported,
                 },
             ),
             (
                 "-",
                 BinOp::Sub {
-                    checked: PY_CHECKED,
+                    checked: Checked::Reported,
                 },
             ),
             (
                 "*",
                 BinOp::Mul {
-                    checked: PY_CHECKED,
+                    checked: Checked::Reported,
                 },
             ),
-            ("//", PY_FLOOR_DIV),
-            ("%", PY_MOD),
+            ("//", python().integer_division()),
+            ("%", python().remainder()),
         ] {
             let f = lower_one(&format!(
                 "def f(a: int, b: int) -> int:\n    return a {symbol} b\n"
@@ -3062,7 +3055,7 @@ mod tests {
             f.body[0],
             Stmt::Return(Expr::Neg {
                 value: Box::new(Expr::int(7)),
-                checked: PY_CHECKED,
+                checked: Checked::Reported,
             })
         );
 
@@ -3410,7 +3403,7 @@ mod tests {
                 value: Expr::Binary { op, left, right },
                 ..
             } => {
-                assert_eq!(*op, PY_TRUE_DIV);
+                assert_eq!(*op, python().exact_division());
                 assert!(matches!(**left, Expr::ToFloat(_)));
                 assert!(matches!(**right, Expr::ToFloat(_)));
             }

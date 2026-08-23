@@ -15,9 +15,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use compylr_core::backend::BackendError;
+use compylr_core::behavior::{BehaviorRequest, LanguagePair};
 use compylr_core::bridge::BuildKey;
 use compylr_core::pass::{self, PassConfig};
 use compylr_core::verify::verify;
+use compylr_core::{Backend, Behavior, Frontend, Source};
 // The summary quotes types back in the language of the file being inspected, so it uses the
 // frontend's spelling rather than the IR's neutral one.
 use compylr_frontend_python::PythonTypeName;
@@ -159,6 +161,31 @@ fn main() -> ExitCode {
     }
 }
 
+/// Resolve a behavior request against the two languages this run compiles between.
+///
+/// Both declarations come from the components themselves, and the set of names compylr recognises
+/// is the union of the two registries — so a user who names a reserved target is told it is not
+/// one of *these* two rather than that it does not exist.
+fn resolve_behavior(
+    request: &BehaviorRequest,
+    frontend: &dyn Frontend,
+    backend: &dyn Backend,
+) -> Result<Behavior, String> {
+    let mut known: Vec<&str> = frontends::names();
+    known.extend(backends::names());
+    known.sort_unstable();
+    known.dedup();
+
+    let pair = LanguagePair {
+        source: frontend.name(),
+        source_behavior: frontend.behavior(),
+        target: backend.name(),
+        target_behavior: backend.behavior(),
+        known: &known,
+    };
+    compylr_core::resolve(request, &pair, None).map_err(|error| error.to_string())
+}
+
 /// Compile the file and render the requested form.
 fn run(options: &Options) -> Result<String, String> {
     // Resolved first, so asking for an unusable backend reports the backend rather than whichever
@@ -178,8 +205,10 @@ fn run(options: &Options) -> Result<String, String> {
     // The frontend does the parsing and the assembly. Reading the file is this crate's business
     // because the trait takes text: the decorator's sources come from a live function object and
     // may correspond to no file at all.
+    // Resolved before the file is parsed, so an invalid behavior is reported without a parse.
+    let behavior = resolve_behavior(&BehaviorRequest::inherit(), frontend, backend)?;
     let mut unit = frontend
-        .lower(std::slice::from_ref(&source))
+        .lower(&[Source::new(source, behavior)])
         .map_err(|error| error.to_string())?;
     // Unconditional, and the same check `compile` runs. A CLI with its own idea of what is
     // well formed would become a second source of answers.

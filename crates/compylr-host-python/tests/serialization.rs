@@ -18,8 +18,8 @@ use compylr_ir::{BinOp, Checked, DivMode, Expr, Function, Literal, Param, Stmt, 
 /// Lower source text into a unit, panicking with the diagnostic if it does not lower.
 fn unit_from(source: &str) -> Unit {
     let parsed = parse_source(source).expect("fixture must parse");
-    let functions =
-        lower_source(&parsed).unwrap_or_else(|e| panic!("should lower: {}", e.render(source)));
+    let functions = lower_source(&parsed, python_stance())
+        .unwrap_or_else(|e| panic!("should lower: {}", e.render(source)));
     let mut unit = Unit::new();
     for function in functions {
         unit.add_function(function).expect("names must be unique");
@@ -286,7 +286,7 @@ fn addition_order_does_not_affect_the_artifact() {
         "def gamma(c: int) -> int:\n    return c - 3\n",
     );
     let parsed = parse_source(source).unwrap();
-    let functions = lower_source(&parsed).unwrap();
+    let functions = lower_source(&parsed, python_stance()).unwrap();
 
     let build = |reverse: bool| {
         let mut functions = functions.clone();
@@ -767,4 +767,12 @@ mod declared_semantics {
             );
         }
     }
+}
+
+/// Python's own stance, which is what an unconfigured compilation resolves to.
+///
+/// Read from the frontend's declaration rather than rebuilt here, so these tests lower under the
+/// same bundle the pipeline uses.
+fn python_stance() -> compylr_ir::Behavior {
+    compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
 }

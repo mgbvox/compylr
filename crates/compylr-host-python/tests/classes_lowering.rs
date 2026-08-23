@@ -17,7 +17,7 @@ use compylr_ir::{Class, Stmt, Ty};
 
 fn classes(source: &str) -> Vec<Class> {
     let parsed = parse_source(source).expect("fixture must parse");
-    lower_source_members(&parsed)
+    lower_source_members(&parsed, python_stance())
         .unwrap_or_else(|e| panic!("should lower: {}", e.render(source)))
         .1
 }
@@ -34,7 +34,7 @@ fn accepts(source: &str) {
 
 fn reject(source: &str) -> LowerErrorKind {
     let parsed = parse_source(source).expect("fixture must parse");
-    match lower_source_members(&parsed) {
+    match lower_source_members(&parsed, python_stance()) {
         Ok(_) => panic!("should have been rejected but lowered:\n{source}"),
         Err(error) => error.kind(),
     }
@@ -42,7 +42,7 @@ fn reject(source: &str) -> LowerErrorKind {
 
 fn message(source: &str) -> String {
     let parsed = parse_source(source).expect("fixture must parse");
-    match lower_source_members(&parsed) {
+    match lower_source_members(&parsed, python_stance()) {
         Ok(_) => panic!("should have been rejected but lowered:\n{source}"),
         Err(error) => error.to_string(),
     }
@@ -454,4 +454,12 @@ fn a_class_in_another_source_leaves_construction_undetermined() {
         reject("def use() -> int:\n    c = Elsewhere()\n    return 1\n"),
         LowerErrorKind::UndeterminedBinding
     );
+}
+
+/// Python's own stance, which is what an unconfigured compilation resolves to.
+///
+/// Read from the frontend's declaration rather than rebuilt here, so these tests lower under the
+/// same bundle the pipeline uses.
+fn python_stance() -> compylr_ir::Behavior {
+    compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
 }
