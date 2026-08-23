@@ -224,6 +224,36 @@ Functions at top level only, with mandatory parameter and return annotations.
 | `set[T]` | set | elements restricted the same way |
 | `tuple[A, B]` | tuple | a type per position |
 
+### Behavior axes
+
+By default, compiled operations keep the source language's behavior. Set a project-wide behavior
+with `compylr.initialize(behavior="rust")`, override one member with
+`@c.compyle(behavior="rust")`, or select individual axes while inheriting the rest:
+
+```python
+from compylr import Behavior
+
+c = compylr.initialize()
+
+@c.compyle(behavior=Behavior(overflow="rust", index="python"))
+def selected(xs: list[int], n: int) -> int:
+    return xs[n] + 1
+```
+
+Behavior is validated when `initialize` or the decorator runs. Each selected language must be the
+source or target of this compilation — `python` or `rust` today. Members with different behaviors
+may share one artifact because the choice belongs to each operation; members with different
+backends are still refused because a project produces one target artifact.
+
+| Behavior field | IR axis | Python behavior | Rust behavior |
+| --- | --- | --- | --- |
+| `overflow` | `integer_overflow` | report 64-bit integer overflow | use Rust's native operator; generated release builds wrap |
+| `floor_div` | `integer_division` | round toward negative infinity; report zero divisor | truncate toward zero; use native failure |
+| `true_div` | `exact_division` | report zero divisor | IEEE-754 result, including infinity |
+| `modulo` | `remainder` | sign follows divisor; report zero divisor | sign follows dividend; use native failure |
+| `index` | `sequence_index` | negative indexes count from the end; report out of range | indexes count from the start; use native failure |
+| `text_len` | `text_length` | count Unicode code points | count UTF-8 bytes |
+
 Operators: `+` `-` `*` `/` `//` `%` and the comparisons `==` `!=` `<` `<=` `>` `>=`, plus unary
 negation and calls to functions in the same unit.
 
@@ -543,15 +573,13 @@ Three rules that are easy to break and expensive to discover later:
 `String` — belong to a backend, never to the IR. Rust is the first backend, but Go, C++, and
 TypeScript backends should consume the same tree unchanged.
 
-**Operations carry the semantics a frontend declared, not a language's by default.** `BinOp::Div`
-carries a mode — exact, or integer with a rounding direction — `BinOp::Rem` carries which operand's
-sign the result takes, `Expr::Subscript` carries whether a negative index counts from the end, and
-`Expr::Len` carries what a string is counted in. The Python frontend sets `//` to round toward
-negative infinity, `%` to take the sign of the divisor, `/` to divide exactly, `xs[-1]` to reach
-the last element, and `len` to count code points; Go and TypeScript would set several of them
-otherwise. The backend reads the mode off the node and never the operation's name, which is what
-lets one backend serve both. Lowering inserts an explicit widening node for exact division, so a
-backend never re-derives a conversion.
+**Operations carry the semantics a resolved behavior declared, not a language's by default.**
+`BinOp::Div` carries exact or integer division, its rounding, and its checking mode; `BinOp::Rem`
+carries sign and checking modes; `Expr::Subscript` carries index origin and checking mode; and
+`Expr::Len` carries text units. The default resolves every axis to Python, while a behavior
+selection may resolve any axis to Rust. The backend reads those modes off each node and never the
+operation's name, which lets one artifact contain functions with different behaviors. Lowering
+inserts an explicit widening node for exact division, so a backend never re-derives a conversion.
 
 The IR's own rendering says the mode rather than a symbol — `//` is Python's way of writing one
 particular rounding, not the rounding itself — so quoting a programmer's syntax back at them
@@ -572,7 +600,8 @@ requirements can legitimately emit different code, and a cache that could not te
 would hand back the wrong build.
 
 > **Upgrading past this release rebuilds every project once.** The IR changed shape — first the
-> arithmetic operators and then subscripting and length — so the artifact format is at version 3
+> arithmetic operators, subscripting and length, and operation checking modes — so the artifact
+> format is at version 4
 > and every fingerprint moved. The build state records the compiler version, so this happens
 > automatically rather than as a stale-artifact bug.
 

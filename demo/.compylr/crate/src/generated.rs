@@ -581,6 +581,23 @@ pub fn collatz_length(n: i64) -> Result<i64, RuntimeError> {
     Ok(steps)
 }
 
+pub fn collatz_length_rust(n: i64) -> Result<i64, RuntimeError> {
+    if ((&(n)) < (&(1i64))) {
+        return Ok(0i64);
+    }
+    let mut steps: i64 = 0i64;
+    let mut current: i64 = n;
+    while ((&(current)) != (&(1i64))) {
+        if ((&(crate::compat::NativeNum::native_rem_trunc(&(current), &(2i64)))) == (&(0i64))) {
+            current = ((current) / (2i64));
+        } else {
+            current = (((3i64) * (current)) + (1i64));
+        }
+        steps = ((steps) + (1i64));
+    }
+    Ok(steps)
+}
+
 /// How many connected components `size` nodes fall into, given `edges`.
 ///
 ///     Edges are `tuple[int, int]`, so each one is read by position: `edge[0]` and `edge[1]`. The

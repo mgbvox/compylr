@@ -227,3 +227,16 @@ class TestPassConfiguration:
         compiled = compile_unit("def double(n: int) -> int:\n    return n * 2\n")
         pipeline._record_success(compiled)
         assert pipeline.cached_module_name() == compiled.module_name
+
+
+class TestGeneratedReleaseProfile:
+    def test_the_written_manifest_uses_the_declared_profile(self, pipeline: BuildPipeline) -> None:
+        compiled = compile_unit("def double(n: int) -> int:\n    return n * 2\n")
+        pipeline.write_artifacts(compiled)
+
+        manifest = pipeline.paths.manifest.read_text()
+        assert "[profile.release]" in manifest
+        assert 'lto = "fat"' in manifest
+        assert "codegen-units = 1" in manifest
+        assert 'panic = "unwind"' in manifest
+        assert "target-cpu" not in manifest

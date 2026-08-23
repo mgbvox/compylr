@@ -130,6 +130,11 @@ def workloads(scale: int) -> list[Workload]:
         Workload(
             "collatz", "arithmetic.collatz_length", lambda: arithmetic.collatz_length(97 * scale)
         ),
+        Workload(
+            "collatz_rust",
+            "arithmetic.collatz_length (Rust behavior)",
+            lambda: arithmetic.collatz_length_rust(97 * scale),
+        ),
         Workload("deviation", "stats.standard_deviation", lambda: stats.standard_deviation(reals)),
         Workload("normalize", "stats.normalize", lambda: stats.normalize(reals)),
         Workload("word_count", "text.word_count", lambda: text.word_count(words)),
@@ -192,6 +197,49 @@ def _run_child(scale: int, repetitions: int, *, disabled: bool) -> Measurement:
 def _timings(measured: Measurement) -> dict[str, Timing]:
     """Every workload's batches, as timings that know their own spread."""
     return {key: Timing(tuple(batches)) for key, batches in measured["samples"].items()}
+
+
+def format_behavior_comparison(compiled: Measurement, interpreted: Measurement) -> str:
+    """The same Collatz program interpreted and under both available behaviors."""
+    compiled_timings = _timings(compiled)
+    interpreted_timings = _timings(interpreted)
+    python_timing = compiled_timings["collatz"]
+    rust_timing = compiled_timings["collatz_rust"]
+    baseline = interpreted_timings["collatz"]
+    run_floor = noise_floor(compiled_timings["reference"], interpreted_timings["reference"])
+    comparison_floor = uncertainty(run_floor, python_timing, rust_timing)
+    ratio = python_timing.best / rust_timing.best if rust_timing.best else 0.0
+    finding = format_ratio(ratio, comparison_floor) if ratio else "n/a"
+    value = 97 * compiled["scale"]
+    lines = [
+        f"behavior comparison: arithmetic.collatz_length({value})",
+        "",
+        f"{'mode':<31}{'best':>13}{'spread':>10}",
+        f"{'-' * 31}{'-' * 13}{'-' * 10}",
+        f"{'interpreted Python':<31}{baseline.best * 1e6:>11.2f}us{baseline.spread:>9.0%}",
+        (
+            f"{'compiled, Python behavior':<31}{python_timing.best * 1e6:>11.2f}us"
+            f"{python_timing.spread:>9.0%}"
+        ),
+        (
+            f"{'compiled, Rust behavior':<31}{rust_timing.best * 1e6:>11.2f}us"
+            f"{rust_timing.spread:>9.0%}"
+        ),
+        "",
+        (
+            f"Rust/Python compiled ratio: {finding}, read against a {comparison_floor:.0%} "
+            "noise floor."
+        ),
+    ]
+    expected = interpreted["answers"]["collatz"]
+    if (
+        compiled["answers"]["collatz"] == expected
+        and compiled["answers"]["collatz_rust"] == expected
+    ):
+        lines.append(f"All three modes returned {expected}.")
+    else:
+        lines.append("WARNING: the behavior builds did not return the interpreted answer.")
+    return "\n".join(lines)
 
 
 def format_comparison(compiled: Measurement, interpreted: Measurement) -> str:
@@ -260,6 +308,7 @@ def format_comparison(compiled: Measurement, interpreted: Measurement) -> str:
         lines.append(f"WARNING: compiled and interpreted disagreed for {disagreed}")
     else:
         lines.append("Both modes returned the same answer for every workload.")
+    lines += ["", format_behavior_comparison(compiled, interpreted)]
     return "\n".join(lines)
 
 

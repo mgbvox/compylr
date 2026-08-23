@@ -299,6 +299,44 @@ pub fn cargo_manifest(key: &BuildKey, pyo3_version: &str) -> String {
          crate-type = [\"cdylib\"]\n\
          \n\
          [dependencies]\n\
-         pyo3 = {{ version = \"{pyo3_version}\", features = [\"abi3-py311\", \"extension-module\"] }}\n"
+         pyo3 = {{ version = \"{pyo3_version}\", features = [\"abi3-py311\", \"extension-module\"] }}\n\
+         \n\
+         [profile.release]\n\
+         lto = \"fat\"\n\
+         codegen-units = 1\n\
+         panic = \"unwind\"\n"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key() -> BuildKey {
+        BuildKey {
+            fingerprint: 0x1234_5678_9abc_def0,
+            target: "rust".to_string(),
+            passes: "default".to_string(),
+        }
+    }
+
+    #[test]
+    fn generated_crates_declare_the_release_profile() {
+        let manifest = cargo_manifest(&key(), "0.29.2");
+        assert!(manifest.contains("[profile.release]"), "{manifest}");
+        assert!(manifest.contains("lto = \"fat\""), "{manifest}");
+        assert!(manifest.contains("codegen-units = 1"), "{manifest}");
+    }
+
+    #[test]
+    fn generated_crates_preserve_unwinding() {
+        let manifest = cargo_manifest(&key(), "0.29.2");
+        assert!(manifest.contains("panic = \"unwind\""), "{manifest}");
+    }
+
+    #[test]
+    fn generated_crates_do_not_pin_the_build_machine_cpu() {
+        let manifest = cargo_manifest(&key(), "0.29.2");
+        assert!(!manifest.contains("target-cpu"), "{manifest}");
+    }
 }

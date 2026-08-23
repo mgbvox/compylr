@@ -170,8 +170,9 @@ Known gaps worth knowing before you trip on them:
   the package — but during development here the version does not move, so after changing emission
   you must `rm -rf .compylr` (and `demo/.compylr`) or you will benchmark last build's code. This
   cost real time once already.
-* **The IR changed shape twice, so every existing cache is invalid once.** The artifact format is
-  at version 3 — 2 for the arithmetic operators, 3 for subscripting and length. `_state_is_current`
+* **The IR changed shape again, so every existing cache is invalid once.** The artifact format is
+  at version 4 — 2 for the arithmetic operators, 3 for subscripting and length, 4 for operation
+  checking modes. `_state_is_current`
   compares the recorded compylr version, so a user upgrading rebuilds automatically; there is
   nothing to do beyond knowing why the first run after upgrading is slow.
 * **A statement's emission depends on where it is, not only on what it is.** The backend renders a
@@ -228,13 +229,18 @@ silently was the first.
   backend; how a construct is spelled *back to the programmer* belongs to the frontend that read
   it, which is why `Ty::python_name` and `BinOp::python_symbol` live in
   `compylr-frontend-python::spelling` as extension traits and not on the IR.
-* IR operations carry the semantics **a frontend declared**, not one language's by default.
-  `BinOp::Div` carries a rounding mode, `BinOp::Rem` a sign convention, `Expr::Subscript` an index
-  origin, and `Expr::Len` the units a string is counted in. The Python frontend sets all five in
-  named constants at the top of `lower.rs`; the backend matches on the mode and never on the
-  operation's name. A backend that read the name would be silently wrong for any frontend meaning
-  the other thing, and there is no way for a test written in Python to catch that — which is why
-  `tests/conformance.rs` and the hand-built entries in `tests/execution.rs` exist.
+* IR operations carry the semantics **the resolved behavior declared**, not one language's by
+  default. The six axes are integer overflow, integer division, exact division, remainder,
+  sequence indexing, and text length. `BinOp::Div` carries rounding and checking modes,
+  `BinOp::Rem` a sign convention and checking mode, `Expr::Subscript` an index origin and checking
+  mode, and `Expr::Len` the units a string is counted in. The backend matches on those modes and
+  never on the operation's name. A backend that read the name would be silently wrong for the
+  other stance, which is why `tests/conformance.rs` and the hand-built entries in
+  `tests/execution.rs` exist.
+* **`Checked::Unchecked` is a statement about the program, not a promised machine result.** It
+  says the program declines to define the failure. Rust's native integer overflow wraps in the
+  generated release profile and panics in a debug build; both satisfy that statement. Do not
+  rename the mode to `Wrapping` or make a pass infer it from build settings.
 * **Three container behaviours deliberately have no mode**, and the reason is recorded in the IR's
   module doc, the runtime's, and the spec: a missing mapping key always reports, mapping iteration
   yields keys, and string membership tests substrings. The last two are universal across the

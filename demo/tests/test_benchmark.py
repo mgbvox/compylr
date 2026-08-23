@@ -157,6 +157,23 @@ class TestTheAlgorithmsTable:
         assert benchmark.main(["--scale", "1", "--repetitions", "1"]) == 0
         assert "noise floor" in capsys.readouterr().out
 
+    def test_it_reports_interpreted_python_and_rust_behavior_timings(
+        self, algorithm_runs: tuple[dict[str, Any], dict[str, Any]]
+    ) -> None:
+        table = benchmark.format_comparison(*algorithm_runs)
+        assert "behavior comparison: arithmetic.collatz_length(97)" in table
+        assert "interpreted Python" in table
+        assert "compiled, Python behavior" in table
+        assert "compiled, Rust behavior" in table
+
+    def test_both_behavior_builds_return_the_documented_answer(
+        self, algorithm_runs: tuple[dict[str, Any], dict[str, Any]]
+    ) -> None:
+        compiled, interpreted = algorithm_runs
+        assert compiled["answers"]["collatz"] == "118"
+        assert compiled["answers"]["collatz_rust"] == "118"
+        assert interpreted["answers"]["collatz"] == "118"
+
 
 class TestTheAnswerSignature:
     """Answers cross between processes as strings, and unordered containers must still compare."""

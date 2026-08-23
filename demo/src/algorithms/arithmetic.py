@@ -134,6 +134,21 @@ def collatz_length(n: int) -> int:
     return steps
 
 
+@c.compyle(behavior="rust")
+def collatz_length_rust(n: int) -> int:
+    if n < 1:
+        return 0
+    steps = 0
+    current = n
+    while current != 1:
+        if current % 2 == 0:
+            current = current // 2
+        else:
+            current = 3 * current + 1
+        steps = steps + 1
+    return steps
+
+
 @c.compyle
 def digit_sum(n: int) -> int:
     """The sum of the decimal digits of `n`, ignoring its sign."""

@@ -175,13 +175,13 @@
 
 ## 11. Documentation and the demo
 
-- [ ] 11.1 Add the axis table to `README.md` — flag, what the source language means, what the
+- [x] 11.1 Add the axis table to `README.md` — flag, what the source language means, what the
       target means — beside the existing type and operator tables, and extend `tests/readme.rs` to
       enforce that the table lists exactly the axes the code defines
-- [ ] 11.2 Update `README.md` prose: `behavior` on `initialize` and on the decorator, the default,
+- [x] 11.2 Update `README.md` prose: `behavior` on `initialize` and on the decorator, the default,
       the validation rule, and that mixed behavior in one project is allowed where a mixed backend
       is not
-- [ ] 11.3 Update `CLAUDE.md`: the axis set, that `Unchecked` is a statement about the program, the
+- [x] 11.3 Update `CLAUDE.md`: the axis set, that `Unchecked` is a statement about the program, the
       artifact version at 4, and the standing warning about `rm -rf .compylr` when emission changes
 - [x] 11.4 **Prerequisite for everything below.** Make the benchmark report a measure of
       run-to-run spread alongside each timing instead of a single best-of figure, and record the
@@ -189,14 +189,14 @@
       *byte-identical* builds, so a behavior delta under roughly 30% cannot be told apart from the
       harness and 11.7 is unachievable until this lands. If
       `improve-generated-code-performance` has already done this, verify it and move on
-- [ ] 11.5 Add a Rust-behavior build of one demo algorithm and report it in the benchmark alongside
+- [x] 11.5 Add a Rust-behavior build of one demo algorithm and report it in the benchmark alongside
       the interpreted and default-behavior timings
-- [ ] 11.6 State in `demo/README.md` what the Rust-behavior build gives up for that algorithm, and
+- [x] 11.6 State in `demo/README.md` what the Rust-behavior build gives up for that algorithm, and
       assert both builds produce the documented answer
-- [ ] 11.7 `rm -rf .compylr demo/.compylr`, run `make demo`, and record the three timings in the
+- [x] 11.7 `rm -rf .compylr demo/.compylr`, run `make demo`, and record the three timings in the
       change's notes so the claim is measured rather than asserted — reporting each against the
       noise floor from 11.4, and saying the difference was not resolvable where it falls inside it
-- [ ] 11.8 `cd demo && uv run pytest && uv run ruff check . && uv run mypy src`; commit
+- [x] 11.8 `cd demo && uv run pytest && uv run ruff check . && uv run mypy src`; commit
 
 ## 12. Final verification
 

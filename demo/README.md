@@ -150,6 +150,25 @@ is not worth reading. `sorting.merge_sort` earns that mark on most runs, ranging
 277us across builds that were in some cases *byte-identical*. That spread is wider than most of
 the improvements anyone would want to measure, which is precisely why the column exists.
 
+### One algorithm, two behaviors
+
+`arithmetic.collatz_length` is compiled twice from the same loop: once with the default Python
+behavior and once with `behavior="rust"`. The benchmark reports those two builds beside the
+interpreted baseline. For the documented input, all three return
+`collatz_length(97) == 118`.
+
+The Rust-behavior build gives up Python's reported integer overflow and division-by-zero failures,
+and its integer division and remainder follow Rust for negative operands. The benchmark uses a
+positive input whose intermediate values fit in 64 bits, so those differences change nothing
+about this answer. That is the trade: less checking on a domain where the caller already promises
+the checks cannot fire, not a claim that the two behaviors are interchangeable for every input.
+
+On the recorded `make demo` run, the interpreted baseline was **9.45 µs** (18% spread), the
+Python-behavior build was **0.29 µs** (53% spread), and the Rust-behavior build was **0.27 µs**
+(47% spread). The control established a **72% noise floor**, so the difference between the two
+compiled behaviors was **not resolvable**. Both were clearly faster than interpretation; the
+harness cannot support a claim that one behavior was faster than the other.
+
 ### Every algorithm
 
 ```bash
