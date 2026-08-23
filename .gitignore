@@ -1,3 +1,7 @@
+.agent/
+.agents/
+.claude/worktrees/
+worktrees/
 /scratch
 # Build output
 /target
@@ -18,7 +22,6 @@
 demo/.compylr/*
 !demo/.compylr/crate/
 !demo/.compylr/ir/
-.claude/worktrees/
 
 # The build output under the committed crate, which is ~64M and rebuilt on demand.
 demo/.compylr/crate/target/

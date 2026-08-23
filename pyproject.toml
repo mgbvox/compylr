@@ -49,7 +49,7 @@ line-length = 100
 target-version = "py311"
 # The fixtures are compiler inputs, not code: `rejected/` is deliberately invalid, and linting it
 # would report exactly the problems it exists to contain.
-extend-exclude = ["python/fixtures", "python/entrypoint.py", "vendored"]
+extend-exclude = ["python/fixtures", "python/entrypoint.py", "vendored", "inspiration"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -59,3 +59,6 @@ python_version = "3.11"
 strict = true
 # The compiled module has no source for mypy to read; its surface is declared in `_core.pyi`.
 ignore_missing_imports = false
+
+[tool.ty.src]
+exclude = ["vendored", "inspiration", "scripts"]
