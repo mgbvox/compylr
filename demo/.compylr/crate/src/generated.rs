@@ -589,8 +589,8 @@ pub fn component_count(size: i64, edges: Vec<(i64, i64)>) -> Result<i64, Runtime
     let mut sets: UnionFind = UnionFind::__compylr_new(size)?;
     {
         let __compylr_iter = &edges;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let edge: (i64, i64) = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let edge: &(i64, i64) = __compylr_item;
             (sets).union((edge).0.clone(), (edge).1.clone())?;
         }
     }
@@ -627,8 +627,8 @@ pub fn count_present(words: Vec<String>, wanted: FastSet<String>) -> Result<i64,
     let mut total: i64 = 0i64;
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if PyContains::py_contains(&(wanted), &(word)) {
                 PyAddAssign::py_add_assign(&mut total, &(1i64))?;
             }
@@ -1156,8 +1156,8 @@ pub fn joined(words: Vec<String>, separator: String) -> Result<String, RuntimeEr
     let mut first: bool = true;
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if first {
                 PyAddAssign::py_add_assign(&mut out, &(word))?;
                 first = false;
@@ -1314,8 +1314,8 @@ pub fn longest(words: Vec<String>) -> Result<String, RuntimeError> {
     let mut best_length: i64 = -1i64;
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if ((&(PyLen::py_len(&(word), TextUnits::CodePoints))) > (&(best_length))) {
                 best = word.clone();
                 best_length = PyLen::py_len(&(word), TextUnits::CodePoints);
@@ -1581,8 +1581,8 @@ pub fn missing(haystack: String, needles: Vec<String>) -> Result<Vec<String>, Ru
     let mut out: Vec<String> = vec![];
     {
         let __compylr_iter = &needles;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let needle: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let needle: &String = __compylr_item;
             if !(PyContains::py_contains(&(haystack), &(needle))) {
                 {
                     let __compylr_value = needle.clone();
@@ -1825,8 +1825,8 @@ pub fn occurrences(haystack: String, needles: Vec<String>) -> Result<i64, Runtim
     let mut total: i64 = 0i64;
     {
         let __compylr_iter = &needles;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let needle: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let needle: &String = __compylr_item;
             if PyContains::py_contains(&(haystack), &(needle)) {
                 PyAddAssign::py_add_assign(&mut total, &(1i64))?;
             }
@@ -1928,8 +1928,8 @@ pub fn row_sums(matrix: Vec<Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
     let mut out: Vec<i64> = vec![];
     {
         let __compylr_iter = &matrix;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let row: Vec<i64> = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let row: &Vec<i64> = __compylr_item;
             let mut total: i64 = 0i64;
             {
                 let __compylr_iter = &row;
@@ -1958,8 +1958,8 @@ pub fn scale(matrix: Vec<Vec<i64>>, factor: i64) -> Result<Vec<Vec<i64>>, Runtim
     let mut out: Vec<Vec<i64>> = vec![];
     {
         let __compylr_iter = &matrix;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let row: Vec<i64> = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let row: &Vec<i64> = __compylr_item;
             let mut scaled: Vec<i64> = vec![];
             {
                 let __compylr_iter = &row;
@@ -2329,8 +2329,8 @@ pub fn total_length(words: Vec<String>) -> Result<i64, RuntimeError> {
     let mut total: i64 = 0i64;
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             PyAddAssign::py_add_assign(
                 &mut total,
                 &(PyLen::py_len(&(word), TextUnits::CodePoints)),
@@ -2446,8 +2446,8 @@ pub fn unique_words(words: Vec<String>) -> Result<Vec<String>, RuntimeError> {
     let mut out: Vec<String> = vec![];
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if PyContains::py_contains(&(seen), &(word)) {
                 continue;
             }
@@ -2516,8 +2516,8 @@ pub fn word_count(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeErr
     let mut counts: FastMap<String, i64> = FastMap::from_iter([]);
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if PyContains::py_contains(&(counts), &(word)) {
                 {
                     let __compylr_value = PyAdd::py_add(

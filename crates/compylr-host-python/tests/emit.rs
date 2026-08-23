@@ -636,3 +636,118 @@ mod moved_returns {
         assert!(emitted.contains("PyAdd::py_add"), "{emitted}");
     }
 }
+
+/// A loop variable the body only reads is bound by reference.
+///
+/// For a collection of owned values, copying each element is an allocation and a copy per element
+/// per loop. Whether the body assigns to the loop variable is already computed — it is what
+/// decides whether the binding is `mut` — so the same answer decides this and there is no second
+/// analysis to disagree with the first.
+mod borrowed_loop_variables {
+    use super::*;
+
+    #[test]
+    fn a_read_only_loop_variable_over_text_is_borrowed() {
+        let emitted = emit(concat!(
+            "def total_length(words: list[str]) -> int:\n",
+            "    total = 0\n",
+            "    for word in words:\n",
+            "        total = total + len(word)\n",
+            "    return total\n",
+        ));
+        assert!(
+            emitted.contains("py_iter_borrowed"),
+            "a read-only loop variable must not be copied:\n{emitted}"
+        );
+        assert!(emitted.contains("let word: &String"), "{emitted}");
+    }
+
+    #[test]
+    fn a_loop_variable_the_body_assigns_is_still_owned() {
+        // Assigning to the loop variable needs a value of its own, and must not affect what is
+        // being iterated.
+        let emitted = emit(concat!(
+            "def shout(words: list[str], suffix: str) -> int:\n",
+            "    n = 0\n",
+            "    for word in words:\n",
+            "        word = word + suffix\n",
+            "        n = n + len(word)\n",
+            "    return n\n",
+        ));
+        assert!(
+            emitted.contains("PyIterate::py_iter(") && !emitted.contains("py_iter_borrowed"),
+            "an assigned loop variable needs its own value:\n{emitted}"
+        );
+        assert!(emitted.contains("let mut word: String"), "{emitted}");
+    }
+
+    #[test]
+    fn a_scalar_loop_variable_is_still_owned() {
+        // An `i64` is consumed by value wherever it is read, so binding one behind a reference
+        // would be a type error in the body rather than a copy avoided — and there is no copy
+        // worth avoiding.
+        let emitted = emit(concat!(
+            "def total(values: list[int]) -> int:\n",
+            "    sum = 0\n",
+            "    for v in values:\n",
+            "        sum = sum + v\n",
+            "    return sum\n",
+        ));
+        assert!(!emitted.contains("py_iter_borrowed"), "{emitted}");
+        assert!(emitted.contains("let v: i64"), "{emitted}");
+    }
+
+    #[test]
+    fn a_read_only_loop_over_a_collection_of_collections_is_borrowed() {
+        let emitted = concat!(
+            "def widest(rows: list[list[int]]) -> int:\n",
+            "    best = 0\n",
+            "    for row in rows:\n",
+            "        if len(row) > best:\n",
+            "            best = len(row)\n",
+            "    return best\n",
+        );
+        let emitted = emit(emitted);
+        assert!(emitted.contains("py_iter_borrowed"), "{emitted}");
+        assert!(emitted.contains("let row: &Vec<i64>"), "{emitted}");
+    }
+
+    #[test]
+    fn a_mapping_key_loop_is_borrowed_when_only_read() {
+        let emitted = emit(concat!(
+            "def key_length(d: dict[str, int]) -> int:\n",
+            "    total = 0\n",
+            "    for k in d:\n",
+            "        total = total + len(k)\n",
+            "    return total\n",
+        ));
+        assert!(emitted.contains("py_iter_borrowed"), "{emitted}");
+        assert!(emitted.contains("let k: &String"), "{emitted}");
+    }
+}
+
+/// A compared loop variable keeps its copy.
+///
+/// Every other position a loop variable reaches is a function argument, which is a coercion site,
+/// so `&&String` becomes `&String` on its own. A comparison is not: `a < b` picks a `PartialOrd`
+/// implementation before any coercion is considered, and there is no reference depth that is
+/// right for both an owned local and a borrowed loop variable at once.
+///
+/// The demo found this, not the fixture suite — `text.most_common` breaks ties with `word < best`
+/// — which is why CLAUDE.md says to run `make demo` when emission changes.
+#[test]
+fn a_compared_loop_variable_is_not_borrowed() {
+    let emitted = emit(concat!(
+        "def smallest(words: list[str], start: str) -> str:\n",
+        "    best = start\n",
+        "    for word in words:\n",
+        "        if word < best:\n",
+        "            best = word\n",
+        "    return best\n",
+    ));
+    assert!(
+        !emitted.contains("py_iter_borrowed"),
+        "a compared loop variable must keep its own value:\n{emitted}"
+    );
+    assert!(emitted.contains("let word: String"), "{emitted}");
+}

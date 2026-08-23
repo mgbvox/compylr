@@ -1263,17 +1263,38 @@ impl Emitter<'_> {
             let place = emit_place(iterable, self.unit, Access::Shared)?;
             let _ = writeln!(self.out, "{pad}    let __compylr_iter = &{place};");
         }
+        // A body that never writes the loop variable has no use for its own copy of each element.
+        // The same `is_assigned` answer that decides whether the binding is `mut` decides this,
+        // so there is no second analysis to disagree with the first.
+        //
+        // Scalars are excluded, and not merely because the saving would be nothing: an `i64` is
+        // consumed *by value* wherever it is read, so binding one behind a reference would be a
+        // type error in the body rather than a copy avoided. The exclusion is what the saving
+        // looks like when there is none — for a collection of owned values, the copy it removes
+        // is an allocation per element per loop.
+        let borrowed =
+            mutable.is_empty() && !ty.is_trivially_copyable() && !compared_in(body, name);
+        let iteration = if borrowed {
+            "py_iter_borrowed"
+        } else {
+            "py_iter"
+        };
         let _ = writeln!(
             self.out,
-            "{pad}    for __compylr_item in PyIterate::py_iter(__compylr_iter) {{"
+            "{pad}    for __compylr_item in PyIterate::{iteration}(__compylr_iter) {{"
         );
         // The loop variable is bound inside rather than in the pattern, so it carries the element
         // type lowering derived — a disagreement between the two then fails to compile here,
         // rather than somewhere in the body.
+        let element = rust_ty(ty);
+        let declared = if borrowed {
+            format!("&{element}")
+        } else {
+            element
+        };
         let _ = writeln!(
             self.out,
-            "{pad}        let {mutable}{bound}: {} = __compylr_item;",
-            rust_ty(ty)
+            "{pad}        let {mutable}{bound}: {declared} = __compylr_item;"
         );
         self.stmts(body, depth + 2)?;
         let _ = writeln!(self.out, "{pad}    }}");
@@ -1404,6 +1425,82 @@ fn emit_owned_operand(expr: &Expr, unit: &Unit) -> Result<String, BackendError> 
 /// both write to something reached through subscripts and attributes, so the chain is followed to
 /// its root. `f(xs)[0] = v` is not expressible, which is why a root that is not a name simply does
 /// not count as a write.
+/// Whether any comparison in `stmts` reads `name`.
+///
+/// This decides *against* borrowing a loop variable, and the reason is a genuine asymmetry in
+/// Rust rather than caution.
+///
+/// Every other position a loop variable reaches is a function argument — a runtime helper, a
+/// generated call — and a function argument is a coercion site, so `&&String` becomes `&String`
+/// on its own. That is why binding by reference works everywhere else without the emitter knowing
+/// anything about types.
+///
+/// A comparison is not a function argument. `a < b` selects a `PartialOrd` implementation *before*
+/// any coercion is considered, and `&&String: PartialOrd<&String>` does not exist — so an owned
+/// local compared against a borrowed loop variable fails to compile. There is no reference depth
+/// the emitter could pick that is right for both operands, because it does not know which side is
+/// which.
+///
+/// So a compared loop variable keeps its copy. The demo found this, not the fixture suite: a
+/// tie-break of the form `if word < best` in `text.most_common`.
+fn compared_in(stmts: &[Stmt], name: &str) -> bool {
+    fn in_expr(expr: &Expr, name: &str) -> bool {
+        match expr {
+            Expr::Binary { op, left, right } if op.is_comparison() => {
+                // Only a **direct** name operand matters. `len(row) > best` compares two
+                // integers, and the borrowed value never reaches the operator — the length call
+                // took it by reference and returned an owned number. Declining to borrow there
+                // would give up the saving for nothing.
+                let names_it = |side: &Expr| matches!(side, Expr::Name(found) if found == name);
+                names_it(left) || names_it(right) || in_expr(left, name) || in_expr(right, name)
+            }
+            Expr::Binary { left, right, .. } => in_expr(left, name) || in_expr(right, name),
+            Expr::Subscript { base, index, .. } => in_expr(base, name) || in_expr(index, name),
+            Expr::Contains { value, container } => in_expr(value, name) || in_expr(container, name),
+            Expr::Range { start, stop, step } => {
+                in_expr(start, name) || in_expr(stop, name) || in_expr(step, name)
+            }
+            Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => in_expr(inner, name),
+            Expr::Len { value, .. } => in_expr(value, name),
+            Expr::Attribute { object, .. } => in_expr(object, name),
+            Expr::TupleIndex { base, .. } => in_expr(base, name),
+            Expr::ListLit(items) | Expr::SetLit(items) | Expr::TupleLit(items) => {
+                items.iter().any(|item| in_expr(item, name))
+            }
+            Expr::DictLit(pairs) => pairs
+                .iter()
+                .any(|(key, value)| in_expr(key, name) || in_expr(value, name)),
+            Expr::Call { args, .. } | Expr::Construct { args, .. } => {
+                args.iter().any(|arg| in_expr(arg, name))
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                in_expr(receiver, name) || args.iter().any(|arg| in_expr(arg, name))
+            }
+            Expr::Literal(_) | Expr::Name(_) => false,
+        }
+    }
+
+    stmts.iter().any(|stmt| match stmt {
+        Stmt::Return(expr) | Stmt::Effect(expr) => in_expr(expr, name),
+        Stmt::Bind { value, .. } | Stmt::Assign { value, .. } => in_expr(value, name),
+        Stmt::SetAttr { object, value, .. } => in_expr(object, name) || in_expr(value, name),
+        Stmt::SetItem {
+            collection,
+            index,
+            value,
+        } => in_expr(collection, name) || in_expr(index, name) || in_expr(value, name),
+        Stmt::Append { sequence, value } => in_expr(sequence, name) || in_expr(value, name),
+        Stmt::If {
+            test,
+            then,
+            otherwise,
+        } => in_expr(test, name) || compared_in(then, name) || compared_in(otherwise, name),
+        Stmt::While { test, body } => in_expr(test, name) || compared_in(body, name),
+        Stmt::For { iter, body, .. } => in_expr(iter, name) || compared_in(body, name),
+        Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => false,
+    })
+}
+
 fn is_assigned(stmts: &[Stmt], name: &str, unit: &Unit) -> bool {
     let names_it = |expr: &Expr| place_root(expr) == Some(name);
     stmts.iter().any(|stmt| match stmt {

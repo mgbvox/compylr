@@ -791,10 +791,19 @@ pub trait PyIterate {
     type Item;
     /// The values, in whatever order the container defines.
     fn py_iter(&self) -> impl Iterator<Item = Self::Item> + '_;
+    /// The same values, borrowed rather than copied.
+    ///
+    /// A `for` whose body only *reads* the loop variable has no use for its own copy, and for a
+    /// collection of owned values that copy is an allocation per element per loop. The copying
+    /// form stays, because a body that assigns to the loop variable genuinely needs one.
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &Self::Item> + '_;
 }
 
 impl<T: Clone> PyIterate for Vec<T> {
     type Item = T;
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &T> + '_ {
+        self.iter()
+    }
     fn py_iter(&self) -> impl Iterator<Item = T> + '_ {
         self.iter().cloned()
     }
@@ -802,6 +811,9 @@ impl<T: Clone> PyIterate for Vec<T> {
 
 impl<K: Clone, V, S> PyIterate for std::collections::HashMap<K, V, S> {
     type Item = K;
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &K> + '_ {
+        self.keys()
+    }
     fn py_iter(&self) -> impl Iterator<Item = K> + '_ {
         self.keys().cloned()
     }
@@ -809,7 +821,72 @@ impl<K: Clone, V, S> PyIterate for std::collections::HashMap<K, V, S> {
 
 impl<T: Clone, S> PyIterate for std::collections::HashSet<T, S> {
     type Item = T;
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &T> + '_ {
+        self.iter()
+    }
     fn py_iter(&self) -> impl Iterator<Item = T> + '_ {
         self.iter().cloned()
+    }
+}
+
+// Borrowed values satisfy the reading traits, delegating to the owned implementations.
+//
+// A `for` whose body only reads its loop variable binds it by reference, which saves an
+// allocation and a copy per element per loop. Without these, that emitter change does not
+// compile: the traits are implemented on the owned types, so a borrowed loop variable does not
+// satisfy them. The emitter change is a few lines; this is the work that makes it legal.
+//
+// Only the *reading* traits get one. `PyAdd` and `PyNum` return `Self`, and `Self` would be a
+// reference here — there is no owned value to return, so a borrowed operand still has to be
+// cloned into one at the point of use. That is unchanged behaviour, not a gap.
+
+impl<T> PyLen for &T
+where
+    T: PyLen + ?Sized,
+{
+    fn py_len(&self, units: TextUnits) -> i64 {
+        (**self).py_len(units)
+    }
+}
+
+impl<T, I> PyContains<I> for &T
+where
+    T: PyContains<I> + ?Sized,
+{
+    fn py_contains(&self, value: &I) -> bool {
+        (**self).py_contains(value)
+    }
+}
+
+impl<T, I> PyIndexable<I> for &T
+where
+    T: PyIndexable<I> + ?Sized,
+{
+    type Output = T::Output;
+    fn py_get(&self, index: &I, origin: IndexOrigin) -> Result<Self::Output, RuntimeError> {
+        (**self).py_get(index, origin)
+    }
+}
+
+impl<T, I> PyBorrow<I> for &T
+where
+    T: PyBorrow<I> + ?Sized,
+{
+    type Item = T::Item;
+    fn py_borrow(&self, index: &I, origin: IndexOrigin) -> Result<&Self::Item, RuntimeError> {
+        (**self).py_borrow(index, origin)
+    }
+}
+
+impl<T> PyIterate for &T
+where
+    T: PyIterate + ?Sized,
+{
+    type Item = T::Item;
+    fn py_iter(&self) -> impl Iterator<Item = Self::Item> + '_ {
+        (**self).py_iter()
+    }
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &Self::Item> + '_ {
+        (**self).py_iter_borrowed()
     }
 }

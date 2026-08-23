@@ -57,8 +57,8 @@ pub fn key_lengths(d: FastMap<String, i64>) -> Result<i64, RuntimeError> {
     let mut total_length: i64 = 0i64;
     {
         let __compylr_iter = &d;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let k: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let k: &String = __compylr_item;
             PyAddAssign::py_add_assign(&mut total_length, &(PyLen::py_len(&(k), TextUnits::CodePoints)))?;
         }
     }

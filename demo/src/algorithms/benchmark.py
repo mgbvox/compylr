@@ -133,6 +133,10 @@ def workloads(scale: int) -> list[Workload]:
         Workload("deviation", "stats.standard_deviation", lambda: stats.standard_deviation(reals)),
         Workload("normalize", "stats.normalize", lambda: stats.normalize(reals)),
         Workload("word_count", "text.word_count", lambda: text.word_count(words)),
+        # A single length read per element, so what it mostly measures is what iterating a
+        # collection of owned values costs. That makes it the row where borrowing the loop
+        # variable rather than copying it is visible.
+        Workload("total_length", "text.total_length", lambda: text.total_length(words)),
         Workload("joined", "text.joined", lambda: text.joined(words, "-")),
         Workload("bfs", "graphs.bfs_distances", lambda: graphs.bfs_distances(graph, 0)),
         Workload(

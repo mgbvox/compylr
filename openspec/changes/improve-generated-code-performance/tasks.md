@@ -76,18 +76,18 @@
 
 ## 5. Borrowed loop variables
 
-- [ ] 5.1 Write tests that the runtime's traits accept a reference wherever they accept an owned
+- [x] 5.1 Write tests that the runtime's traits accept a reference wherever they accept an owned
       value — these fail today and are what makes 5.3 legal (design D5)
-- [ ] 5.2 Add blanket implementations over references in `runtime.rs`, delegating to the owned
+- [x] 5.2 Add blanket implementations over references in `runtime.rs`, delegating to the owned
       implementations
-- [ ] 5.3 Write emission tests: a read-only loop variable is bound by reference; a loop variable the
+- [x] 5.3 Write emission tests: a read-only loop variable is bound by reference; a loop variable the
       body assigns to is still owned
-- [ ] 5.4 Change `collection_loop` in `rust.rs` to bind by reference when `is_assigned` says the
+- [x] 5.4 Change `collection_loop` in `rust.rs` to bind by reference when `is_assigned` says the
       body never writes the loop variable
-- [ ] 5.5 Confirm every accepted fixture still compiles — blanket implementations can make inference
+- [x] 5.5 Confirm every accepted fixture still compiles — blanket implementations can make inference
       ambiguous, and `tests/emit_quality.rs` is what catches it
-- [ ] 5.6 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; record `text.total_length`
-- [ ] 5.7 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 5.6 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; record `text.total_length`
+- [x] 5.7 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 6. The runtime sweep

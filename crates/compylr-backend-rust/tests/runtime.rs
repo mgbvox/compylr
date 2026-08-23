@@ -767,3 +767,98 @@ mod containers_are_generic_over_their_hasher {
         }
     }
 }
+
+/// The reading traits accept a borrowed value wherever they accept an owned one.
+///
+/// This is what makes borrowing a loop variable legal rather than aspirational: the traits are
+/// implemented on the owned types, so without these a borrowed loop variable does not satisfy
+/// them and the emitter change simply does not compile. Design D5 records that this was
+/// discovered by the compile error rather than by reading.
+mod borrowed_values_satisfy_the_reading_traits {
+    use super::*;
+    use compylr_backend_rust::runtime::{
+        FastMap, IndexOrigin, PyBorrow, PyContains, PyIndexable, PyIterate, PyLen, TextUnits,
+    };
+
+    #[test]
+    fn a_borrowed_text_value_reports_its_length() {
+        let owned = String::from("héllo");
+        let borrowed: &String = &owned;
+        assert_eq!(
+            PyLen::py_len(&borrowed, TextUnits::CodePoints),
+            PyLen::py_len(&owned, TextUnits::CodePoints)
+        );
+    }
+
+    #[test]
+    fn a_borrowed_sequence_reports_its_length_and_indexes() {
+        let owned = vec![10i64, 20, 30];
+        let borrowed: &Vec<i64> = &owned;
+        assert_eq!(PyLen::py_len(&borrowed, TextUnits::CodePoints), 3);
+        assert_eq!(
+            PyIndexable::py_get(&borrowed, &1i64, IndexOrigin::FromEitherEnd),
+            Ok(20)
+        );
+        assert_eq!(
+            PyBorrow::py_borrow(&borrowed, &0i64, IndexOrigin::FromEitherEnd).copied(),
+            Ok(10)
+        );
+    }
+
+    #[test]
+    fn a_borrowed_container_answers_membership() {
+        let owned = vec![1i64, 2];
+        let borrowed: &Vec<i64> = &owned;
+        assert!(PyContains::py_contains(&borrowed, &2));
+        assert!(!PyContains::py_contains(&borrowed, &9));
+    }
+
+    #[test]
+    fn a_borrowed_container_iterates() {
+        let owned = vec![1i64, 2, 3];
+        let borrowed: &Vec<i64> = &owned;
+        let collected: Vec<i64> = PyIterate::py_iter(&borrowed).collect();
+        assert_eq!(collected, owned);
+    }
+
+    #[test]
+    fn a_borrowed_mapping_still_reports_a_missing_key() {
+        // Delegation must not change what a failure is. An error that arrived only for owned
+        // receivers would be a semantic difference hiding inside an optimization.
+        let mut owned: FastMap<String, i64> = FastMap::default();
+        owned.insert(String::from("a"), 1);
+        let borrowed: &FastMap<String, i64> = &owned;
+        assert_eq!(
+            PyIndexable::py_get(&borrowed, &String::from("a"), IndexOrigin::FromStart),
+            Ok(1)
+        );
+        assert!(matches!(
+            PyIndexable::py_get(&borrowed, &String::from("zz"), IndexOrigin::FromStart),
+            Err(RuntimeError::MissingKey(_))
+        ));
+    }
+
+    #[test]
+    fn borrowed_iteration_yields_the_same_values_as_copying_iteration() {
+        // The two forms exist so a read-only loop can skip the copy; if they ever disagreed, the
+        // choice between them would be a behaviour change rather than a cost one.
+        let owned = vec![String::from("a"), String::from("b")];
+        let copied: Vec<String> = PyIterate::py_iter(&owned).collect();
+        let borrowed: Vec<String> = PyIterate::py_iter_borrowed(&owned).cloned().collect();
+        assert_eq!(copied, borrowed);
+    }
+
+    #[test]
+    fn an_out_of_range_index_still_reports_through_a_borrow() {
+        let owned = vec![1i64];
+        let borrowed: &Vec<i64> = &owned;
+        assert_eq!(
+            PyIndexable::py_get(&borrowed, &5i64, IndexOrigin::FromEitherEnd),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+        assert_eq!(
+            PyIndexable::py_get(&borrowed, &(-2i64), IndexOrigin::FromEitherEnd),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+    }
+}

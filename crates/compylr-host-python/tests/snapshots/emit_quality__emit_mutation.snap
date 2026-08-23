@@ -14,8 +14,8 @@ pub fn counts(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeError> 
     let mut seen: FastMap<String, i64> = FastMap::from_iter([]);
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if PyContains::py_contains(&(seen), &(word)) {
                 {
                     let __compylr_value = PyAdd::py_add(&(py_subscript(&(seen), &(word), IndexOrigin::FromEitherEnd)?), &(1i64))?;
