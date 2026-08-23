@@ -148,6 +148,107 @@ fn the_python_frontend_declares_what_it_requires() {
     }
 }
 
+/// Each language declares its own stance, on every axis, and mentions no other language.
+///
+/// The two declarations are the whole of the N + M property: a third language costs one
+/// declaration and no edit to any existing one. Nothing but a test notices when a declaration
+/// starts reaching for a name it should not know.
+mod declared_stances {
+    use compylr_core::{Axis, Behavior};
+    use compylr_ir::{Checked, IndexOrigin, RemSign, Rounding, TextUnits};
+
+    use super::*;
+
+    #[test]
+    fn both_endpoints_answer_for_every_axis() {
+        let source = frontend::lookup("python").unwrap().behavior();
+        let target = compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior();
+
+        // `stance` is an exhaustive match, so an axis with no field cannot compile. What this
+        // adds is that *both* sides answer: a component somehow given a partial bundle would
+        // fail here rather than at the first program that used the missing axis.
+        for axis in Axis::ALL {
+            assert_eq!(source.stance(axis).axis(), axis);
+            assert_eq!(target.stance(axis).axis(), axis);
+        }
+    }
+
+    /// Python's stance, axis by axis, spelled out rather than compared against another bundle.
+    ///
+    /// Written as literals on purpose. Comparing the declaration against something derived from
+    /// the same declaration would pass however wrong both were; these are the answers a Python
+    /// programmer would give, checked against the answers the frontend gives.
+    #[test]
+    fn python_declares_pythons_meanings() {
+        let python = frontend::lookup("python").unwrap().behavior();
+
+        assert_eq!(python.integer_overflow, Checked::Reported);
+        assert_eq!(python.integer_division.rounding, Rounding::TowardNegInf);
+        assert_eq!(python.integer_division.checked, Checked::Reported);
+        assert_eq!(python.exact_division, Checked::Reported);
+        assert_eq!(python.remainder.sign, RemSign::Divisor);
+        assert_eq!(python.remainder.checked, Checked::Reported);
+        assert_eq!(python.sequence_index.origin, IndexOrigin::FromEitherEnd);
+        assert_eq!(python.sequence_index.checked, Checked::Reported);
+        assert_eq!(python.text_length, TextUnits::CodePoints);
+    }
+
+    /// Rust's stance, likewise.
+    #[test]
+    fn rust_declares_rusts_meanings() {
+        let rust = compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior();
+
+        assert_eq!(rust.integer_overflow, Checked::Unchecked);
+        assert_eq!(rust.integer_division.rounding, Rounding::TowardZero);
+        assert_eq!(rust.integer_division.checked, Checked::Unchecked);
+        assert_eq!(rust.exact_division, Checked::Unchecked);
+        assert_eq!(rust.remainder.sign, RemSign::Dividend);
+        assert_eq!(rust.remainder.checked, Checked::Unchecked);
+        assert_eq!(rust.sequence_index.origin, IndexOrigin::FromStart);
+        assert_eq!(rust.sequence_index.checked, Checked::Unchecked);
+        assert_eq!(rust.text_length, TextUnits::Utf8Bytes);
+    }
+
+    /// The two disagree on every axis, which is what makes all six worth having.
+    ///
+    /// An axis the two languages agreed on would be a setting with one value — not a choice, and
+    /// not something a user could meaningfully ask for.
+    #[test]
+    fn the_pair_compylr_ships_disagrees_on_every_axis() {
+        let python = frontend::lookup("python").unwrap().behavior();
+        let rust = compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior();
+
+        for axis in Axis::ALL {
+            assert_ne!(
+                python.stance(axis),
+                rust.stance(axis),
+                "{axis} is declared identically by both languages, so it is not a choice"
+            );
+        }
+    }
+
+    /// A declaration describes one language, so resolving to it produces exactly it.
+    ///
+    /// The property that would break first if a declaration ever started hedging toward the
+    /// other language: resolving every axis to Python must reproduce Python's bundle unchanged.
+    #[test]
+    fn resolving_to_one_language_reproduces_its_declaration() {
+        let python = frontend::lookup("python").unwrap().behavior();
+        let rust = compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior();
+
+        assert_eq!(Behavior::of(python).axes(), python);
+        assert_eq!(Behavior::of(rust).axes(), rust);
+    }
+}
+
 /// The Python frontend declares Python's meanings on every operator it lowers.
 ///
 /// Asserted on the *declaration*, not on the variant name. A test that checked for a variant

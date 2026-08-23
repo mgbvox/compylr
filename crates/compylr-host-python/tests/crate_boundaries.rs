@@ -274,6 +274,33 @@ fn core_names_no_source_language_syntax() {
     }
 }
 
+/// A stance declaration describes its own language and names no other.
+///
+/// This is the route the behavior model most plausibly leaks along. A declaration is a list of
+/// what operations mean, and it would read perfectly naturally to write "…, unlike Python's" into
+/// the Rust backend's — at which point the backend knows a source language, and a third language
+/// costs an edit to every existing declaration instead of none.
+///
+/// Checked on the source with comments stripped, because the *prose* around a declaration may
+/// legitimately compare: the point of `sequence_index: FromStart` is lost without saying that
+/// somebody else counts from the end. What may not happen is code depending on it.
+#[test]
+fn a_stance_declaration_names_only_its_own_language() {
+    for (crate_name, own, foreign) in [
+        ("compylr-backend-rust", "rust", ["python", "typescript"]),
+        ("compylr-frontend-python", "python", ["rust", "typescript"]),
+    ] {
+        let source = strip_comments(&read_crate_source(crate_name));
+        for other in foreign {
+            assert!(
+                !source.contains(&format!("\"{other}\"")),
+                "{crate_name} names '{other}'; it declares what {own} means and nothing about \
+                 any other language — resolution is what holds two at once"
+            );
+        }
+    }
+}
+
 /// Behavior resolution names no concrete language either.
 ///
 /// This is the one place a pairwise table would be easy to write and hard to notice: resolution

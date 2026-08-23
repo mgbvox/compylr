@@ -15,7 +15,10 @@ use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
 use compylr_core::negotiation::{negotiate, resolve_options, withheld_by_default};
 use compylr_diagnostics::span::Span;
 use compylr_ir::Guarantee;
-use compylr_ir::{Expr, Function, Literal, Stmt, Ty, Unit};
+use compylr_ir::{
+    Checked, Expr, Function, IndexOrigin, IntegerDivision, LanguageBehavior, Literal, RemSign,
+    Remainder, Rounding, SequenceIndex, Stmt, TextUnits, Ty, Unit,
+};
 
 const DOUBLE: &str = "def double(n: int) -> int:\n    return n * 2\n";
 
@@ -54,6 +57,25 @@ fn a_covered_combination_compiles() {
 #[derive(Debug)]
 struct WrappingBackend;
 
+/// What this invented target means. Wrapping arithmetic is the whole point of it.
+const WRAPPING_BEHAVIOR: LanguageBehavior = LanguageBehavior {
+    integer_overflow: Checked::Unchecked,
+    integer_division: IntegerDivision {
+        rounding: Rounding::TowardZero,
+        checked: Checked::Reported,
+    },
+    exact_division: Checked::Reported,
+    remainder: Remainder {
+        sign: RemSign::Dividend,
+        checked: Checked::Reported,
+    },
+    sequence_index: SequenceIndex {
+        origin: IndexOrigin::FromStart,
+        checked: Checked::Reported,
+    },
+    text_length: TextUnits::Utf8Bytes,
+};
+
 impl Backend for WrappingBackend {
     fn name(&self) -> &'static str {
         "wrapping"
@@ -65,6 +87,14 @@ impl Backend for WrappingBackend {
             Guarantee::DivisionByZeroReported,
             Guarantee::FloatOrderPreserved,
         ]
+    }
+
+    /// A stance is required of every backend, so this invented one has to answer too.
+    ///
+    /// Deliberately not Rust's. A test backend borrowing the real declaration would make the
+    /// negotiation tests pass for a reason unrelated to what they check.
+    fn behavior(&self) -> &'static LanguageBehavior {
+        &WRAPPING_BEHAVIOR
     }
 
     fn emit(&self, _unit: &Unit) -> Result<GeneratedFiles, BackendError> {

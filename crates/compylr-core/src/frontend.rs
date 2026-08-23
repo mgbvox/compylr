@@ -13,7 +13,7 @@
 use std::error::Error;
 use std::fmt;
 
-use compylr_ir::{Guarantee, Unit};
+use compylr_ir::{Guarantee, LanguageBehavior, Unit};
 
 /// A source language frontend.
 ///
@@ -30,6 +30,17 @@ pub trait Frontend: fmt::Debug + Send + Sync {
     /// Declared rather than assumed, because the alternative is that every backend hardcodes one
     /// language's expectations and the second frontend silently inherits them.
     fn requires(&self) -> &'static [Guarantee];
+
+    /// What **this language** means, on every behavior axis.
+    ///
+    /// Required rather than defaulted, for the reason [`Frontend::requires`] is: a default of
+    /// "everything reported" would be one language's answers handed to every other, and a
+    /// frontend that inherited them would look correct until someone compiled a negative index.
+    ///
+    /// Describes this language only. A frontend that declared anything about a *target* would be
+    /// the first entry in a table costing N x M, which is the whole reason the two sides declare
+    /// separately and something else resolves them.
+    fn behavior(&self) -> &'static LanguageBehavior;
 
     /// Lower source texts into a single unit.
     ///

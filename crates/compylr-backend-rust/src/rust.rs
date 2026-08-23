@@ -28,8 +28,9 @@ use compylr_ir::Guarantee;
 use std::collections::BTreeSet;
 
 use compylr_ir::{
-    BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin, Literal, RemSign, Rounding, Stmt,
-    TextUnits, Ty, Unit, returns_on_all_paths,
+    BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin, IntegerDivision, LanguageBehavior,
+    Literal, RemSign, Remainder, Rounding, SequenceIndex, Stmt, TextUnits, Ty, Unit,
+    returns_on_all_paths,
 };
 
 /// The runtime helpers, embedded verbatim into generated crates.
@@ -178,6 +179,45 @@ const OPTIONS: &[TargetOption] = &[TargetOption {
     implemented: false,
 }];
 
+/// What Rust means, on every behavior axis.
+///
+/// The **source of truth** for what a user gets when they ask an axis to take the target's
+/// meaning. Emission reads the modes on the node rather than this constant — a node is what says
+/// what a program means — but this is what puts those modes there when an axis resolves to Rust.
+///
+/// Describes Rust and nothing else. Nothing here mentions Python, which is the property that
+/// keeps adding a third language to one declaration rather than one per pair.
+///
+/// A note on overflow, because it is the axis with two answers. `Unchecked` says the *program*
+/// declines to define a result outside the integer range — it does not say "wrap". Rust's own `+`
+/// panics under `overflow-checks` and wraps without them; compylr builds generated crates
+/// `--release`, whose default is to wrap, but the crate under `.compylr/` is a real crate someone
+/// may build in debug and get the other answer. That is what "Rust's own operator" means, and it
+/// is why the mode is named for what the program says rather than for what any build does.
+pub const RUST_BEHAVIOR: LanguageBehavior = LanguageBehavior {
+    // `i64::MAX + 1` is not defined by the program: it panics or wraps depending on the profile.
+    integer_overflow: Checked::Unchecked,
+    // `-7 / 2` is `-3`, and a zero divisor panics rather than being reported.
+    integer_division: IntegerDivision {
+        rounding: Rounding::TowardZero,
+        checked: Checked::Unchecked,
+    },
+    // `1.0 / 0.0` is `inf` — IEEE-754 defines it, and the program does not report it.
+    exact_division: Checked::Unchecked,
+    // `-7 % 2` is `-1`, and a zero divisor panics.
+    remainder: Remainder {
+        sign: RemSign::Dividend,
+        checked: Checked::Unchecked,
+    },
+    // `xs[-1]` does not compile as a backwards index; an index outside the slice panics.
+    sequence_index: SequenceIndex {
+        origin: IndexOrigin::FromStart,
+        checked: Checked::Unchecked,
+    },
+    // `"é".len()` is 2.
+    text_length: TextUnits::Utf8Bytes,
+};
+
 impl Backend for RustBackend {
     fn name(&self) -> &'static str {
         "rust"
@@ -185,6 +225,10 @@ impl Backend for RustBackend {
 
     fn preserves(&self) -> &'static [Guarantee] {
         PRESERVES
+    }
+
+    fn behavior(&self) -> &'static LanguageBehavior {
+        &RUST_BEHAVIOR
     }
 
     fn options(&self) -> &'static [TargetOption] {

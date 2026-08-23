@@ -44,20 +44,20 @@
 
 ## 3. Each language declares its stance
 
-- [ ] 3.1 Write tests that both `Frontend` and `Backend` answer for every axis, and that neither
+- [x] 3.1 Write tests that both `Frontend` and `Backend` answer for every axis, and that neither
       declaration names the other language
-- [ ] 3.2 Add `fn behavior(&self) -> &'static LanguageBehavior` to the `Frontend` and `Backend`
+- [x] 3.2 Add `fn behavior(&self) -> &'static LanguageBehavior` to the `Frontend` and `Backend`
       traits in `compylr-core`. Required rather than defaulted, for the reason `preserves()` is:
       a default of either kind makes the declaration meaningless
-- [ ] 3.3 Declare Python's stance in `compylr-frontend-python::component`, replacing the five
+- [x] 3.3 Declare Python's stance in `compylr-frontend-python::component`, replacing the five
       constants at the top of `lower.rs` as the source of truth. Assert the new declaration
       reproduces each old constant exactly
-- [ ] 3.4 Declare Rust's stance in `compylr-backend-rust`: unchecked overflow, truncating division,
+- [x] 3.4 Declare Rust's stance in `compylr-backend-rust`: unchecked overflow, truncating division,
       IEEE exact division, remainder taking the sign of the dividend, indexing from the start and
       unchecked, UTF-8 bytes
-- [ ] 3.5 Extend `tests/crate_boundaries.rs` if needed so a stance declaration cannot become a
+- [x] 3.5 Extend `tests/crate_boundaries.rs` if needed so a stance declaration cannot become a
       route for one crate to name another language
-- [ ] 3.6 fmt, clippy, test; commit
+- [x] 3.6 fmt, clippy, test; commit
 
 ## 4. Lowering takes a behavior
 

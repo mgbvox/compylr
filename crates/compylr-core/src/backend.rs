@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
-use compylr_ir::{Guarantee, Unit};
+use compylr_ir::{Guarantee, LanguageBehavior, Unit};
 
 use crate::negotiation::TargetOption;
 
@@ -47,6 +47,17 @@ pub trait Backend: fmt::Debug + Send + Sync {
     /// unusable with every frontend and a default of "everything" would make the check
     /// meaningless. A new backend has to answer the question.
     fn preserves(&self) -> &'static [Guarantee];
+
+    /// What **this language** means, on every behavior axis.
+    ///
+    /// Required rather than defaulted, for the reason [`Backend::preserves`] is: any default
+    /// would be some other language's answers, and a backend that inherited them would be
+    /// offering a "native" operator that is not its own.
+    ///
+    /// Describes this language only. This is the half of the negotiation that says what a user
+    /// gets when they ask for the target's meaning — not what the source meant, and not how the
+    /// two relate, which is resolution's business and needs both.
+    fn behavior(&self) -> &'static LanguageBehavior;
 
     /// Transformations this backend offers that cost a guarantee.
     ///

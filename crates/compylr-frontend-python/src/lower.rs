@@ -2904,6 +2904,31 @@ mod tests {
         lower(source).expect_err("expected lowering to fail")
     }
 
+    /// The stance declared in `component.rs` reproduces every constant this module still holds.
+    ///
+    /// These constants are on their way out — the behavior becomes a parameter, and lowering sets
+    /// each mode from it rather than from a constant belonging to Python. This test is what makes
+    /// that swap safe rather than hopeful: it pins that the declaration says exactly what the
+    /// constants say *before* the constants are deleted, so a typo in the declaration is caught
+    /// while there is still something to compare it against.
+    #[test]
+    fn the_declared_stance_reproduces_every_constant_it_replaces() {
+        use compylr_ir::Behavior;
+
+        let python = Behavior::of(&crate::component::PYTHON_BEHAVIOR);
+
+        assert_eq!(python.exact_division(), PY_TRUE_DIV);
+        assert_eq!(python.integer_division(), PY_FLOOR_DIV);
+        assert_eq!(python.remainder(), PY_MOD);
+        assert_eq!(python.index_origin(), PY_INDEX_ORIGIN);
+        assert_eq!(python.text_units(), PY_TEXT_UNITS);
+
+        // The sixth axis has no constant to compare against — overflow had no mode before this
+        // change, which is why it is the one axis that moved the IR's shape.
+        assert_eq!(python.arithmetic(), PY_CHECKED);
+        assert_eq!(python.index_checked(), PY_CHECKED);
+    }
+
     // ---- happy path -------------------------------------------------------
 
     #[test]

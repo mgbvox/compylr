@@ -6,9 +6,12 @@
 //! then lower — is Python's typing rules, and it belongs to Python rather than to whoever asked
 //! for a compilation.
 
-use compylr_core::{Frontend, Guarantee, LoweringError};
+use compylr_core::{Frontend, Guarantee, LanguageBehavior, LoweringError};
 use compylr_diagnostics::error::LowerError;
-use compylr_ir::Unit;
+use compylr_ir::{
+    Checked, IndexOrigin, IntegerDivision, RemSign, Remainder, Rounding, SequenceIndex, TextUnits,
+    Unit,
+};
 
 use crate::error::SourceError;
 use crate::frontend::parse_source;
@@ -33,6 +36,43 @@ const PYTHON_REQUIRES: &[Guarantee] = &[
     Guarantee::FloatOrderPreserved,
 ];
 
+/// What Python means, on every behavior axis.
+///
+/// The **source of truth** for how Python reads each of these operations. Lowering sets a node's
+/// modes from the resolved behavior, and the resolved behavior takes these when an axis resolves
+/// to Python — so there is exactly one place that says `-7 // 2` is `-4`.
+///
+/// Describes Python and nothing else. That is not a stylistic constraint: a stance mentioning
+/// Rust here would be the first row of a table that costs one entry per language *pair*, and the
+/// point of two separate declarations is that a third language costs one declaration.
+///
+/// Every axis is the reporting or Python-flavoured answer, which is why `PY_CHECKED` in `lower.rs`
+/// could be one constant rather than five. A language whose answers differed per axis — and Rust
+/// is not one either — would still be expressible, because the axes are carried separately.
+pub const PYTHON_BEHAVIOR: LanguageBehavior = LanguageBehavior {
+    // `i64::MAX + 1` raises rather than wrapping.
+    integer_overflow: Checked::Reported,
+    // `-7 // 2` is `-4`, and `1 // 0` raises.
+    integer_division: IntegerDivision {
+        rounding: Rounding::TowardNegInf,
+        checked: Checked::Reported,
+    },
+    // `1.0 / 0.0` raises rather than yielding an infinity.
+    exact_division: Checked::Reported,
+    // `-7 % 2` is `1`, and `1 % 0` raises.
+    remainder: Remainder {
+        sign: RemSign::Divisor,
+        checked: Checked::Reported,
+    },
+    // `xs[-1]` is the last element, and reading past the end raises.
+    sequence_index: SequenceIndex {
+        origin: IndexOrigin::FromEitherEnd,
+        checked: Checked::Reported,
+    },
+    // `len("é")` is 1.
+    text_length: TextUnits::CodePoints,
+};
+
 impl Frontend for PythonFrontend {
     fn name(&self) -> &'static str {
         "python"
@@ -40,6 +80,10 @@ impl Frontend for PythonFrontend {
 
     fn requires(&self) -> &'static [Guarantee] {
         PYTHON_REQUIRES
+    }
+
+    fn behavior(&self) -> &'static LanguageBehavior {
+        &PYTHON_BEHAVIOR
     }
 
     fn lower(&self, sources: &[String]) -> Result<Unit, LoweringError> {
