@@ -92,17 +92,19 @@
 
 ## 6. The runtime sweep
 
-- [ ] 6.1 Write tests pinning current behaviour first: an out-of-range index reports rather than
+- [x] 6.1 Write tests pinning current behaviour first: an out-of-range index reports rather than
       panicking, in both directions; text length is unchanged for non-ASCII input under every units
       setting; a missing mapping key still reports and is not created
-- [ ] 6.2 Resolve a sequence index once rather than validating and then indexing through a second
+- [x] 6.2 Resolve a sequence index once rather than validating and then indexing through a second
       check, without `unsafe`
-- [ ] 6.3 Add an ASCII shortcut to the code-point length reading, exact when it applies
-- [ ] 6.4 Fuse the mapping read-modify-write so one key is hashed once rather than three times
-- [ ] 6.5 Use a known capacity when emitting a collection built by a loop with a known trip count
-- [ ] 6.6 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; `text.word_count`'s body is expected
+- [x] 6.3 Add an ASCII shortcut to the code-point length reading, exact when it applies
+- [x] 6.4 Fuse the mapping read-modify-write so one key is hashed once rather than three times
+- [x] 6.5 Use a known capacity when emitting a collection built by a loop with a known trip count
+- [x] 6.6 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; `text.word_count`'s body is expected
       to improve by roughly 2.7x. Record it
-- [ ] 6.7 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+      - Observed end-to-end after the sweep: 137.53us compiled versus 62.36us interpreted (0.5x),
+        with 1% row spread against a 31% reference floor. Boundary conversion still dominates.
+- [x] 6.7 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 7. The boundary — documentation and visibility

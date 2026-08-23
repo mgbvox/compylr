@@ -1079,10 +1079,12 @@ impl Emitter<'_> {
     /// Emit a sequence of statements at a given indentation depth.
     fn stmts(&mut self, stmts: &[Stmt], depth: usize) -> Result<(), BackendError> {
         let pad = "    ".repeat(depth);
-        for stmt in stmts {
+        for (position, stmt) in stmts.iter().enumerate() {
             match stmt {
                 Stmt::Bind { name, ty, value } => {
-                    let value = emit_expr(value, self.unit, ty)?;
+                    let value =
+                        known_capacity_initializer(stmts, position, name, ty, value, self.unit)
+                            .unwrap_or(emit_expr(value, self.unit, ty)?);
                     // `mut` only when something assigns to it later, so generated code carries no
                     // avoidable warning. Scanning the enclosing block rather than the whole
                     // function: lowering scopes a binding to the block that introduced it, so
@@ -1384,6 +1386,95 @@ impl Emitter<'_> {
         let _ = writeln!(self.out, "{pad}}}");
         Ok(())
     }
+}
+
+/// Preallocate an empty collection that a later loop builds once per iteration.
+///
+/// Only a bare-name iterable is used: reading its length has no side effects, while evaluating a
+/// call or another expression here would run it once for the capacity and again for the loop. The
+/// statements between the binding and loop must leave both names alone, so the early length is the
+/// trip count the loop will actually see.
+fn known_capacity_initializer(
+    stmts: &[Stmt],
+    position: usize,
+    name: &str,
+    ty: &Ty,
+    value: &Expr,
+    unit: &Unit,
+) -> Option<String> {
+    let empty = matches!((ty, value), (Ty::List(_), Expr::ListLit(items)) if items.is_empty())
+        || matches!((ty, value), (Ty::Dict(_, _), Expr::DictLit(items)) if items.is_empty());
+    if !empty {
+        return None;
+    }
+
+    for (offset, stmt) in stmts[position + 1..].iter().enumerate() {
+        let Stmt::For { iter, body, .. } = stmt else {
+            continue;
+        };
+        if collection_insertions(body, name, ty) != 1 {
+            continue;
+        }
+        let leading = &stmts[position + 1..position + 1 + offset];
+        if is_assigned(leading, name, unit) {
+            return None;
+        }
+
+        let capacity = match iter {
+            Expr::Name(iterable) if !is_assigned(leading, iterable, unit) => {
+                format!(
+                    "PyLen::py_len(&({}), TextUnits::CodePoints) as usize",
+                    rust_ident(iterable)
+                )
+            }
+            Expr::Range { start, stop, step }
+                if matches!(&**start, Expr::Literal(Literal::Int(0)))
+                    && matches!(&**step, Expr::Literal(Literal::Int(1))) =>
+            {
+                let stop = match &**stop {
+                    Expr::Name(stop) if !is_assigned(leading, stop, unit) => rust_ident(stop),
+                    Expr::Literal(Literal::Int(stop)) => int_literal(*stop),
+                    _ => continue,
+                };
+                format!("usize::try_from({stop}).unwrap_or(0)")
+            }
+            _ => continue,
+        };
+        return Some(match ty {
+            Ty::List(_) => format!("Vec::with_capacity({capacity})"),
+            Ty::Dict(_, _) => {
+                format!("FastMap::with_capacity_and_hasher({capacity}, Default::default())")
+            }
+            _ => unreachable!("empty only accepts list and mapping types"),
+        });
+    }
+    None
+}
+
+/// Count writes that add one element or entry to `name` anywhere in a loop body.
+fn collection_insertions(stmts: &[Stmt], name: &str, ty: &Ty) -> usize {
+    stmts
+        .iter()
+        .map(|stmt| match stmt {
+            Stmt::Append { sequence, .. }
+                if matches!(ty, Ty::List(_)) && place_root(sequence) == Some(name) =>
+            {
+                1
+            }
+            Stmt::SetItem { collection, .. }
+                if matches!(ty, Ty::Dict(_, _)) && place_root(collection) == Some(name) =>
+            {
+                1
+            }
+            Stmt::If {
+                then, otherwise, ..
+            } => collection_insertions(then, name, ty) + collection_insertions(otherwise, name, ty),
+            Stmt::While { body, .. } | Stmt::For { body, .. } => {
+                collection_insertions(body, name, ty)
+            }
+            _ => 0,
+        })
+        .sum()
 }
 
 /// Emit an expression as a **place**: something that can be written through.

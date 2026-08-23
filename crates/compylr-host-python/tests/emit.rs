@@ -846,3 +846,76 @@ mod fused_indexed_accumulation {
         assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
     }
 }
+
+/// A collection built once per iteration starts with enough room for that loop.
+mod known_collection_capacity {
+    use super::*;
+
+    #[test]
+    fn a_list_built_from_a_collection_uses_its_length() {
+        let emitted = emit(concat!(
+            "def copy(values: list[int]) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    for value in values:\n",
+            "        out.append(value)\n",
+            "    return out\n",
+        ));
+        assert!(
+            emitted.contains(
+                "Vec::with_capacity(PyLen::py_len(&(values), TextUnits::CodePoints) as usize)"
+            ),
+            "{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_mapping_built_from_a_collection_uses_its_length() {
+        let emitted = emit(concat!(
+            "def index(words: list[str]) -> dict[str, int]:\n",
+            "    positions: dict[str, int] = {}\n",
+            "    i = 0\n",
+            "    for word in words:\n",
+            "        positions[word] = i\n",
+            "        i = i + 1\n",
+            "    return positions\n",
+        ));
+        assert!(
+            emitted.contains("FastMap::with_capacity_and_hasher("),
+            "{emitted}"
+        );
+        assert!(
+            emitted.contains("PyLen::py_len(&(words), TextUnits::CodePoints) as usize"),
+            "{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_list_built_by_a_simple_range_uses_its_trip_count() {
+        let emitted = emit(concat!(
+            "def zeros(size: int) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    for _i in range(size):\n",
+            "        out.append(0)\n",
+            "    return out\n",
+        ));
+        assert!(
+            emitted.contains("Vec::with_capacity(usize::try_from(size).unwrap_or(0))"),
+            "{emitted}"
+        );
+    }
+
+    #[test]
+    fn an_iterable_call_is_not_evaluated_early_or_twice() {
+        let emitted = emit(concat!(
+            "def source(values: list[int]) -> list[int]:\n",
+            "    return values\n",
+            "\n",
+            "def copy(values: list[int]) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    for value in source(values):\n",
+            "        out.append(value)\n",
+            "    return out\n",
+        ));
+        assert!(!emitted.contains("Vec::with_capacity"), "{emitted}");
+    }
+}

@@ -225,8 +225,8 @@ pub struct UnionFind {
 
 impl UnionFind {
     pub fn __compylr_new(size: i64) -> Result<Self, RuntimeError> {
-        let mut parent: Vec<i64> = vec![];
-        let mut rank: Vec<i64> = vec![];
+        let mut parent: Vec<i64> = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+        let mut rank: Vec<i64> = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
         let groups: i64 = size;
         {
             let __compylr_stop: i64 = size;
@@ -606,7 +606,8 @@ pub fn component_count(size: i64, edges: Vec<(i64, i64)>) -> Result<i64, Runtime
 ///     compylr rejects that transitively rather than letting the two languages disagree silently.
 ///     
 pub fn copy_of(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
-    let mut out: Vec<i64> = vec![];
+    let mut out: Vec<i64> =
+        Vec::with_capacity(PyLen::py_len(&(xs), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &xs;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
@@ -1546,8 +1547,10 @@ pub fn merge_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
         return Ok(copy_of(xs.clone())?);
     }
     let middle: i64 = PyNum::div_floor(&(PyLen::py_len(&(xs), TextUnits::CodePoints)), &(2i64))?;
-    let mut left: Vec<i64> = vec![];
-    let mut right: Vec<i64> = vec![];
+    let mut left: Vec<i64> =
+        Vec::with_capacity(PyLen::py_len(&(xs), TextUnits::CodePoints) as usize);
+    let mut right: Vec<i64> =
+        Vec::with_capacity(PyLen::py_len(&(xs), TextUnits::CodePoints) as usize);
     let mut index: i64 = 0i64;
     {
         let __compylr_iter = &xs;
@@ -1580,7 +1583,8 @@ pub fn merge_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
 ///     remember to honour a flag.
 ///     
 pub fn missing(haystack: String, needles: Vec<String>) -> Result<Vec<String>, RuntimeError> {
-    let mut out: Vec<String> = vec![];
+    let mut out: Vec<String> =
+        Vec::with_capacity(PyLen::py_len(&(needles), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &needles;
         for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
@@ -1927,7 +1931,8 @@ pub fn remainder(a: i64, b: i64) -> Result<i64, RuntimeError> {
 ///     does too, and is why the emitted loop clones rather than holding a borrow across the body.
 ///     
 pub fn row_sums(matrix: Vec<Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
-    let mut out: Vec<i64> = vec![];
+    let mut out: Vec<i64> =
+        Vec::with_capacity(PyLen::py_len(&(matrix), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &matrix;
         for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
@@ -1957,12 +1962,14 @@ pub fn row_sums(matrix: Vec<Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
 ///     compiling a program whose two versions disagree.
 ///     
 pub fn scale(matrix: Vec<Vec<i64>>, factor: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
-    let mut out: Vec<Vec<i64>> = vec![];
+    let mut out: Vec<Vec<i64>> =
+        Vec::with_capacity(PyLen::py_len(&(matrix), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &matrix;
         for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
             let row: &Vec<i64> = __compylr_item;
-            let mut scaled: Vec<i64> = vec![];
+            let mut scaled: Vec<i64> =
+                Vec::with_capacity(PyLen::py_len(&(row), TextUnits::CodePoints) as usize);
             {
                 let __compylr_iter = &row;
                 for __compylr_item in PyIterate::py_iter(__compylr_iter) {
@@ -2028,7 +2035,7 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
     if ((&(limit)) < (&(3i64))) {
         return Ok(vec![]);
     }
-    let mut composite: Vec<bool> = vec![];
+    let mut composite: Vec<bool> = Vec::with_capacity(usize::try_from(limit).unwrap_or(0));
     {
         let __compylr_stop: i64 = limit;
         let __compylr_step: i64 = 1i64;
@@ -2132,7 +2139,7 @@ pub fn standard_deviation(xs: Vec<f64>) -> Result<f64, RuntimeError> {
 ///     disagree about what writing to one of them does.
 ///     
 pub fn table_of_zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
-    let mut table: Vec<Vec<i64>> = vec![];
+    let mut table: Vec<Vec<i64>> = Vec::with_capacity(usize::try_from(rows).unwrap_or(0));
     {
         let __compylr_stop: i64 = rows;
         let __compylr_step: i64 = 1i64;
@@ -2145,7 +2152,7 @@ pub fn table_of_zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeE
         {
             let _row: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-            let mut line: Vec<i64> = vec![];
+            let mut line: Vec<i64> = Vec::with_capacity(usize::try_from(columns).unwrap_or(0));
             {
                 let __compylr_stop: i64 = columns;
                 let __compylr_step: i64 = 1i64;
@@ -2226,7 +2233,10 @@ pub fn to_base(n: i64, base: i64) -> Result<Vec<i64>, RuntimeError> {
 ///     
 pub fn topological_order(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
     let nodes: Vec<i64> = node_list(graph.clone())?;
-    let mut indegree: FastMap<i64, i64> = FastMap::from_iter([]);
+    let mut indegree: FastMap<i64, i64> = FastMap::with_capacity_and_hasher(
+        PyLen::py_len(&(nodes), TextUnits::CodePoints) as usize,
+        Default::default(),
+    );
     {
         let __compylr_iter = &nodes;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
@@ -2446,8 +2456,12 @@ pub fn transpose(matrix: Vec<Vec<i64>>) -> Result<Vec<Vec<i64>>, RuntimeError> {
 ///     mapping here is used as a seen-set, which is what it is good for: membership, not order.
 ///     
 pub fn unique_words(words: Vec<String>) -> Result<Vec<String>, RuntimeError> {
-    let mut seen: FastMap<String, i64> = FastMap::from_iter([]);
-    let mut out: Vec<String> = vec![];
+    let mut seen: FastMap<String, i64> = FastMap::with_capacity_and_hasher(
+        PyLen::py_len(&(words), TextUnits::CodePoints) as usize,
+        Default::default(),
+    );
+    let mut out: Vec<String> =
+        Vec::with_capacity(PyLen::py_len(&(words), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &words;
         for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
