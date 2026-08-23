@@ -493,18 +493,20 @@ mod declared_semantics {
     #[test]
     fn the_origin_survives_the_artifact() {
         use compylr_ir::Guarantee;
+        // A reported remainder, so the unit derives a division-by-zero requirement to carry.
         let mut unit = unit_dividing(BinOp::Rem {
             sign: RemSign::Divisor,
             checked: Checked::Reported,
         });
-        unit.set_origin("python", &[Guarantee::IntegerOverflowReported]);
+        unit.set_origin("python");
+        assert!(unit.requires().contains(&Guarantee::DivisionByZeroReported));
 
         let restored = Unit::from_json(&unit.to_json().unwrap()).expect("round trip");
         assert_eq!(
             restored.origin().map(|o| o.frontend.as_str()),
             Some("python")
         );
-        assert_eq!(restored.requires(), [Guarantee::IntegerOverflowReported]);
+        assert_eq!(restored.requires(), unit.requires());
         assert_eq!(restored.fingerprint(), unit.fingerprint());
     }
 

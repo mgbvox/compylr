@@ -80,24 +80,24 @@
 
 ## 5. Guarantees become a property of the program
 
-- [ ] 5.1 Write tests: a unit whose arithmetic is unchecked does not require overflow reporting; a
+- [x] 5.1 Write tests: a unit whose arithmetic is unchecked does not require overflow reporting; a
       unit under Python's stance requires exactly what it required before; every unit requires
       float ordering regardless of behavior; a hand-built corpus unit still requires nothing
-- [ ] 5.2 Write a test that a target option whose broken guarantee a unit has waived is no longer
+- [x] 5.2 Write a test that a target option whose broken guarantee a unit has waived is no longer
       reported by `withheld_by_default` for that unit
-- [ ] 5.3 Derive `Origin.requires` by walking the unit's operations rather than copying
+- [x] 5.3 Derive `Origin.requires` by walking the unit's operations rather than copying
       `Frontend::requires()`. Redefine `Frontend::requires()` as what the language requires under
       its own stance and keep it — it is what the negotiation's message names (design D8)
-- [ ] 5.4 fmt, clippy, test; commit
+- [x] 5.4 fmt, clippy, test; commit
 
 ## 6. Folding reads the mode
 
-- [ ] 6.1 Write tests: a constant expression that would overflow folds to a reported error under
+- [x] 6.1 Write tests: a constant expression that would overflow folds to a reported error under
       `Reported` and is left unfolded under `Unchecked`; the same for a zero divisor; an
       `Unchecked` fold that cannot fail still folds
-- [ ] 6.2 Update `compylr-core::folding` to read `Checked` alongside the rounding mode it already
+- [x] 6.2 Update `compylr-core::folding` to read `Checked` alongside the rounding mode it already
       reads (design D11)
-- [ ] 6.3 fmt, clippy, test; commit
+- [x] 6.3 fmt, clippy, test; commit
 
 ## 7. Native emission in the Rust backend
 

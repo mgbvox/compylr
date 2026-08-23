@@ -923,4 +923,112 @@ mod tests {
             other => panic!("expected an if, got {other:?}"),
         }
     }
+
+    /// Folding reads the checking mode, and the reasons it does differ per mode.
+    ///
+    /// A fold that would fail is left alone under both, which makes the *answer* the same and the
+    /// reasoning different — see `left_unfolded`. What these pin is that the answer really is the
+    /// same, because the tempting mistake in each direction is a wrong constant in otherwise
+    /// correct output: no crash, no diagnostic, just one number that disagrees with the source.
+    mod checking_mode {
+        use super::*;
+
+        fn add(checked: Checked, left: i64, right: i64) -> Vec<Stmt> {
+            folded(vec![Stmt::Return(binop(
+                BinOp::Add { checked },
+                int(left),
+                int(right),
+            ))])
+        }
+
+        fn divide(checked: Checked, left: i64, right: i64) -> Vec<Stmt> {
+            folded(vec![Stmt::Return(binop(
+                BinOp::Div {
+                    mode: DivMode::Integer(Rounding::TowardNegInf),
+                    checked,
+                },
+                int(left),
+                int(right),
+            ))])
+        }
+
+        /// An overflowing constant expression survives to the backend under either mode.
+        ///
+        /// Under `Reported` because folding it away would delete a failure the program asked to
+        /// observe. Under `Unchecked` because the program declined to define a result, so there
+        /// is no value to fold *to* — any choice would be one target's answer written into a tree
+        /// that every backend reads.
+        #[test]
+        fn an_overflowing_expression_is_left_unfolded_under_either_mode() {
+            for checked in [Checked::Reported, Checked::Unchecked] {
+                let body = add(checked, i64::MAX, 1);
+                assert!(
+                    matches!(returned(&body), Expr::Binary { .. }),
+                    "{checked:?}: an overflowing fold must leave the operation in place, got {:?}",
+                    returned(&body)
+                );
+            }
+        }
+
+        #[test]
+        fn a_zero_divisor_is_left_unfolded_under_either_mode() {
+            for checked in [Checked::Reported, Checked::Unchecked] {
+                let body = divide(checked, 1, 0);
+                assert!(
+                    matches!(returned(&body), Expr::Binary { .. }),
+                    "{checked:?}: a zero divisor must leave the operation in place"
+                );
+            }
+        }
+
+        /// Negating the least representable integer is the one negation that overflows.
+        #[test]
+        fn an_overflowing_negation_is_left_unfolded_under_either_mode() {
+            for checked in [Checked::Reported, Checked::Unchecked] {
+                let body = folded(vec![Stmt::Return(Expr::Neg {
+                    value: Box::new(int(i64::MIN)),
+                    checked,
+                })]);
+                assert!(matches!(returned(&body), Expr::Neg { .. }), "{checked:?}");
+            }
+        }
+
+        /// An unchecked operation that *cannot* fail still folds.
+        ///
+        /// The other half, and the one a nervous implementation gets wrong: refusing to fold
+        /// anything unchecked would be safe and would quietly stop the pass doing its job for
+        /// every program that asked for the target's arithmetic.
+        #[test]
+        fn an_unchecked_fold_that_cannot_fail_still_folds() {
+            assert_eq!(*returned(&add(Checked::Unchecked, 2, 3)), int(5));
+            assert_eq!(*returned(&divide(Checked::Unchecked, -7, 2)), int(-4));
+            assert_eq!(
+                *returned(&folded(vec![Stmt::Return(Expr::Neg {
+                    value: Box::new(int(7)),
+                    checked: Checked::Unchecked,
+                })])),
+                int(-7)
+            );
+        }
+
+        /// The rounding mode is still honoured under an unchecked division.
+        ///
+        /// `Div { mode: Integer(TowardNegInf), checked: Unchecked }` is a real combination — a
+        /// flooring division whose zero divisor is undefined — and folding it as truncation would
+        /// produce `-3` where the program says `-4`.
+        #[test]
+        fn an_unchecked_division_still_folds_by_its_declared_rounding() {
+            assert_eq!(*returned(&divide(Checked::Unchecked, -7, 2)), int(-4));
+
+            let truncating = folded(vec![Stmt::Return(binop(
+                BinOp::Div {
+                    mode: DivMode::Integer(Rounding::TowardZero),
+                    checked: Checked::Unchecked,
+                },
+                int(-7),
+                int(2),
+            ))]);
+            assert_eq!(*returned(&truncating), int(-3));
+        }
+    }
 }

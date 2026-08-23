@@ -650,65 +650,76 @@ impl Expr {
         }
     }
 
-    /// Visit every call expression in this tree, including nested ones.
-    pub fn walk_calls(&self, visit: &mut impl FnMut(&str, usize)) {
+    /// Visit this expression and every one nested inside it.
+    ///
+    /// One traversal that everything needing to see the whole tree is built on, rather than a
+    /// second hand-written match per question. The two that exist — finding calls, and asking
+    /// what a program requires preserved — got the same set of forms wrong in the same way when
+    /// they were written separately, because adding a form means remembering every walker.
+    pub fn walk(&self, visit: &mut impl FnMut(&Expr)) {
+        visit(self);
         match self {
             Self::Literal(_) | Self::Name(_) => {}
-            // ToFloat must descend, or a call wrapped in a promotion would be invisible to
-            // Unit::validate and its target would never be checked.
-            Self::Neg { value: inner, .. } | Self::ToFloat(inner) => inner.walk_calls(visit),
-            Self::Len { value, .. } => value.walk_calls(visit),
-            Self::ListLit(items) | Self::SetLit(items) | Self::TupleLit(items) => {
+            // `ToFloat` must descend, or anything wrapped in a promotion is invisible.
+            Self::Neg { value: inner, .. }
+            | Self::ToFloat(inner)
+            | Self::Not(inner)
+            | Self::Len { value: inner, .. }
+            | Self::TupleIndex { base: inner, .. }
+            | Self::Attribute { object: inner, .. } => inner.walk(visit),
+            Self::ListLit(items)
+            | Self::SetLit(items)
+            | Self::TupleLit(items)
+            | Self::Construct { args: items, .. }
+            | Self::Call { args: items, .. } => {
                 for item in items {
-                    item.walk_calls(visit);
+                    item.walk(visit);
                 }
             }
             Self::DictLit(pairs) => {
                 for (key, value) in pairs {
-                    key.walk_calls(visit);
-                    value.walk_calls(visit);
+                    key.walk(visit);
+                    value.walk(visit);
                 }
             }
-            Self::TupleIndex { base, .. } => base.walk_calls(visit),
-            Self::Not(inner) => inner.walk_calls(visit),
-            Self::Attribute { object, .. } => object.walk_calls(visit),
-            Self::Construct { args, .. } => {
-                for arg in args {
-                    arg.walk_calls(visit);
-                }
-            }
-            // The method itself is deliberately not reported: it resolves against the receiver's
-            // class, and demanding a free function of that name would reject correct code.
             Self::MethodCall { receiver, args, .. } => {
-                receiver.walk_calls(visit);
+                receiver.walk(visit);
                 for arg in args {
-                    arg.walk_calls(visit);
+                    arg.walk(visit);
                 }
             }
-            Self::Contains { value, container } => {
-                value.walk_calls(visit);
-                container.walk_calls(visit);
+            Self::Contains {
+                value: left,
+                container: right,
             }
-            Self::Subscript { base, index, .. } => {
-                base.walk_calls(visit);
-                index.walk_calls(visit);
+            | Self::Subscript {
+                base: left,
+                index: right,
+                ..
+            }
+            | Self::Binary { left, right, .. } => {
+                left.walk(visit);
+                right.walk(visit);
             }
             Self::Range { start, stop, step } => {
-                start.walk_calls(visit);
-                stop.walk_calls(visit);
-                step.walk_calls(visit);
-            }
-            Self::Binary { left, right, .. } => {
-                left.walk_calls(visit);
-                right.walk_calls(visit);
-            }
-            Self::Call { callee, args } => {
-                visit(callee, args.len());
-                for arg in args {
-                    arg.walk_calls(visit);
-                }
+                start.walk(visit);
+                stop.walk(visit);
+                step.walk(visit);
             }
         }
+    }
+
+    /// Visit every call expression in this tree, including nested ones.
+    ///
+    /// Note what is **not** reported: a method call. It resolves against the receiver's class
+    /// rather than against the unit, so demanding a free function of that name would reject code
+    /// the user wrote correctly.
+    pub fn walk_calls(&self, visit: &mut impl FnMut(&str, usize)) {
+        self.walk(&mut |expr| {
+            if let Self::Call { callee, args } = expr {
+                visit(callee, args.len());
+            }
+        });
     }
 }
 
@@ -918,6 +929,56 @@ pub fn returns_on_all_paths(stmts: &[Stmt]) -> bool {
     })
 }
 
+/// Visit every expression in a sequence of statements, descending into nested bodies.
+///
+/// Nested bodies are the whole reason this is a free function rather than a loop: an operation
+/// inside a loop inside a branch is still an operation the program performs, and a walker that
+/// stopped at the top level would report that a program requires less than it does — which is the
+/// direction that silently permits a transformation the program forbids.
+fn walk_stmt_exprs(stmts: &[Stmt], visit: &mut impl FnMut(&Expr)) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Return(expr) | Stmt::Effect(expr) => expr.walk(visit),
+            Stmt::Bind { value, .. } | Stmt::Assign { value, .. } => value.walk(visit),
+            Stmt::SetAttr { object, value, .. } => {
+                object.walk(visit);
+                value.walk(visit);
+            }
+            Stmt::SetItem {
+                collection,
+                index,
+                value,
+            } => {
+                collection.walk(visit);
+                index.walk(visit);
+                value.walk(visit);
+            }
+            Stmt::Append { sequence, value } => {
+                sequence.walk(visit);
+                value.walk(visit);
+            }
+            Stmt::If {
+                test,
+                then,
+                otherwise,
+            } => {
+                test.walk(visit);
+                walk_stmt_exprs(then, visit);
+                walk_stmt_exprs(otherwise, visit);
+            }
+            Stmt::While { test, body } => {
+                test.walk(visit);
+                walk_stmt_exprs(body, visit);
+            }
+            Stmt::For { iter, body, .. } => {
+                iter.walk(visit);
+                walk_stmt_exprs(body, visit);
+            }
+            Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => {}
+        }
+    }
+}
+
 /// Visit every call in a sequence of statements, descending into nested bodies.
 ///
 /// Nested bodies are why this is a free function rather than a loop inside `walk_calls`: a call
@@ -1053,15 +1114,88 @@ impl Unit {
         Self::default()
     }
 
-    /// Record which frontend produced this unit and what its language requires.
+    /// Record which frontend produced this unit, and what **this program** requires preserved.
     ///
     /// Set by the frontend at the end of lowering rather than by the caller, so that a unit
     /// cannot claim an origin it does not have.
-    pub fn set_origin(&mut self, frontend: impl Into<String>, requires: &[Guarantee]) {
+    ///
+    /// The requirements are derived from the unit's own operations rather than copied from the
+    /// frontend's list, which is what makes them a property of the program instead of the
+    /// language. Two units from one frontend may require different things: the one whose
+    /// arithmetic is unchecked does not need overflow reported, and that is exactly what makes a
+    /// target option trading overflow a coherent thing to permit for it.
+    ///
+    /// Derived by walking rather than by mapping the resolved behavior, and the reason is not
+    /// stylistic. A unit assembled from members lowered under *different* behaviors has no single
+    /// behavior to map; walking asks the only question that always has an answer — what did this
+    /// program actually ask for.
+    pub fn set_origin(&mut self, frontend: impl Into<String>) {
+        let requires = self.derived_requirements();
         self.origin = Some(Origin {
             frontend: frontend.into(),
-            requires: requires.to_vec(),
+            requires,
         });
+    }
+
+    /// What this unit's own operations ask a target to preserve.
+    ///
+    /// [`Guarantee::FloatOrderPreserved`] is contributed unconditionally and deliberately: there
+    /// is no axis for it, because reassociation is a transformation a *backend* might apply
+    /// rather than an operation a programmer wrote. There is nothing for a user to waive, so
+    /// nothing to look for on a node.
+    fn derived_requirements(&self) -> Vec<Guarantee> {
+        let mut requires = vec![Guarantee::FloatOrderPreserved];
+        let mut add = |guarantee: Guarantee| {
+            if !requires.contains(&guarantee) {
+                requires.push(guarantee);
+            }
+        };
+
+        self.walk_exprs(&mut |expr| match expr {
+            Expr::Neg {
+                checked: Checked::Reported,
+                ..
+            } => add(Guarantee::IntegerOverflowReported),
+            Expr::Binary { op, .. } => match op {
+                BinOp::Add {
+                    checked: Checked::Reported,
+                }
+                | BinOp::Sub {
+                    checked: Checked::Reported,
+                }
+                | BinOp::Mul {
+                    checked: Checked::Reported,
+                } => add(Guarantee::IntegerOverflowReported),
+                BinOp::Div {
+                    checked: Checked::Reported,
+                    ..
+                }
+                | BinOp::Rem {
+                    checked: Checked::Reported,
+                    ..
+                } => add(Guarantee::DivisionByZeroReported),
+                _ => {}
+            },
+            _ => {}
+        });
+
+        // Sorted so the recorded list does not depend on the order functions were added, for the
+        // same reason the artifact holds them in a `BTreeMap`.
+        requires.sort_unstable();
+        requires
+    }
+
+    /// Visit every expression in every function and method this unit holds.
+    fn walk_exprs(&self, visit: &mut impl FnMut(&Expr)) {
+        for function in self.functions.values() {
+            walk_stmt_exprs(&function.body, visit);
+        }
+        for class in self.classes.values() {
+            walk_stmt_exprs(&class.init.body, visit);
+            for method in class.methods.values() {
+                walk_stmt_exprs(&method.body, visit);
+            }
+        }
     }
 
     /// The frontend that produced this unit, if one claimed it.

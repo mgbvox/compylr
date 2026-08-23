@@ -131,7 +131,7 @@ impl Frontend for PythonFrontend {
         }
 
         // Claimed last, so a unit that failed to lower never carries an origin it did not earn.
-        unit.set_origin(self.name(), self.requires());
+        unit.set_origin(self.name());
         Ok(unit)
     }
 }

@@ -250,9 +250,9 @@ mod tests {
             .unwrap();
 
         let mut python = base.clone();
-        python.set_origin("python", &[]);
+        python.set_origin("python");
         let mut other = base.clone();
-        other.set_origin("some-other-language", &[]);
+        other.set_origin("some-other-language");
 
         assert_eq!(verify(&base), verify(&python));
         assert_eq!(verify(&python), verify(&other));
