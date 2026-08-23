@@ -76,6 +76,26 @@ class Workload:
     call: Callable[[], Any]
 
 
+@dataclass(frozen=True)
+class PerformanceProperty:
+    """A measured speedup whose conservative lower bound is repository policy."""
+
+    key: str
+    label: str
+    measured_speedup: float
+    minimum_speedup: float
+
+
+# Recorded on the clean scale-four run documented in the OpenSpec task. The minimums are
+# deliberately much lower than the measurements: they catch the algorithmic regressions these
+# workloads exposed without pretending this machine's exact microseconds are portable.
+PERFORMANCE_PROPERTIES = (
+    PerformanceProperty("multiply", "matrices.multiply", 32.0, 15.0),
+    PerformanceProperty("collatz", "arithmetic.collatz_length", 22.3, 10.0),
+    PerformanceProperty("joined", "text.joined", 5.6, 3.0),
+)
+
+
 def _signature(value: Any) -> str:
     """A stable string for an answer, so two processes can be compared.
 
@@ -207,6 +227,26 @@ def _timings(measured: Measurement) -> dict[str, Timing]:
     return {key: Timing(tuple(batches)) for key, batches in measured["samples"].items()}
 
 
+def performance_regressions(compiled: Measurement, interpreted: Measurement) -> list[str]:
+    """Guarded properties that fell beyond what this run's uncertainty can explain."""
+    fast, slow = _timings(compiled), _timings(interpreted)
+    floor = noise_floor(fast["reference"], slow["reference"])
+    failures: list[str] = []
+    for prop in PERFORMANCE_PROPERTIES:
+        speedup = slow[prop.key].best / fast[prop.key].best
+        tolerance = uncertainty(floor, fast[prop.key], slow[prop.key])
+        # Give the current result the whole measured uncertainty in its favour. A failure is
+        # therefore a regression beyond the control row and the workload's own spread, not a busy
+        # machine being mistaken for a code change.
+        if speedup * (1.0 + tolerance) < prop.minimum_speedup:
+            failures.append(
+                f"{prop.label} measured {speedup:.1f}x (uncertainty {tolerance:.0%}); "
+                f"the recorded property is at least {prop.minimum_speedup:.1f}x "
+                f"from a {prop.measured_speedup:.1f}x clean measurement"
+            )
+    return failures
+
+
 def format_comparison(compiled: Measurement, interpreted: Measurement) -> str:
     """The comparison, as a table sorted by how much compiling helped.
 
@@ -299,6 +339,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="measure this process only and print JSON (used by the driver)",
     )
+    parser.add_argument(
+        "--check-performance",
+        action="store_true",
+        help="fail if a recorded scale-four performance property regresses beyond measured noise",
+    )
     args = parser.parse_args(argv)
 
     if args.emit_json:
@@ -320,6 +365,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(format_comparison(compiled, interpreted))
+    if args.check_performance:
+        if args.scale != 4:
+            print("the recorded performance properties require --scale 4", file=sys.stderr)
+            return 2
+        failures = performance_regressions(compiled, interpreted)
+        if failures:
+            print("performance regression:\n- " + "\n- ".join(failures), file=sys.stderr)
+            return 1
+        print("Every recorded performance property passed within this run's measured noise.")
     return 0
 
 

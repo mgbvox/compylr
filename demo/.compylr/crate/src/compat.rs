@@ -1077,3 +1077,22 @@ where
             .py_add_assign(delta)
     }
 }
+
+impl<V, S, Q> PyAddAssignAt<&Q> for std::collections::HashMap<String, V, S>
+where
+    V: PyAddAssign,
+    S: std::hash::BuildHasher,
+    Q: AsRef<str> + ?Sized,
+{
+    type Value = V;
+    fn py_add_assign_at(
+        &mut self,
+        key: &&Q,
+        delta: &V,
+        _origin: IndexOrigin,
+    ) -> Result<(), RuntimeError> {
+        self.get_mut((*key).as_ref())
+            .ok_or_else(|| RuntimeError::MissingKey(format!("{:?}", (*key).as_ref())))?
+            .py_add_assign(delta)
+    }
+}

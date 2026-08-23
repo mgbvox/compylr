@@ -162,6 +162,41 @@ class TestTheAlgorithmsTable:
         assert "noise floor" in capsys.readouterr().out
 
 
+class TestRecordedPerformanceProperties:
+    def test_the_guarded_workloads_record_the_measurement_and_conservative_floor(self) -> None:
+        properties = {item.key: item for item in benchmark.PERFORMANCE_PROPERTIES}
+        assert properties["multiply"].measured_speedup == 32.0
+        assert properties["multiply"].minimum_speedup == 15.0
+        assert properties["collatz"].measured_speedup == 22.3
+        assert properties["collatz"].minimum_speedup == 10.0
+        assert properties["joined"].measured_speedup == 5.6
+        assert properties["joined"].minimum_speedup == 3.0
+
+    def test_a_regression_beyond_the_runs_uncertainty_fails(self) -> None:
+        compiled = _synthetic(
+            {"reference": [1e-5] * 5, "multiply": [1e-5] * 5}, compiled=True, scale=4
+        )
+        interpreted = _synthetic(
+            {"reference": [1e-5] * 5, "multiply": [1e-4] * 5}, compiled=False, scale=4
+        )
+        failures = benchmark.performance_regressions(compiled, interpreted)
+        assert any("matrices.multiply" in failure and "10.0x" in failure for failure in failures)
+
+    def test_a_result_within_the_measured_noise_still_passes(self) -> None:
+        compiled = _synthetic(
+            {"reference": [1e-5] * 5, "multiply": [1e-5] * 5}, compiled=True, scale=4
+        )
+        interpreted = _synthetic(
+            {"reference": [1.1e-5] * 5, "multiply": [14e-5] * 5},
+            compiled=False,
+            scale=4,
+        )
+        assert not any(
+            "matrices.multiply" in failure
+            for failure in benchmark.performance_regressions(compiled, interpreted)
+        )
+
+
 class TestTheAnswerSignature:
     """Answers cross between processes as strings, and unordered containers must still compare."""
 

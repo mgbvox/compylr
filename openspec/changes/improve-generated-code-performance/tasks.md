@@ -145,13 +145,18 @@ changes generated signatures, and design D6 says it may become its own change.
 
 ## 9. The regression guard
 
-- [ ] 9.1 Decide which workloads carry a recorded performance property, and record their figures
-      with the noise floor they were measured against
-- [ ] 9.2 Add a check that fails when a guarded workload regresses beyond the noise floor, and
+- [x] 9.1 Decide which workloads carry a recorded performance property, and record their figures
+      with the noise floor they were measured against. The clean 12%-floor run records
+      `matrices.multiply` 32.0x (guard 15x), `arithmetic.collatz_length` 22.3x (guard 10x), and
+      `text.joined` 5.6x (guard 3x).
+- [x] 9.2 Add a check that fails when a guarded workload regresses beyond the noise floor, and
       confirm it passes repeatedly on an unchanged tree before trusting it
-- [ ] 9.3 If it proves flaky, move it out of the default suite rather than loosening it until it
-      catches nothing (design, Risks)
-- [ ] 9.4 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 9.3 If it proves flaky, move it out of the default suite rather than loosening it until it
+      catches nothing (design, Risks). `make demo-performance` passed three unchanged-tree runs:
+      multiply 31.2–31.9x, collatz 22.0–23.9x, joined 5.7–5.9x, with 1–2% floors. It remains an
+      explicit slow check outside the default suite because elapsed-time assertions are
+      environment-sensitive even when these margins are stable.
+- [x] 9.4 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 10. Documentation and final verification
