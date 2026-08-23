@@ -64,14 +64,14 @@
 
 ## 4. Moved returns
 
-- [ ] 4.1 Write emission tests: a bare local returned in tail position is moved; a `return` of a
+- [x] 4.1 Write emission tests: a bare local returned in tail position is moved; a `return` of a
       local anywhere else is unchanged; a returned attribute is still copied
-- [ ] 4.2 Write an execution test that a function returning a collection built in a loop still
+- [x] 4.2 Write an execution test that a function returning a collection built in a loop still
       returns the right value
-- [ ] 4.3 Change the tail branch of `emit_body` in `rust.rs` to move a bare local
-- [ ] 4.4 Verify against the demo's generated source that all 25 sites moved and the crate still
+- [x] 4.3 Change the tail branch of `emit_body` in `rust.rs` to move a bare local
+- [x] 4.4 Verify against the demo's generated source that all 25 sites moved and the crate still
       compiles
-- [ ] 4.5 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 4.5 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 5. Borrowed loop variables

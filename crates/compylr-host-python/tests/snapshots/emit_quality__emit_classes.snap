@@ -76,7 +76,7 @@ impl Counter {
 pub fn build(start: i64) -> Result<Counter, RuntimeError> {
     let mut c: Counter = Counter::__compylr_new(start)?;
     (c).bump(1i64)?;
-    Ok(c.clone())
+    Ok(c)
 }
 
 pub fn read(c: Counter) -> Result<i64, RuntimeError> {

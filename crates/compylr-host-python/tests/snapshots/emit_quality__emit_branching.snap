@@ -25,7 +25,7 @@ pub fn describe(n: i64) -> Result<String, RuntimeError> {
     if ((&(n)) > (&(100i64))) {
         label = String::from("large");
     }
-    Ok(label.clone())
+    Ok(label)
 }
 
 pub fn sign(n: i64) -> Result<i64, RuntimeError> {

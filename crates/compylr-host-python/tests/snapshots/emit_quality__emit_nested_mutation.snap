@@ -84,7 +84,7 @@ pub fn bucket(key: String, value: i64) -> Result<FastMap<String, Vec<i64>>, Runt
         let __compylr_value = value.clone();
         ((*py_place(&mut (buckets), &(key), IndexOrigin::FromEitherEnd)?)).push(__compylr_value);
     }
-    Ok(buckets.clone())
+    Ok(buckets)
 }
 
 pub fn diagonal(size: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
@@ -108,7 +108,7 @@ pub fn diagonal(size: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
             }
         }
     }
-    Ok(table.clone())
+    Ok(table)
 }
 
 pub fn zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
@@ -150,5 +150,5 @@ pub fn zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
             }
         }
     }
-    Ok(table.clone())
+    Ok(table)
 }

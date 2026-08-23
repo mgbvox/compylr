@@ -560,3 +560,79 @@ mod accumulation_over_a_chain {
         assert_eq!(emitted.matches("py_add_assign").count(), 3, "{emitted}");
     }
 }
+
+/// A local returned in tail position is moved rather than deep-copied.
+///
+/// The function is ending and the original is about to be dropped, so the copy has no reader. The
+/// restriction to tail position is load-bearing rather than cautious: a `return` nested inside a
+/// loop over the same name would move out of a value the loop borrows. Tail position is the last
+/// statement at the top level of the body and therefore cannot sit inside any loop, which makes
+/// the move safe by construction rather than safe if an analysis is right.
+mod moved_returns {
+    use super::*;
+
+    #[test]
+    fn a_returned_collection_is_not_copied() {
+        let emitted = emit(concat!(
+            "def build(n: int) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    i = 0\n",
+            "    while i < n:\n",
+            "        out.append(i)\n",
+            "        i = i + 1\n",
+            "    return out\n",
+        ));
+        assert!(emitted.contains("Ok(out)"), "{emitted}");
+        assert!(
+            !emitted.contains("out.clone()"),
+            "the value is about to be dropped; the copy has no reader:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_returned_parameter_is_also_moved() {
+        let emitted = emit("def identity(xs: list[int]) -> list[int]:\n    return xs\n");
+        assert!(emitted.contains("Ok(xs)"), "{emitted}");
+        assert!(!emitted.contains("xs.clone()"), "{emitted}");
+    }
+
+    #[test]
+    fn a_return_outside_tail_position_is_unchanged() {
+        // `return early` sits inside an `if`, so it is not the last statement at the top level.
+        // Only the trailing `return rest` may move.
+        let emitted = emit(concat!(
+            "def pick(early: list[int], rest: list[int], flag: bool) -> list[int]:\n",
+            "    if flag:\n",
+            "        return early\n",
+            "    return rest\n",
+        ));
+        assert!(
+            emitted.contains("return Ok(early.clone())"),
+            "a non-tail return keeps the existing emission:\n{emitted}"
+        );
+        assert!(emitted.contains("Ok(rest)"), "{emitted}");
+        assert!(!emitted.contains("rest.clone()"), "{emitted}");
+    }
+
+    #[test]
+    fn a_returned_text_value_is_moved_too() {
+        let emitted = emit("def echo(s: str) -> str:\n    return s\n");
+        assert!(emitted.contains("Ok(s)"), "{emitted}");
+        assert!(!emitted.contains("s.clone()"), "{emitted}");
+    }
+
+    #[test]
+    fn a_returned_mapping_is_moved() {
+        let emitted =
+            emit("def pass_through(d: dict[str, int]) -> dict[str, int]:\n    return d\n");
+        assert!(emitted.contains("Ok(d)"), "{emitted}");
+        assert!(!emitted.contains("d.clone()"), "{emitted}");
+    }
+
+    #[test]
+    fn a_returned_expression_is_untouched() {
+        // Only a bare name is a move. An expression already builds a fresh value.
+        let emitted = emit("def total(a: int, b: int) -> int:\n    return a + b\n");
+        assert!(emitted.contains("PyAdd::py_add"), "{emitted}");
+    }
+}

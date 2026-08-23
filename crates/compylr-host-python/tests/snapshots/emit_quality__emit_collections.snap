@@ -12,7 +12,7 @@ use crate::compat::{
 
 pub fn build() -> Result<Vec<i64>, RuntimeError> {
     let xs: Vec<i64> = vec![1i64, 2i64, 3i64];
-    Ok(xs.clone())
+    Ok(xs)
 }
 
 pub fn characters(s: String) -> Result<i64, RuntimeError> {

@@ -961,7 +961,21 @@ fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
 
     match tail {
         Some(Stmt::Return(expr)) => {
-            let value = emit_expr(expr, unit, &function.ret)?;
+            // A bare local in tail position is **moved**, not cloned. The function is ending and
+            // the original is about to be dropped, so the copy has no reader.
+            //
+            // Tail position is doing real work here rather than being cautious. A `return` nested
+            // inside a loop over the same name would move out of a value the loop borrows; tail
+            // position is the last statement at the top level and therefore cannot sit inside a
+            // loop, so the move is safe by construction rather than safe if an analysis is right.
+            //
+            // Only a bare name. An attribute is deliberately excluded: the instance outlives the
+            // call, and moving out of a field would empty it.
+            let value = match expr {
+                // `self` is the receiver, a borrow, and never movable.
+                Expr::Name(name) if name != "self" => rust_ident(name),
+                _ => emit_expr(expr, unit, &function.ret)?,
+            };
             let _ = writeln!(out, "    Ok({value})");
         }
         Some(Stmt::ReturnUnit) => out.push_str("    Ok(())\n"),

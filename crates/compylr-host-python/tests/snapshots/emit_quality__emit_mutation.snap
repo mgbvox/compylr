@@ -31,7 +31,7 @@ pub fn counts(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeError> 
             }
         }
     }
-    Ok(seen.clone())
+    Ok(seen)
 }
 
 pub fn evens_below(limit: i64) -> Result<Vec<i64>, RuntimeError> {
@@ -56,7 +56,7 @@ pub fn evens_below(limit: i64) -> Result<Vec<i64>, RuntimeError> {
             }
         }
     }
-    Ok(found.clone())
+    Ok(found)
 }
 
 pub fn has_element(xs: Vec<i64>, x: i64) -> Result<bool, RuntimeError> {
@@ -86,5 +86,5 @@ pub fn replace_first(n: i64) -> Result<Vec<i64>, RuntimeError> {
         let __compylr_index = 0i64;
         PySetItem::py_set(&mut (xs), &__compylr_index, __compylr_value)?;
     }
-    Ok(xs.clone())
+    Ok(xs)
 }

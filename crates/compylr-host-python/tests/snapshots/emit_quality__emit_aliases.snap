@@ -19,7 +19,7 @@ pub fn alias_chain(a: bool) -> Result<bool, RuntimeError> {
 pub fn alias_local() -> Result<String, RuntimeError> {
     let x: String = String::from("hi");
     let y: String = x.clone();
-    Ok(y.clone())
+    Ok(y)
 }
 
 pub fn alias_parameter(a: i64) -> Result<i64, RuntimeError> {

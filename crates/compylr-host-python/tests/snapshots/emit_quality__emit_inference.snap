@@ -26,5 +26,5 @@ pub fn literals() -> Result<String, RuntimeError> {
     let b: i64 = 3i64;
     let c: f64 = 1.3f64;
     let d: bool = true;
-    Ok(a.clone())
+    Ok(a)
 }

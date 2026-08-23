@@ -2038,3 +2038,75 @@ fn a_chain_accumulation_of_integers_still_reports_overflow() {
     assert_eq!(lines[0], "Ok(9223372036854775807)");
     assert_eq!(lines[1], "Err(\"integer overflow\")");
 }
+
+#[test]
+fn a_collection_built_in_a_loop_survives_being_moved_out() {
+    let out = run(
+        "moved_return",
+        concat!(
+            "def build(n: int) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    i = 0\n",
+            "    while i < n:\n",
+            "        out.append(i * 2)\n",
+            "        i = i + 1\n",
+            "    return out\n",
+        ),
+        r#"
+    println!("{:?}", build(5).unwrap());
+    println!("{:?}", build(0).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[0, 2, 4, 6, 8]");
+    assert_eq!(lines[1], "[]");
+}
+
+#[test]
+fn a_returned_attribute_leaves_the_instance_intact() {
+    // The instance outlives the call, so a field must be copied rather than moved out of. If the
+    // move rule ever reached an attribute, the *second* call would come back empty — which is
+    // why this reads it twice.
+    let out = run(
+        "moved_return_attribute",
+        concat!(
+            "class Bag:\n",
+            "    def __init__(self, items: list[int]) -> None:\n",
+            "        self.items: list[int] = items\n",
+            "\n",
+            "    def contents(self) -> list[int]:\n",
+            "        return self.items\n",
+        ),
+        r#"
+    let bag = Bag::__compylr_new(vec![1i64, 2, 3]).unwrap();
+    println!("{:?}", bag.contents().unwrap());
+    println!("{:?}", bag.contents().unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[1, 2, 3]");
+    assert_eq!(
+        lines[1], "[1, 2, 3]",
+        "reading a field twice must give the same answer twice"
+    );
+}
+
+#[test]
+fn a_non_tail_return_still_answers_correctly() {
+    let out = run(
+        "moved_return_branch",
+        concat!(
+            "def pick(early: list[int], rest: list[int], flag: bool) -> list[int]:\n",
+            "    if flag:\n",
+            "        return early\n",
+            "    return rest\n",
+        ),
+        r#"
+    println!("{:?}", pick(vec![1i64], vec![2i64], true).unwrap());
+    println!("{:?}", pick(vec![1i64], vec![2i64], false).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[1]");
+    assert_eq!(lines[1], "[2]");
+}

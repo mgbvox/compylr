@@ -443,7 +443,7 @@ pub fn bfs_distances(
             }
         }
     }
-    Ok(distance.clone())
+    Ok(distance)
 }
 
 /// The index of `target` in the ascending `xs`, or -1 when it is absent.
@@ -615,7 +615,7 @@ pub fn copy_of(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// How many of `words` are in `wanted`.
@@ -700,7 +700,7 @@ pub fn depth_first_order(
             index = PyNum::py_sub(&(index), &(1i64))?;
         }
     }
-    Ok(order.clone())
+    Ok(order)
 }
 
 /// The sum of the decimal digits of `n`, ignoring its sign.
@@ -1008,7 +1008,7 @@ pub fn identity(size: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// `xs` in ascending order, by insertion sort.
@@ -1042,7 +1042,7 @@ pub fn insertion_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
         }
         PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// The floor of the square root of `n`, by Newton's method. -1 for a negative `n`.
@@ -1142,7 +1142,7 @@ pub fn iterative_primes_up_to_count(n: i64) -> Result<Vec<i64>, RuntimeError> {
         }
         PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
     }
-    Ok(found.clone())
+    Ok(found)
 }
 
 /// `separator.join(words)`, written out.
@@ -1167,7 +1167,7 @@ pub fn joined(words: Vec<String>, separator: String) -> Result<String, RuntimeEr
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// The greatest total value that fits in `capacity`, taking each item at most once.
@@ -1322,7 +1322,7 @@ pub fn longest(words: Vec<String>) -> Result<String, RuntimeError> {
             }
         }
     }
-    Ok(best.clone())
+    Ok(best)
 }
 
 /// The length of the longest subsequence common to both lists.
@@ -1528,7 +1528,7 @@ pub fn merge(left: Vec<i64>, right: Vec<i64>) -> Result<Vec<i64>, RuntimeError> 
         }
         PyAddAssign::py_add_assign(&mut j, &(1i64))?;
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// `xs` in ascending order, by merge sort. O(n log n), and stable.
@@ -1591,7 +1591,7 @@ pub fn missing(haystack: String, needles: Vec<String>) -> Result<Vec<String>, Ru
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// The most frequent word, ties broken by taking the alphabetically first. `""` when empty.
@@ -1625,7 +1625,7 @@ pub fn most_common(words: Vec<String>) -> Result<String, RuntimeError> {
             }
         }
     }
-    Ok(best.clone())
+    Ok(best)
 }
 
 /// The matrix product. Empty when the shapes do not line up.
@@ -1722,7 +1722,7 @@ pub fn multiply(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> Result<Vec<Vec<i64
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// Every node the graph mentions — keys and neighbours alike — in ascending order.
@@ -1772,7 +1772,7 @@ pub fn node_list(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError
         }
     }
     let ordered: Vec<i64> = merge_sort(raw.clone())?;
-    Ok(ordered.clone())
+    Ok(ordered)
 }
 
 /// `xs` rescaled so its smallest value is 0.0 and its largest is 1.0.
@@ -1812,7 +1812,7 @@ pub fn normalize(xs: Vec<f64>) -> Result<Vec<f64>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// How many of `needles` appear anywhere in `haystack`.
@@ -1944,7 +1944,7 @@ pub fn row_sums(matrix: Vec<Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// Every element multiplied by `factor`.
@@ -1977,7 +1977,7 @@ pub fn scale(matrix: Vec<Vec<i64>>, factor: i64) -> Result<Vec<Vec<i64>>, Runtim
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// `xs` in ascending order, by repeatedly selecting the smallest remaining element.
@@ -2012,7 +2012,7 @@ pub fn selection_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
         }
         PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// Every prime below `limit`, by the sieve of Eratosthenes.
@@ -2084,7 +2084,7 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
             }
         }
     }
-    Ok(primes.clone())
+    Ok(primes)
 }
 
 /// The smaller of two integers — `min` is not in the subset.
@@ -2168,7 +2168,7 @@ pub fn table_of_zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeE
             }
         }
     }
-    Ok(table.clone())
+    Ok(table)
 }
 
 /// The digits of `n` in `base`, most significant first. Negative `n` is treated as positive.
@@ -2209,7 +2209,7 @@ pub fn to_base(n: i64, base: i64) -> Result<Vec<i64>, RuntimeError> {
         }
         index = PyNum::py_sub(&(index), &(1i64))?;
     }
-    Ok(digits.clone())
+    Ok(digits)
 }
 
 /// An order in which every edge points forward. Empty when the graph has a cycle.
@@ -2317,7 +2317,7 @@ pub fn topological_order(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, Runt
             return Ok(vec![]);
         }
     }
-    Ok(order.clone())
+    Ok(order)
 }
 
 /// The combined length of every word, in **code points**.
@@ -2432,7 +2432,7 @@ pub fn transpose(matrix: Vec<Vec<i64>>) -> Result<Vec<Vec<i64>>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// Duplicates removed, **first-seen order kept**.
@@ -2462,7 +2462,7 @@ pub fn unique_words(words: Vec<String>) -> Result<Vec<String>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// The population variance — the mean of the squared deviations. Zero for an empty list.
@@ -2536,5 +2536,5 @@ pub fn word_count(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeErr
             }
         }
     }
-    Ok(counts.clone())
+    Ok(counts)
 }
