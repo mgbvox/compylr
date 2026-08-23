@@ -251,7 +251,9 @@ fn emit_class_binding(index: usize, class: &Class) -> String {
 /// function is compiled, because the compiled version raises the same thing.
 const PREAMBLE: &str = r#"//! The Python boundary for the translated functions.
 
-use std::collections::{HashMap, HashSet};
+// The hashed containers come from the runtime rather than from `std`. A wrapper signature has to
+// name the same type the translated function does, and `std`'s aliases pin the default hasher.
+use crate::compat::{FastMap, FastSet};
 
 use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyOverflowError, PyValueError, PyZeroDivisionError,

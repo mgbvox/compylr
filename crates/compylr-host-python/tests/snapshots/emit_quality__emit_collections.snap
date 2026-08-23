@@ -4,11 +4,10 @@ expression: functions.trim()
 ---
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum, PySetItem,
-    RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen,
+    PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place,
+    py_subscript,
 };
 
 pub fn build() -> Result<Vec<i64>, RuntimeError> {
@@ -24,15 +23,15 @@ pub fn from_end(xs: Vec<i64>) -> Result<i64, RuntimeError> {
     Ok(py_subscript(&(xs), &(PyNum::py_neg(&(1i64))?), IndexOrigin::FromEitherEnd)?)
 }
 
-pub fn lookup(d: HashMap<String, i64>, key: String) -> Result<i64, RuntimeError> {
+pub fn lookup(d: FastMap<String, i64>, key: String) -> Result<i64, RuntimeError> {
     Ok(py_subscript(&(d), &(key), IndexOrigin::FromEitherEnd)?)
 }
 
-pub fn mapping() -> Result<HashMap<String, i64>, RuntimeError> {
-    Ok(HashMap::from([(String::from("a"), 1i64), (String::from("b"), 2i64)]))
+pub fn mapping() -> Result<FastMap<String, i64>, RuntimeError> {
+    Ok(FastMap::from_iter([(String::from("a"), 1i64), (String::from("b"), 2i64)]))
 }
 
-pub fn nested(d: HashMap<String, Vec<i64>>, key: String) -> Result<i64, RuntimeError> {
+pub fn nested(d: FastMap<String, Vec<i64>>, key: String) -> Result<i64, RuntimeError> {
     let inner: Vec<i64> = py_subscript(&(d), &(key), IndexOrigin::FromEitherEnd)?;
     Ok(py_subscript(&(inner), &(0i64), IndexOrigin::FromEitherEnd)?)
 }
@@ -48,6 +47,6 @@ pub fn total(xs: Vec<i64>) -> Result<i64, RuntimeError> {
     Ok(PyAdd::py_add(&(first), &(count))?)
 }
 
-pub fn unique() -> Result<HashSet<i64>, RuntimeError> {
-    Ok(HashSet::from([1i64, 2i64, 2i64]))
+pub fn unique() -> Result<FastSet<i64>, RuntimeError> {
+    Ok(FastSet::from_iter([1i64, 2i64, 2i64]))
 }

@@ -4,11 +4,10 @@ expression: functions.trim()
 ---
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum, PySetItem,
-    RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen,
+    PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place,
+    py_subscript,
 };
 
 pub fn caller(n: i64) -> Result<i64, RuntimeError> {

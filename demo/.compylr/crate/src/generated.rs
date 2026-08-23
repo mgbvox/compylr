@@ -1,10 +1,8 @@
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
-    TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum,
+    PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
 };
 
 /// A stack of integers, over a list that never shrinks.
@@ -81,13 +79,13 @@ impl IntStack {
 /// An nth-prime that remembers what it has already computed.
 #[derive(Clone)]
 pub struct PrimeCache {
-    pub known: HashMap<i64, i64>,
+    pub known: FastMap<i64, i64>,
     pub hits: i64,
 }
 
 impl PrimeCache {
     pub fn __compylr_new() -> Result<Self, RuntimeError> {
-        let known: HashMap<i64, i64> = HashMap::from([]);
+        let known: FastMap<i64, i64> = FastMap::from_iter([]);
         let hits: i64 = 0i64;
         Ok(Self { known, hits })
     }
@@ -402,10 +400,10 @@ pub fn balanced(tokens: Vec<i64>) -> Result<bool, RuntimeError> {
 ///     remaining element down by one.
 ///     
 pub fn bfs_distances(
-    graph: HashMap<i64, Vec<i64>>,
+    graph: FastMap<i64, Vec<i64>>,
     start: i64,
-) -> Result<HashMap<i64, i64>, RuntimeError> {
-    let mut distance: HashMap<i64, i64> = HashMap::from([]);
+) -> Result<FastMap<i64, i64>, RuntimeError> {
+    let mut distance: FastMap<i64, i64> = FastMap::from_iter([]);
     {
         let __compylr_value = 0i64;
         let __compylr_index = start.clone();
@@ -625,7 +623,7 @@ pub fn copy_of(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
 ///     The set is the point: this is a hash lookup per word rather than a scan of a list, and the
 ///     difference is the whole reason to hand a set across the boundary instead of a list.
 ///     
-pub fn count_present(words: Vec<String>, wanted: HashSet<String>) -> Result<i64, RuntimeError> {
+pub fn count_present(words: Vec<String>, wanted: FastSet<String>) -> Result<i64, RuntimeError> {
     let mut total: i64 = 0i64;
     {
         let __compylr_iter = &words;
@@ -649,11 +647,11 @@ pub fn count_present(words: Vec<String>, wanted: HashSet<String>) -> Result<i64,
 ///     the recursive version does and what a reader will expect.
 ///     
 pub fn depth_first_order(
-    graph: HashMap<i64, Vec<i64>>,
+    graph: FastMap<i64, Vec<i64>>,
     start: i64,
 ) -> Result<Vec<i64>, RuntimeError> {
     let mut order: Vec<i64> = vec![];
-    let mut seen: HashMap<i64, i64> = HashMap::from([]);
+    let mut seen: FastMap<i64, i64> = FastMap::from_iter([]);
     let mut stack: Vec<i64> = vec![];
     {
         let __compylr_value = start.clone();
@@ -977,7 +975,7 @@ pub fn gcd(a: i64, b: i64) -> Result<i64, RuntimeError> {
 ///     completely exactly when it is acyclic, so one implementation answers both questions and the
 ///     two can never disagree.
 ///     
-pub fn has_cycle(graph: HashMap<i64, Vec<i64>>) -> Result<bool, RuntimeError> {
+pub fn has_cycle(graph: FastMap<i64, Vec<i64>>) -> Result<bool, RuntimeError> {
     Ok(
         ((&(PyLen::py_len(&(topological_order(graph.clone())?), TextUnits::CodePoints)))
             < (&(PyLen::py_len(&(node_list(graph.clone())?), TextUnits::CodePoints)))),
@@ -1604,7 +1602,7 @@ pub fn missing(haystack: String, needles: Vec<String>) -> Result<Vec<String>, Ru
 ///     and returns one element needs a rule like this one, or it is not a function.
 ///     
 pub fn most_common(words: Vec<String>) -> Result<String, RuntimeError> {
-    let counts: HashMap<String, i64> = word_count(words.clone())?;
+    let counts: FastMap<String, i64> = word_count(words.clone())?;
     let mut best: String = String::from("");
     let mut best_count: i64 = 0i64;
     {
@@ -1735,8 +1733,8 @@ pub fn multiply(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> Result<Vec<Vec<i64
 ///     happened to decorate first; requiring the annotation does not. The call is still checked —
 ///     once every source is assembled into one unit.
 ///     
-pub fn node_list(graph: HashMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
-    let mut seen: HashMap<i64, i64> = HashMap::from([]);
+pub fn node_list(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
+    let mut seen: FastMap<i64, i64> = FastMap::from_iter([]);
     let mut raw: Vec<i64> = vec![];
     {
         let __compylr_iter = &graph;
@@ -2224,9 +2222,9 @@ pub fn to_base(n: i64, base: i64) -> Result<Vec<i64>, RuntimeError> {
 ///     An empty result is ambiguous for an empty graph, which has no order to return either way.
 ///     `has_cycle` is the unambiguous question.
 ///     
-pub fn topological_order(graph: HashMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
+pub fn topological_order(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
     let nodes: Vec<i64> = node_list(graph.clone())?;
-    let mut indegree: HashMap<i64, i64> = HashMap::from([]);
+    let mut indegree: FastMap<i64, i64> = FastMap::from_iter([]);
     {
         let __compylr_iter = &nodes;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
@@ -2262,7 +2260,7 @@ pub fn topological_order(graph: HashMap<i64, Vec<i64>>) -> Result<Vec<i64>, Runt
         }
     }
     let mut order: Vec<i64> = vec![];
-    let mut placed: HashMap<i64, i64> = HashMap::from([]);
+    let mut placed: FastMap<i64, i64> = FastMap::from_iter([]);
     while ((&(PyLen::py_len(&(order), TextUnits::CodePoints)))
         < (&(PyLen::py_len(&(nodes), TextUnits::CodePoints))))
     {
@@ -2444,7 +2442,7 @@ pub fn transpose(matrix: Vec<Vec<i64>>) -> Result<Vec<Vec<i64>>, RuntimeError> {
 ///     mapping here is used as a seen-set, which is what it is good for: membership, not order.
 ///     
 pub fn unique_words(words: Vec<String>) -> Result<Vec<String>, RuntimeError> {
-    let mut seen: HashMap<String, i64> = HashMap::from([]);
+    let mut seen: FastMap<String, i64> = FastMap::from_iter([]);
     let mut out: Vec<String> = vec![];
     {
         let __compylr_iter = &words;
@@ -2499,8 +2497,8 @@ pub fn variance(xs: Vec<f64>) -> Result<f64, RuntimeError> {
 ///     subset resolves. A set is therefore something you receive, test against, or return whole —
 ///     which covers what a lookup table is for, and not much else.
 ///     
-pub fn vowel_letters() -> Result<HashSet<String>, RuntimeError> {
-    Ok(HashSet::from([
+pub fn vowel_letters() -> Result<FastSet<String>, RuntimeError> {
+    Ok(FastSet::from_iter([
         String::from("a"),
         String::from("e"),
         String::from("i"),
@@ -2514,8 +2512,8 @@ pub fn vowel_letters() -> Result<HashSet<String>, RuntimeError> {
 ///     `word in counts` tests the mapping's keys, as Python does. Reading a key that is absent is
 ///     still an error — assignment is what creates one — so the `else` is not optional.
 ///     
-pub fn word_count(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeError> {
-    let mut counts: HashMap<String, i64> = HashMap::from([]);
+pub fn word_count(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeError> {
+    let mut counts: FastMap<String, i64> = FastMap::from_iter([]);
     {
         let __compylr_iter = &words;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {

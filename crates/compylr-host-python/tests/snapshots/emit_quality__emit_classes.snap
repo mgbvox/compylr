@@ -4,22 +4,21 @@ expression: functions.trim()
 ---
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum, PySetItem,
-    RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen,
+    PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place,
+    py_subscript,
 };
 
 #[derive(Clone)]
 pub struct Cache {
-    pub entries: HashMap<i64, i64>,
+    pub entries: FastMap<i64, i64>,
     pub log: Vec<i64>,
 }
 
 impl Cache {
     pub fn __compylr_new() -> Result<Self, RuntimeError> {
-        let entries: HashMap<i64, i64> = HashMap::from([]);
+        let entries: FastMap<i64, i64> = FastMap::from_iter([]);
         let log: Vec<i64> = vec![];
         Ok(Self { entries, log })
     }

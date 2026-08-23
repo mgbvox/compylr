@@ -644,3 +644,126 @@ mod the_two_copies_agree {
         }
     }
 }
+
+/// The hashed containers, and the hasher they are built with.
+///
+/// Until these compiled, the hasher was not a *choice*: every implementation was written against
+/// the two-parameter form of `HashMap`/`HashSet`, which silently pins the standard library's
+/// `RandomState` across all ten of them. That is a defect independent of which hasher anyone
+/// prefers — it means the decision could not be expressed, let alone made.
+///
+/// A hasher changes no answer. Mapping and set iteration order is already unguaranteed and
+/// already varies between runs, so a program these could break was already broken.
+mod containers_are_generic_over_their_hasher {
+    use super::*;
+    use compylr_backend_rust::runtime::{
+        FastMap, FastSet, IndexOrigin, PyBorrow, PyContains, PyIndexable, PyIterate, PyLen,
+        PyPlace, PySetItem, TextUnits, py_key,
+    };
+
+    fn map() -> FastMap<String, i64> {
+        let mut m = FastMap::default();
+        m.insert(String::from("a"), 1);
+        m.insert(String::from("b"), 2);
+        m
+    }
+
+    fn set() -> FastSet<i64> {
+        let mut s = FastSet::default();
+        s.insert(7);
+        s
+    }
+
+    #[test]
+    fn a_mapping_with_the_selected_hasher_reads_a_key() {
+        assert_eq!(py_key(&map(), &String::from("a")), Ok(1));
+    }
+
+    #[test]
+    fn a_missing_key_is_still_reported_and_not_created() {
+        let m = map();
+        let missing = py_key(&m, &String::from("zz"));
+        assert!(matches!(missing, Err(RuntimeError::MissingKey(_))));
+        assert_eq!(m.len(), 2, "reading a missing key must not insert it");
+    }
+
+    #[test]
+    fn a_mapping_with_the_selected_hasher_is_indexable() {
+        assert_eq!(
+            PyIndexable::py_get(&map(), &String::from("b"), IndexOrigin::FromStart),
+            Ok(2)
+        );
+    }
+
+    #[test]
+    fn a_mapping_with_the_selected_hasher_accepts_a_write() {
+        let mut m = map();
+        PySetItem::py_set(&mut m, &String::from("c"), 3).unwrap();
+        assert_eq!(py_key(&m, &String::from("c")), Ok(3));
+    }
+
+    #[test]
+    fn a_mapping_with_the_selected_hasher_borrows_and_places() {
+        let mut m = map();
+        assert_eq!(
+            PyBorrow::py_borrow(&m, &String::from("a"), IndexOrigin::FromStart).copied(),
+            Ok(1)
+        );
+        if let Ok(slot) = PyPlace::py_place(&mut m, &String::from("a"), IndexOrigin::FromStart) {
+            *slot = 42;
+        }
+        assert_eq!(py_key(&m, &String::from("a")), Ok(42));
+    }
+
+    #[test]
+    fn membership_works_for_both_containers() {
+        assert!(PyContains::py_contains(&map(), &String::from("a")));
+        assert!(!PyContains::py_contains(&map(), &String::from("q")));
+        assert!(PyContains::py_contains(&set(), &7));
+        assert!(!PyContains::py_contains(&set(), &8));
+    }
+
+    #[test]
+    fn length_works_for_both_containers() {
+        assert_eq!(PyLen::py_len(&map(), TextUnits::CodePoints), 2);
+        assert_eq!(PyLen::py_len(&set(), TextUnits::CodePoints), 1);
+    }
+
+    #[test]
+    fn iteration_works_for_both_containers() {
+        // Sorted before comparing: iteration order over a mapping or a set is not guaranteed and
+        // varies between runs. Asserting on it would make this test flaky rather than make the
+        // runtime wrong, which is exactly the trap changing the hasher would spring.
+        let mut keys: Vec<String> = PyIterate::py_iter(&map()).collect();
+        keys.sort();
+        assert_eq!(keys, vec![String::from("a"), String::from("b")]);
+
+        let members: Vec<i64> = PyIterate::py_iter(&set()).collect();
+        assert_eq!(members, vec![7]);
+    }
+
+    #[test]
+    fn the_helpers_still_accept_the_standard_hasher() {
+        // Generic over the hasher means *any* hasher, including the default. A user's own code,
+        // and every existing generated crate, may still hand these a std `HashMap`.
+        let mut m = std::collections::HashMap::new();
+        m.insert(String::from("a"), 1i64);
+        assert_eq!(py_key(&m, &String::from("a")), Ok(1));
+        assert_eq!(PyLen::py_len(&m, TextUnits::CodePoints), 1);
+    }
+
+    #[test]
+    fn the_selected_hasher_distributes_small_integers() {
+        // Not a claim about cryptographic quality — it is not a cryptographic hasher and must not
+        // be used as one. This only checks that consecutive small integers, which is what keys in
+        // generated code overwhelmingly are, do not all land in one bucket.
+        let mut s: FastSet<i64> = FastSet::default();
+        for n in 0..1_000i64 {
+            s.insert(n);
+        }
+        assert_eq!(s.len(), 1_000);
+        for n in 0..1_000i64 {
+            assert!(PyContains::py_contains(&s, &n), "{n} went missing");
+        }
+    }
+}

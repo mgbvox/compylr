@@ -436,7 +436,7 @@ mod collections {
             "missing_key",
             "def get(d: dict[str, int], k: str) -> int:\n    return d[k]\n",
             r#"
-    let mut d = std::collections::HashMap::new();
+    let mut d = compat::FastMap::default();
     d.insert(String::from("a"), 1i64);
     println!("{}", get(d.clone(), String::from("a")).unwrap());
     match get(d.clone(), String::from("zzz")) {
@@ -521,7 +521,7 @@ mod collections {
             "nested",
             "def inner(d: dict[str, list[int]], k: str) -> int:\n    xs = d[k]\n    return xs[0]\n",
             r#"
-    let mut d = std::collections::HashMap::new();
+    let mut d = compat::FastMap::default();
     d.insert(String::from("k"), vec![42i64, 43]);
     println!("{}", inner(d, String::from("k")).unwrap());
 "#,
@@ -689,11 +689,11 @@ fn iterating_a_collection_preserves_order_and_leaves_it_readable() {
         r#"
     println!("{}", digits(vec![1, 2, 3]).unwrap());
     println!("{}", twice(vec![1, 2, 3]).unwrap());
-    let mut d = std::collections::HashMap::new();
+    let mut d = compat::FastMap::default();
     d.insert(String::from("ab"), 1i64);
     d.insert(String::from("cde"), 2i64);
     println!("{}", key_chars(d).unwrap());
-    println!("{}", set_total(std::collections::HashSet::from([1i64, 2, 3])).unwrap());
+    println!("{}", set_total(compat::FastSet::from_iter([1i64, 2, 3])).unwrap());
 "#,
     );
     let lines: Vec<&str> = out.lines().collect();
@@ -866,7 +866,7 @@ fn a_nested_read_borrows_the_intermediate_rather_than_cloning_it() {
     println!("{}", measured(m.clone(), 0).unwrap());
     println!("{}", held(m.clone(), 1, 4).unwrap());
     println!("{}", summed(m.clone(), 1).unwrap());
-    let mut d = std::collections::HashMap::new();
+    let mut d = compat::FastMap::default();
     d.insert(String::from("k"), vec![7i64, 8]);
     println!("{}", through_a_mapping(d.clone(), String::from("k"), 1).unwrap());
     println!("{}", missing_row(d, String::from("absent")).is_err());
@@ -1108,8 +1108,8 @@ fn membership_means_what_each_container_means_by_it() {
         r#"
     println!("{}", in_list(vec![1, 2, 3], 2).unwrap());
     println!("{}", in_list(vec![1, 2, 3], 9).unwrap());
-    println!("{}", in_set(std::collections::HashSet::from([1i64, 2]), 2).unwrap());
-    let mut d = std::collections::HashMap::new();
+    println!("{}", in_set(compat::FastSet::from_iter([1i64, 2]), 2).unwrap());
+    let mut d = compat::FastMap::default();
     d.insert(String::from("a"), 7i64);
     println!("{}", in_map(d.clone(), String::from("a")).unwrap());
     println!("{}", in_map(d, String::from("7")).unwrap());

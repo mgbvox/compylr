@@ -4,11 +4,10 @@ expression: functions.trim()
 ---
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum, PySetItem,
-    RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen,
+    PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place,
+    py_subscript,
 };
 
 #[derive(Clone)]
@@ -73,8 +72,8 @@ impl Grid {
     }
 }
 
-pub fn bucket(key: String, value: i64) -> Result<HashMap<String, Vec<i64>>, RuntimeError> {
-    let mut buckets: HashMap<String, Vec<i64>> = HashMap::from([]);
+pub fn bucket(key: String, value: i64) -> Result<FastMap<String, Vec<i64>>, RuntimeError> {
+    let mut buckets: FastMap<String, Vec<i64>> = FastMap::from_iter([]);
     let row: Vec<i64> = vec![];
     {
         let __compylr_value = row.clone();

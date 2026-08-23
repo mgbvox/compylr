@@ -45,21 +45,21 @@
 
 ## 3. The hasher becomes a choice
 
-- [ ] 3.1 Write tests that the runtime's mapping and set implementations accept a container built
+- [x] 3.1 Write tests that the runtime's mapping and set implementations accept a container built
       with a non-default hasher — these fail today, which is the point
-- [ ] 3.2 Make all ten mapping/set trait implementations in `runtime.rs` generic over the hasher,
+- [x] 3.2 Make all ten mapping/set trait implementations in `runtime.rs` generic over the hasher,
       plus the free helper that reads a mapping entry. Assert the runtime stays self-contained: no
       external crate, nothing named that a generated crate could not compile
-- [ ] 3.3 Add a self-contained non-cryptographic hasher to `runtime.rs` and the container aliases
+- [x] 3.3 Add a self-contained non-cryptographic hasher to `runtime.rs` and the container aliases
       generated code uses
-- [ ] 3.4 Change `rust_ty` in `rust.rs` to emit the aliases, and change dict and set literal
+- [x] 3.4 Change `rust_ty` in `rust.rs` to emit the aliases, and change dict and set literal
       emission to build through the general construction path — the array conversion exists only
       for the default hasher (design D4)
-- [ ] 3.5 Confirm no test asserts on mapping or set iteration order; CLAUDE.md forbids it, and this
+- [x] 3.5 Confirm no test asserts on mapping or set iteration order; CLAUDE.md forbids it, and this
       is the change that would expose one
-- [ ] 3.6 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; `graphs.bfs_distances` is expected
+- [x] 3.6 `rm -rf .compylr demo/.compylr`, `make demo SCALE=4`; `graphs.bfs_distances` is expected
       to move from roughly 0.7x to roughly 1.4x. Record it
-- [ ] 3.7 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 3.7 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 4. Moved returns

@@ -361,11 +361,137 @@ fn resolve_index(index: i64, length: usize, origin: IndexOrigin) -> Result<usize
     Ok(resolved as usize)
 }
 
+/// The hasher generated containers use, and the reason it is not the standard one.
+///
+/// `RandomState` is chosen by the standard library to be resistant to a caller who is *trying* to
+/// collide keys — a real concern for a web server keying a map on request headers, and a cost
+/// paid by every program that hashes anything. It is also seeded per process, which is why
+/// mapping iteration order already varies between runs.
+///
+/// The comparison this project is measured against does not pay that cost: CPython hashes a small
+/// integer to itself, and caches a string's hash inside the string object. Generated code was
+/// paying SipHash per lookup against an interpreter paying nearly nothing, which is most of why
+/// `graphs.bfs_distances` ran slower compiled than interpreted.
+///
+/// **A hasher has no observable semantics.** It changes no answer, and mapping and set iteration
+/// order is already unguaranteed and already varies between runs, so a program this could break
+/// was broken before. That is exactly what makes it a performance choice rather than a behavior
+/// axis: `add-behavior-profiles` is built on axes where two languages disagree about *meaning*,
+/// and here nothing disagrees — one option is simply faster.
+///
+/// **What is given up:** this is not a cryptographic hash and offers no resistance to deliberate
+/// collisions. A compiled function that builds a mapping keyed by values an attacker chooses can
+/// be driven quadratic. That is a real trade and it is made deliberately, because the keys in the
+/// supported subset come from the user's own program. A program keying on untrusted input should
+/// not be relying on a transpiler's default hasher for its safety in any case.
+///
+/// The algorithm is the multiply-xor-rotate construction rustc uses for its own internal maps.
+/// Written out here rather than depended on, because this file is embedded verbatim into every
+/// generated crate and must compile with no dependency but `std`.
+const FAST_HASH_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+
+/// A fast, non-cryptographic hasher. See [`FAST_HASH_SEED`] for the trade being made.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct FastHasher {
+    hash: u64,
+}
+
+impl FastHasher {
+    /// Fold one word into the accumulated hash.
+    ///
+    /// The rotate is what keeps the high bits from being the only ones that move: multiplication
+    /// alone propagates upward, so consecutive small integers would otherwise differ only near
+    /// the top of the word and collide in a table that indexes off the bottom.
+    #[inline]
+    fn add(&mut self, word: u64) {
+        self.hash = (self.hash.rotate_left(5) ^ word).wrapping_mul(FAST_HASH_SEED);
+    }
+}
+
+impl std::hash::Hasher for FastHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut rest = bytes;
+        while let Some((chunk, tail)) = rest.split_first_chunk::<8>() {
+            self.add(u64::from_le_bytes(*chunk));
+            rest = tail;
+        }
+        if let Some((chunk, tail)) = rest.split_first_chunk::<4>() {
+            self.add(u32::from_le_bytes(*chunk) as u64);
+            rest = tail;
+        }
+        for &byte in rest {
+            self.add(byte as u64);
+        }
+    }
+
+    // Each of these would otherwise go through `write` and its byte loop. Integers are the
+    // overwhelmingly common key in generated code, so the whole point is that they do not.
+    #[inline]
+    fn write_u8(&mut self, value: u8) {
+        self.add(value as u64);
+    }
+
+    #[inline]
+    fn write_u16(&mut self, value: u16) {
+        self.add(value as u64);
+    }
+
+    #[inline]
+    fn write_u32(&mut self, value: u32) {
+        self.add(value as u64);
+    }
+
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        self.add(value);
+    }
+
+    #[inline]
+    fn write_u128(&mut self, value: u128) {
+        self.add(value as u64);
+        self.add((value >> 64) as u64);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, value: usize) {
+        self.add(value as u64);
+    }
+}
+
+/// Builds [`FastHasher`]s. Unseeded, because there is no seed to keep secret.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct FastHashBuilder;
+
+impl std::hash::BuildHasher for FastHashBuilder {
+    type Hasher = FastHasher;
+
+    #[inline]
+    fn build_hasher(&self) -> FastHasher {
+        FastHasher::default()
+    }
+}
+
+/// The mapping type generated code uses.
+///
+/// An alias rather than a new type: it *is* a `HashMap`, so every implementation above applies to
+/// it and a reader meets a familiar type rather than a wrapper to learn.
+pub type FastMap<K, V> = std::collections::HashMap<K, V, FastHashBuilder>;
+
+/// The set type generated code uses. See [`FastMap`].
+pub type FastSet<T> = std::collections::HashSet<T, FastHashBuilder>;
+
 /// Read a mapping value, reporting a missing key the way Python does.
-pub fn py_key<K, V>(map: &std::collections::HashMap<K, V>, key: &K) -> Result<V, RuntimeError>
+pub fn py_key<K, V, S>(map: &std::collections::HashMap<K, V, S>, key: &K) -> Result<V, RuntimeError>
 where
     K: std::hash::Hash + Eq + std::fmt::Debug,
     V: Clone,
+    S: std::hash::BuildHasher,
 {
     map.get(key)
         .cloned()
@@ -408,10 +534,11 @@ impl<T: Clone> PyIndexable<i64> for Vec<T> {
     }
 }
 
-impl<K, V> PyIndexable<K> for std::collections::HashMap<K, V>
+impl<K, V, S> PyIndexable<K> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq + std::fmt::Debug,
     V: Clone,
+    S: std::hash::BuildHasher,
 {
     type Output = V;
     /// A key is not an offset, so there is nothing for the origin to decide.
@@ -459,9 +586,10 @@ impl<T> PySetItem<i64, T> for Vec<T> {
     }
 }
 
-impl<K, V> PySetItem<K, V> for std::collections::HashMap<K, V>
+impl<K, V, S> PySetItem<K, V> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq + Clone,
+    S: std::hash::BuildHasher,
 {
     fn py_set(&mut self, key: &K, value: V) -> Result<(), RuntimeError> {
         self.insert(key.clone(), value);
@@ -490,9 +618,10 @@ impl<T> PyBorrow<i64> for Vec<T> {
     }
 }
 
-impl<K, V> PyBorrow<K> for std::collections::HashMap<K, V>
+impl<K, V, S> PyBorrow<K> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq + std::fmt::Debug,
+    S: std::hash::BuildHasher,
 {
     type Item = V;
     /// A key is not an offset, so there is nothing for the origin to decide. A missing key reports
@@ -541,9 +670,10 @@ impl<T> PyPlace<i64> for Vec<T> {
     }
 }
 
-impl<K, V> PyPlace<K> for std::collections::HashMap<K, V>
+impl<K, V, S> PyPlace<K> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq + std::fmt::Debug,
+    S: std::hash::BuildHasher,
 {
     type Item = V;
     /// A key is not an offset, so there is nothing for the origin to decide.
@@ -588,18 +718,20 @@ impl<T: PartialEq> PyContains<T> for Vec<T> {
     }
 }
 
-impl<K, V> PyContains<K> for std::collections::HashMap<K, V>
+impl<K, V, S> PyContains<K> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq,
+    S: std::hash::BuildHasher,
 {
     fn py_contains(&self, key: &K) -> bool {
         self.contains_key(key)
     }
 }
 
-impl<T> PyContains<T> for std::collections::HashSet<T>
+impl<T, S> PyContains<T> for std::collections::HashSet<T, S>
 where
     T: std::hash::Hash + Eq,
+    S: std::hash::BuildHasher,
 {
     fn py_contains(&self, value: &T) -> bool {
         self.contains(value)
@@ -630,13 +762,13 @@ impl<T> PyLen for Vec<T> {
     }
 }
 
-impl<K, V> PyLen for std::collections::HashMap<K, V> {
+impl<K, V, S> PyLen for std::collections::HashMap<K, V, S> {
     fn py_len(&self, _units: TextUnits) -> i64 {
         self.len() as i64
     }
 }
 
-impl<T> PyLen for std::collections::HashSet<T> {
+impl<T, S> PyLen for std::collections::HashSet<T, S> {
     fn py_len(&self, _units: TextUnits) -> i64 {
         self.len() as i64
     }
@@ -668,14 +800,14 @@ impl<T: Clone> PyIterate for Vec<T> {
     }
 }
 
-impl<K: Clone, V> PyIterate for std::collections::HashMap<K, V> {
+impl<K: Clone, V, S> PyIterate for std::collections::HashMap<K, V, S> {
     type Item = K;
     fn py_iter(&self) -> impl Iterator<Item = K> + '_ {
         self.keys().cloned()
     }
 }
 
-impl<T: Clone> PyIterate for std::collections::HashSet<T> {
+impl<T: Clone, S> PyIterate for std::collections::HashSet<T, S> {
     type Item = T;
     fn py_iter(&self) -> impl Iterator<Item = T> + '_ {
         self.iter().cloned()

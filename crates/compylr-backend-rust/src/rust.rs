@@ -79,8 +79,8 @@ pub fn rust_ty(ty: &Ty) -> String {
         Ty::Str => "String".to_string(),
         Ty::Unit => "()".to_string(),
         Ty::List(element) => format!("Vec<{}>", rust_ty(element)),
-        Ty::Dict(key, value) => format!("HashMap<{}, {}>", rust_ty(key), rust_ty(value)),
-        Ty::Set(element) => format!("HashSet<{}>", rust_ty(element)),
+        Ty::Dict(key, value) => format!("FastMap<{}, {}>", rust_ty(key), rust_ty(value)),
+        Ty::Set(element) => format!("FastSet<{}>", rust_ty(element)),
         // A class emits a struct of the same name, so the instance type is spelled the same way.
         Ty::Instance(class) => rust_ident(class),
         Ty::Tuple(elements) => {
@@ -278,17 +278,18 @@ fn emit_crate_root(_unit: &Unit) -> String {
 /// The translated functions, with the imports they need and nothing else.
 fn emit_generated(functions: &str) -> String {
     format!(
+        // The hashed containers come from the runtime rather than from `std`: they carry the
+        // hasher generated code selects, and `std`'s aliases would pin the default one.
         "//! Translated by compylr.\n\
          \n\
-         use std::collections::{{HashMap, HashSet}};\n\
-         \n\
          use crate::compat::{{\n\
-         {}IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen, PyNum, PySetItem,\n\
-         {}RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,\n\
+         {}FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyContains, PyIterate, PyLen,\n\
+         {}PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place,\n\
+         {}py_subscript,\n\
          }};\n\
          \n\
          {functions}",
-        "    ", "    "
+        "    ", "    ", "    "
     )
 }
 
@@ -1542,7 +1543,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
         Expr::SetLit(items) => {
             let element = element_ty(expected);
             let rendered = render_all(items, unit, &element)?;
-            format!("HashSet::from([{}])", rendered.join(", "))
+            format!("FastSet::from_iter([{}])", rendered.join(", "))
         }
         Expr::TupleLit(items) => {
             // A type per position, so each element is rendered against its own.
@@ -1574,7 +1575,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
                     emit_expr(value, unit, &value_ty)?
                 ));
             }
-            format!("HashMap::from([{}])", rendered.join(", "))
+            format!("FastMap::from_iter([{}])", rendered.join(", "))
         }
         Expr::Attribute { object, name } => {
             // Cloned rather than moved: reading one field must not consume the object, and the
