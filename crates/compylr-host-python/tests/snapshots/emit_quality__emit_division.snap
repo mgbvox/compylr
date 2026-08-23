@@ -7,8 +7,8 @@ expression: functions.trim()
 use std::collections::{HashMap, HashSet};
 
 use crate::compat::{
-    IndexOrigin, NativeAdd, NativeNum, PyAdd, PyContains, PyIterate, PyLen, PyNum,
-    PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
+    TextUnits, div_exact, py_borrow, py_place, py_subscript,
 };
 
 pub fn halves(a: i64) -> Result<i64, RuntimeError> {

@@ -5,6 +5,7 @@
 //! snapshot the lowered IR so that an unintended change in shape shows up as a diff rather than
 //! as a silently different tree.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use compylr_diagnostics::error::LowerErrorKind;
@@ -63,6 +64,41 @@ fn accepted_fixtures_lower_to_stable_ir() {
         let functions = accepted(&name);
         insta::assert_debug_snapshot!(name, functions);
     }
+}
+
+#[test]
+fn default_behavior_fixture_fingerprints_are_stable() {
+    // This is the permanent form of the one-time before/after comparison. The structural fixture
+    // snapshots did not move when behavior selection replaced the frontend constants, and these
+    // fingerprints make that equivalence a compact baseline that future changes must review.
+    let mut names: Vec<String> = std::fs::read_dir(fixtures_dir().join("accepted"))
+        .expect("accepted fixtures directory must exist")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".py"))
+        .collect();
+    names.sort();
+
+    let fingerprints: BTreeMap<String, u64> = names
+        .into_iter()
+        .map(|name| {
+            let path = fixtures_dir().join("accepted").join(&name);
+            let parsed = parse_file(&path).expect("fixture must parse as valid Python");
+            let (functions, classes) = lower_source_members(&parsed, python_stance())
+                .unwrap_or_else(|error| panic!("{name} should lower, but failed: {error}"));
+            let mut unit = Unit::new();
+            for class in classes {
+                unit.add_class(class).expect("fixture names are unique");
+            }
+            for function in functions {
+                unit.add_function(function)
+                    .expect("fixture names are unique");
+            }
+            (name, unit.fingerprint())
+        })
+        .collect();
+
+    insta::assert_debug_snapshot!(fingerprints);
 }
 
 #[test]

@@ -164,14 +164,14 @@
 
 ## 10. Prove the default path did not move
 
-- [ ] 10.1 Before the emission changes land, snapshot the emitted Rust for every fixture in
+- [x] 10.1 Before the emission changes land, snapshot the emitted Rust for every fixture in
       `python/fixtures/accepted/`; after they land, diff against it and require it byte-identical
       under the default behavior
-- [ ] 10.2 Add a permanent test that lowering every accepted fixture under Python's stance produces
+- [x] 10.2 Add a permanent test that lowering every accepted fixture under Python's stance produces
       the IR the frontend produced before behavior selection existed, keyed on fingerprints
-- [ ] 10.3 Confirm `tests/emit_quality.rs` and `tests/fixtures.rs` still enumerate the fixture
+- [x] 10.3 Confirm `tests/emit_quality.rs` and `tests/fixtures.rs` still enumerate the fixture
       directory rather than a list, and that neither has grown a hardcoded behavior
-- [ ] 10.4 fmt, clippy, test; commit
+- [x] 10.4 fmt, clippy, test; commit
 
 ## 11. Documentation and the demo
 

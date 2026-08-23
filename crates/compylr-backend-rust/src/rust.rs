@@ -327,8 +327,8 @@ fn emit_generated(functions: &str) -> String {
          use std::collections::{{HashMap, HashSet}};\n\
          \n\
          use crate::compat::{{\n\
-         {}IndexOrigin, NativeAdd, NativeNum, PyAdd, PyContains, PyIterate, PyLen, PyNum,\n\
-         {}PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,\n\
+         {}IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,\n\
+         {}TextUnits, div_exact, py_borrow, py_place, py_subscript,\n\
          }};\n\
          \n\
          {functions}",
@@ -1662,7 +1662,7 @@ fn emit_neg(inner: &str, checked: Checked, expected: &Ty) -> String {
     match checked {
         Checked::Reported => format!("PyNum::py_neg(&({inner}))?"),
         Checked::Unchecked if expected.is_numeric() => format!("(-({inner}))"),
-        Checked::Unchecked => format!("NativeNum::native_neg(&({inner}))"),
+        Checked::Unchecked => format!("crate::compat::NativeNum::native_neg(&({inner}))"),
     }
 }
 
@@ -1816,21 +1816,21 @@ fn emit_binary(
         // The infallible dispatch, for the same operations where the type is not known.
         BinOp::Add {
             checked: Checked::Unchecked,
-        } => "NativeAdd::native_add",
+        } => "crate::compat::NativeAdd::native_add",
         BinOp::Sub {
             checked: Checked::Unchecked,
-        } => "NativeNum::native_sub",
+        } => "crate::compat::NativeNum::native_sub",
         BinOp::Mul {
             checked: Checked::Unchecked,
-        } => "NativeNum::native_mul",
+        } => "crate::compat::NativeNum::native_mul",
         BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardZero),
             checked: Checked::Unchecked,
-        } => "NativeNum::native_div_trunc",
+        } => "crate::compat::NativeNum::native_div_trunc",
         BinOp::Rem {
             sign: RemSign::Dividend,
             checked: Checked::Unchecked,
-        } => "NativeNum::native_rem_trunc",
+        } => "crate::compat::NativeNum::native_rem_trunc",
 
         // A flooring division, or a remainder taking the divisor's sign, whose failure the
         // program declined to define. **This combination is real and is the likeliest thing to
@@ -1854,6 +1854,10 @@ fn emit_binary(
     };
 
     // A dispatch returns a value; a reporting helper returns a result.
-    let propagate = if call.starts_with("Native") { "" } else { "?" };
+    let propagate = if call.starts_with("crate::compat::Native") {
+        ""
+    } else {
+        "?"
+    };
     Ok(format!("{call}(&({left}), &({right})){propagate}"))
 }
