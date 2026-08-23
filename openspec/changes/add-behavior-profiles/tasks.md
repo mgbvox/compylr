@@ -10,16 +10,16 @@
 - [x] 1.3 Add the resolved `Behavior` type: one stance per axis, plus the accessors lowering will
       use to read a mode for an operation. Re-export both from `compylr-core` the way `Guarantee`
       is re-exported
-- [ ] 1.4 Write tests for resolution in `compylr-core`: a bare language name sets every axis; an
+- [x] 1.4 Write tests for resolution in `compylr-core`: a bare language name sets every axis; an
       unnamed axis inherits the enclosing default rather than a fixed language; a bare name and a
       full per-axis selection of the same language resolve identically; a resolved behavior is
       total
-- [ ] 1.5 Write tests for resolution failures, branching on a stable category and not on prose: an
+- [x] 1.5 Write tests for resolution failures, branching on a stable category and not on prose: an
       unknown language, a registered-or-reserved language that is not one of this pair, and an
       unknown axis. Assert the pair's two language names appear in each message
-- [ ] 1.6 Add `compylr-core/src/behavior.rs` with the request type and `resolve`, returning the
+- [x] 1.6 Add `compylr-core/src/behavior.rs` with the request type and `resolve`, returning the
       three-way error. Assert `compylr-core` still names no concrete language
-- [ ] 1.7 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 1.7 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 2. The `Checked` mode on the IR
@@ -40,7 +40,7 @@
 - [x] 2.6 Update `tests/serialization.rs` and any snapshot the shape change moves; confirm
       `demo_coverage.rs`'s `variants_of` scan still reads `BinOp` correctly now that more variants
       carry fields
-- [ ] 2.7 `cargo fmt --all`, clippy, `cargo test --workspace`; commit
+- [x] 2.7 `cargo fmt --all`, clippy, `cargo test --workspace`; commit
 
 ## 3. Each language declares its stance
 

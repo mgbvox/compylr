@@ -274,6 +274,34 @@ fn core_names_no_source_language_syntax() {
     }
 }
 
+/// Behavior resolution names no concrete language either.
+///
+/// This is the one place a pairwise table would be easy to write and hard to notice: resolution
+/// holds two languages at once, so `if source == "python"` would compile, work, and quietly turn
+/// the N + M property into N x M. The names arrive as strings on a `LanguagePair` and the
+/// declarations arrive with them, which is what keeps a third language from costing an edit here.
+///
+/// The test module is excluded because its fixtures are two invented languages — which is itself
+/// deliberate: reaching for the real declarations would let resolution pass by agreeing with them
+/// coincidentally, even if it had stopped consulting them.
+#[test]
+fn behavior_resolution_names_no_concrete_language() {
+    let source = read_crate_source("compylr-core");
+    let resolution = source
+        .split("mod tests")
+        .next()
+        .expect("splitting on a marker always yields a first part");
+    let resolution = strip_comments(resolution);
+
+    for language in ["python", "rust", "typescript", "cpp", "golang"] {
+        assert!(
+            !resolution.contains(&format!("\"{language}\"")),
+            "compylr-core names '{language}'; resolution must read the two declarations it is \
+             handed rather than know which languages exist"
+        );
+    }
+}
+
 /// Emission must not touch the filesystem or run anything.
 ///
 /// Turning IR into text is a pure function of the unit, and that is not a style preference: it is
