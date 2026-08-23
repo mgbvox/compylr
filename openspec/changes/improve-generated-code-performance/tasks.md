@@ -189,7 +189,9 @@ guard that fails on the defect the prototype shipped.
 - [x] 10.2 Update `README.md` where it describes what compiling is worth; `tests/readme.rs` enforces
       the mechanical half
 - [x] 10.3 Record the final table — every workload, before and after, against the noise floor — and
-      note that `-C target-cpu=native` was measured and rejected
+      note that `-C target-cpu=native` was measured and rejected. **Re-measured after section 8 was
+      reverted**, from a cleaned `.compylr`: only `text.word_count` moved (26.22us to 36.49us, 0.6x
+      to 0.5x), and `demo/README.md` records where that 10us lives so the follow-up can find it.
 - [x] 10.4 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`
 - [x] 10.5 `cargo llvm-cov --workspace --ignore-filename-regex '(vendored/|/main\.rs)'

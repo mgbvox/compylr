@@ -126,6 +126,23 @@ That is a larger and probably better answer, and it is a change of its own: it n
 type, a lifetime story, and a decision about what happens when Python mutates the original. Named
 here so it is not mistaken for something this change forecloses.
 
+**Outcome: it did not land, and the risk was not the one this decision predicted.** The lifetime
+was fine; generated signatures stayed uniform and results stayed owned `String` values. What broke
+was the *element* type. The premise the item rested on — a text parameter is never mutated, so
+borrowing it is always legal — is true and insufficient: a parameter can also be **stored**, and
+storing needs ownership. `xs.append(who)`, `d[k] = who`, `who < "m"`, and `who in xs` each emitted
+Rust that does not compile, and the whole suite passed anyway.
+
+Deciding it correctly needs the backend to know an expression's type, which it deliberately does
+not — every type-dependent choice dispatches through a trait so Rust selects the impl, and that is
+what lets one emitter serve types it cannot see. Recovering the information, or proving safety with
+a closed whitelist of positions that tolerate a borrow, is a change of its own.
+
+What the attempt did establish is where the remaining text cost actually lives, and it is not the
+parameter: a **mapping key** allocates an owned `String` per element even when the loop variable it
+comes from is already borrowed. That is worth about 10us on `text.word_count`, it is independent of
+parameter passing, and it is the better-targeted follow-up.
+
 ### D7. Rejected candidates keep their measurements
 
 `-C target-cpu=native` was tested and rejected: no row moved outside noise, and it would make a

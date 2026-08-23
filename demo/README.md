@@ -120,7 +120,7 @@ mutation, which is how it survived; one does now.
 **`m[i][j]` cloned the whole row to read one element of it.** The read side of the same asymmetry.
 In the inner loop of a matrix multiply that is an allocation and an O(n) copy per element access —
 an O(n³) algorithm doing O(n⁴) work, with every answer correct. Only a benchmark could find it,
-and this one did: matrix multiply came out at **1.0×** against interpreted Python. It is 8.2× now.
+and this one did: matrix multiply came out at **1.0×** against interpreted Python. It is 11.3× now.
 
 A third came out of the same session and is not a compiler defect but a cost nobody had measured:
 `ensure_built` re-ran the whole compiler on every call to compute a fingerprint it already held.
@@ -157,30 +157,43 @@ make demo                                   # from the repository root
 uv run python -m algorithms.benchmark       # or directly, from here
 ```
 
-The final clean scale-one run had a 0% control-row floor and 0–6% row spreads. The baseline is the
-table recorded before this change; `—` means the workload was added later or had no recorded
-baseline, not that it measured zero.
+The final clean scale-one run had a 2% control-row floor and 1–5% row spreads, except
+`sorting.merge_sort`, which the harness marked unstable at 38% and whose figure is therefore not
+worth reading. The baseline is the table recorded before this change; `—` means the workload was
+added later or had no recorded baseline, not that it measured zero.
 
 | workload | before | after compiled | after interpreted | after |
 | --- | ---: | ---: | ---: | ---: |
-| `arithmetic.collatz_length` | 21.5x | 0.28us | 6.00us | 21.3x |
-| `dynamic.knapsack` | 11.2x | 13.35us | 241.51us | 18.1x |
-| `structures.component_count` | 9.5x | 4.73us | 59.94us | 12.7x |
-| `matrices.multiply` | 8.2x | 6.92us | 80.26us | 11.6x |
-| `arithmetic.sieve` | 7.1x | 0.96us | 8.83us | 9.2x |
-| `stats.standard_deviation` | 3.5x | 4.58us | 19.36us | 4.2x |
-| `sorting.merge_sort` | 2.0x | 43.48us | 178.01us | 4.1x |
-| `text.joined` | 0.8x | 17.69us | 62.37us | 3.5x |
-| `sorting.insertion_sort` | 2.5x | 3.72us | 12.56us | 3.4x |
-| `graphs.topological_order` | 1.5x | 66.36us | 209.08us | 3.2x |
-| `dynamic.edit_distance` | 2.3x | 38.90us | 110.64us | 2.8x |
-| `stats.normalize` | 2.1x | 9.56us | 23.69us | 2.5x |
-| `matrices.transpose` | 1.0x | 3.45us | 5.77us | 1.7x |
-| `graphs.bfs_distances` | 0.5x | 24.46us | 27.13us | 1.1x |
-| `reference` | 1.0x | 41.18us | 41.38us | not resolvable |
-| `text.word_count` | 0.3x | 26.22us | 15.37us | 0.6x |
-| `text.total_length` | — | 15.54us | 8.22us | 0.5x |
+| `arithmetic.collatz_length` | 21.5x | 0.28us | 6.03us | 21.8x |
+| `dynamic.knapsack` | 11.2x | 13.27us | 242.34us | 18.3x |
+| `structures.component_count` | 9.5x | 4.91us | 59.58us | 12.1x |
+| `matrices.multiply` | 8.2x | 6.96us | 78.69us | 11.3x |
+| `arithmetic.sieve` | 7.1x | 0.95us | 8.85us | 9.4x |
+| `stats.standard_deviation` | 3.5x | 4.59us | 19.47us | 4.2x |
+| `sorting.merge_sort` (unstable) | 2.0x | 44.83us | 179.87us | 4.0x |
+| `text.joined` | 0.8x | 17.63us | 60.86us | 3.5x |
+| `sorting.insertion_sort` | 2.5x | 3.74us | 12.64us | 3.4x |
+| `graphs.topological_order` | 1.5x | 68.12us | 209.31us | 3.1x |
+| `dynamic.edit_distance` | 2.3x | 39.13us | 110.10us | 2.8x |
+| `stats.normalize` | 2.1x | 9.71us | 23.73us | 2.4x |
+| `matrices.transpose` | 1.0x | 3.48us | 5.79us | 1.7x |
+| `graphs.bfs_distances` | 0.5x | 24.50us | 27.18us | 1.1x |
+| `reference` | 1.0x | 40.17us | 39.45us | not resolvable |
+| `text.total_length` | — | 15.62us | 8.20us | 0.5x |
+| `text.word_count` | 0.3x | 36.49us | 17.03us | 0.5x |
 | `sorting.binary_search` | — | 2.95us | 0.56us | 0.2x |
+
+Two rows still lose, and they lose for the reason the bottom of the table exists: `text.word_count`
+and `text.total_length` convert a list of strings on every call, and text is the most expensive
+element the subset supports.
+
+**`text.word_count` has about 10us of known headroom left**, and where it lives is worth recording.
+Its loop variable is already borrowed, so each word is read without a copy — but using that word as
+a mapping key allocates an owned `String` per element. An attempt at borrowed text *parameters*
+incidentally removed that allocation, measuring 26.22us here, and was reverted for unrelated
+reasons; see the note in `CLAUDE.md` and section 8 of the OpenSpec change. Recovering it on its own
+means letting a mapping key be borrowed, which is a smaller and better-targeted change than the one
+that happened to include it.
 
 `-C target-cpu=native` was also measured and rejected: no workload moved outside the noise floor,
 while the resulting artifact could fault if `.compylr` were copied to a machine with a different
@@ -197,7 +210,7 @@ deliberately keeps `list[str]` represented in the table.
 
 That conversion cost is proportional to the argument's length even when the function body is not.
 `sorting.binary_search` converts all 2,000 integers at scale four to perform only about eleven
-comparisons. Measured here it took 11.58 us compiled against 0.66 us interpreted — about 17.5x
+comparisons. Measured here it took 11.54 us compiled against 0.65 us interpreted — about 17.8x
 slower — because its O(n) boundary dominates its O(log n) body.
 `bfs_distances` similarly converts a mapping of lists on the way in and a mapping of integers on
 the way out. A faster generated body does not guarantee a faster call; the ratio between conversion
