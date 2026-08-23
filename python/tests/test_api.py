@@ -11,7 +11,53 @@ from pathlib import Path
 import compylr
 import pytest
 from compylr import _core
-from compylr._config import Settings
+from compylr._config import Behavior, Settings
+
+BEHAVIOR_FIELDS = {
+    "overflow",
+    "floor_div",
+    "true_div",
+    "modulo",
+    "index",
+    "text_len",
+}
+
+
+class TestBehavior:
+    def test_has_exactly_the_six_user_facing_fields(self) -> None:
+        from dataclasses import fields
+
+        assert {field.name for field in fields(Behavior)} == BEHAVIOR_FIELDS
+
+    def test_none_means_inherit(self) -> None:
+        behavior = Behavior(overflow="rust")
+
+        assert behavior.overflow == "rust"
+        assert behavior.floor_div is None
+        assert behavior.true_div is None
+        assert behavior.modulo is None
+        assert behavior.index is None
+        assert behavior.text_len is None
+
+    def test_an_unknown_field_lists_the_valid_ones(self) -> None:
+        with pytest.raises(TypeError) as caught:
+            Behavior(**{"rounding": "rust"})
+
+        message = str(caught.value)
+        assert "rounding" in message
+        assert set(message.replace(",", "").split()) >= BEHAVIOR_FIELDS
+
+    def test_a_language_name_normalises_to_every_field(self) -> None:
+        settings = Settings(behavior="rust")
+
+        assert settings.behavior == Behavior(
+            overflow="rust",
+            floor_div="rust",
+            true_div="rust",
+            modulo="rust",
+            index="rust",
+            text_len="rust",
+        )
 
 
 class TestInitialize:
@@ -24,6 +70,14 @@ class TestInitialize:
         c = compylr.initialize()
         assert c.settings.backend == compylr.DEFAULT_BACKEND
         assert c.settings.llm_assist is False
+        assert c.settings.behavior == Behavior(
+            overflow="python",
+            floor_div="python",
+            true_div="python",
+            modulo="python",
+            index="python",
+            text_len="python",
+        )
 
     def test_repeating_the_same_settings_returns_the_same_manager(self) -> None:
         # One manager per project is what keeps every marked function in one shared artifact.
@@ -55,6 +109,26 @@ class TestInitialize:
     def test_a_reserved_backend_says_it_is_planned(self) -> None:
         with pytest.raises(_core.BackendNotAvailableError, match="not implemented yet"):
             compylr.initialize(backend="typescript")
+
+    def test_an_unknown_behavior_language_is_refused_immediately(self) -> None:
+        with pytest.raises(_core.InvalidBehaviorError) as caught:
+            compylr.initialize(behavior="nonesuch")
+
+        assert caught.value.code == "unknown_language"
+        assert "python" in str(caught.value)
+        assert "rust" in str(caught.value)
+
+    def test_a_reserved_behavior_language_is_distinguished(self) -> None:
+        with pytest.raises(_core.InvalidBehaviorError) as caught:
+            compylr.initialize(behavior="go")
+
+        assert caught.value.code == "language_not_in_pair"
+
+    def test_reinitializing_with_a_different_behavior_is_refused(self) -> None:
+        compylr.initialize(behavior="python")
+
+        with pytest.raises(compylr.ConfigurationError, match="already initialized"):
+            compylr.initialize(behavior="rust")
 
 
 class TestLlmAssist:
@@ -148,6 +222,77 @@ class TestSettingsResolution:
             return a
 
         assert f.settings.backend == "rust", "naming one setting must not reset the others"
+
+    def test_a_member_behavior_merges_into_the_source_default(self) -> None:
+        c = compylr.initialize(behavior="python")
+
+        @c.compyle(behavior=Behavior(overflow="rust"))
+        def f(a: int) -> int:
+            return a
+
+        assert f.settings.behavior == Behavior(
+            overflow="rust",
+            floor_div="python",
+            true_div="python",
+            modulo="python",
+            index="python",
+            text_len="python",
+        )
+
+    def test_a_member_behavior_merges_into_a_target_default(self) -> None:
+        c = compylr.initialize(behavior="rust")
+
+        @c.compyle(behavior=Behavior(overflow="python"))
+        def f(a: int) -> int:
+            return a
+
+        assert f.settings.behavior == Behavior(
+            overflow="python",
+            floor_div="rust",
+            true_div="rust",
+            modulo="rust",
+            index="rust",
+            text_len="rust",
+        )
+
+    def test_an_unknown_behavior_language_fails_at_the_decorator(self) -> None:
+        c = compylr.initialize()
+        with pytest.raises(_core.InvalidBehaviorError) as caught:
+
+            @c.compyle(behavior=Behavior(index="nonesuch"))
+            def f(a: int) -> int:
+                return a
+
+        assert caught.value.code == "unknown_language"
+        assert "sequence_index" in str(caught.value)
+        assert "python" in str(caught.value)
+        assert "rust" in str(caught.value)
+
+    def test_a_reserved_behavior_language_fails_at_the_decorator(self) -> None:
+        c = compylr.initialize()
+        with pytest.raises(_core.InvalidBehaviorError) as caught:
+
+            @c.compyle(behavior=Behavior(modulo="go"))
+            def f(a: int) -> int:
+                return a
+
+        assert caught.value.code == "language_not_in_pair"
+
+    def test_mixed_backends_are_still_refused(self) -> None:
+        c = compylr.initialize()
+
+        @c.compyle(behavior="python")
+        def source_meaning(a: int) -> int:
+            return a
+
+        @c.compyle(behavior="rust")
+        def target_meaning(a: int) -> int:
+            return a
+
+        object.__setattr__(target_meaning.settings, "backend", "go")
+
+        with pytest.raises(compylr.ConfigurationError, match="different backends"):
+            c.ensure_built()
 
     def test_a_reserved_backend_fails_at_the_decorator_that_named_it(self) -> None:
         c = compylr.initialize()

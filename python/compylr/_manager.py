@@ -24,7 +24,7 @@ from typing import Any, Generic, ParamSpec, TypeVar, overload
 
 from . import _core
 from ._build import BuildPipeline
-from ._config import INHERIT, Settings, disabled_by_environment
+from ._config import INHERIT, Behavior, Settings, disabled_by_environment
 from ._errors import ConfigurationError
 from ._source import capture_source
 
@@ -175,6 +175,7 @@ class Manager:
         *,
         backend: str | object = ...,
         llm_assist: bool | object = ...,
+        behavior: str | Behavior | object = ...,
     ) -> Callable[[Any], Any]: ...
 
     def compyle(
@@ -183,6 +184,7 @@ class Manager:
         *,
         backend: str | object = INHERIT,
         llm_assist: bool | object = INHERIT,
+        behavior: str | Behavior | object = INHERIT,
     ) -> Any:
         """Mark a function or a class for compilation.
 
@@ -198,7 +200,11 @@ class Manager:
         if not self._enabled:
             return (lambda target: target) if function is None else function
 
-        settings = self._settings.override(backend=backend, llm_assist=llm_assist)
+        settings = self._settings.override(
+            backend=backend,
+            llm_assist=llm_assist,
+            behavior=behavior,
+        )
 
         def mark(target: Callable[P, R]) -> Any:
             return self._register(target, settings)
@@ -286,7 +292,11 @@ class Manager:
             self.last_build_invoked_toolchain = False
             return self._module
 
-        compiled = _core.compile_unit(list(self._sources.values()), backend)
+        sources = [
+            (source, self._functions[name].settings.behavior.to_core())
+            for name, source in self._sources.items()
+        ]
+        compiled = _core.compile_unit(sources, backend)
 
         if (
             self._pipeline.cached_fingerprint() == compiled.fingerprint
@@ -336,6 +346,7 @@ def _active_manager() -> Manager | None:
 def initialize(
     backend: str = "rust",
     llm_assist: bool = False,
+    behavior: str | Behavior = "python",
     *,
     root: Path | None = None,
     enabled: bool | None = None,
@@ -352,7 +363,7 @@ def initialize(
     a project can be switched to interpreted from the outside without editing it.
     """
     global _MANAGER
-    settings = Settings(backend=backend, llm_assist=llm_assist)
+    settings = Settings(backend=backend, llm_assist=llm_assist, behavior=behavior)
     resolved = not disabled_by_environment() if enabled is None else enabled
 
     if _MANAGER is None:

@@ -13,6 +13,11 @@ from compylr import _core
 TOTAL = "def total(xs: list[int]) -> int:\n    return xs[0] + len(xs)\n"
 
 
+def compile_unit(source: str) -> _core.CompiledUnit:
+    """Compile one source under the inherited behavior."""
+    return _core.compile_unit([(source, {})])
+
+
 class TestAnnotations:
     @pytest.mark.parametrize(
         "annotation",
@@ -78,12 +83,12 @@ class TestSubscriptAndLen:
 
 class TestGeneratedSpellings:
     def test_collections_spell_recursively(self) -> None:
-        compiled = _core.compile_unit(["def f(d: dict[str, list[int]]) -> int:\n    return 1\n"])
+        compiled = compile_unit("def f(d: dict[str, list[int]]) -> int:\n    return 1\n")
         source = compiled.target_sources["src/generated.rs"]
         assert "HashMap<String, Vec<i64>>" in source
 
     def test_the_ir_artifact_names_no_rust_types(self) -> None:
         # The IR is what every backend consumes; a Rust spelling there is a leak.
-        artifact = _core.compile_unit([TOTAL]).ir_artifact
+        artifact = compile_unit(TOTAL).ir_artifact
         for spelling in ("Vec<", "HashMap", "HashSet", "i64"):
             assert spelling not in artifact

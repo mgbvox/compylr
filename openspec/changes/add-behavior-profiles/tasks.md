@@ -144,23 +144,23 @@
 
 ## 9. The Python API
 
-- [ ] 9.1 Write tests for `Behavior`: six fields, `None` means inherit, an unknown field is
+- [x] 9.1 Write tests for `Behavior`: six fields, `None` means inherit, an unknown field is
       rejected listing the valid ones, and a bare language name normalises to every field set
-- [ ] 9.2 Write tests for inheritance: a per-member behavior naming one axis merges into the
+- [x] 9.2 Write tests for inheritance: a per-member behavior naming one axis merges into the
       manager's rather than replacing it, both when the manager's default is the source language
       and when it is the target's
-- [ ] 9.3 Write tests for validation at the decorator and at `initialize`, covering all three
+- [x] 9.3 Write tests for validation at the decorator and at `initialize`, covering all three
       failure categories, and for `initialize` refusing a second call whose behavior differs
-- [ ] 9.4 Write tests that two members with different behaviors build one artifact and both run,
+- [x] 9.4 Write tests that two members with different behaviors build one artifact and both run,
       that a cross-behavior call gives each side its own rounding for `-7 // 2`, and that a mixed
       *backend* is still refused
-- [ ] 9.5 Write a test that changing a member's behavior rebuilds on the next run and that an
+- [x] 9.5 Write a test that changing a member's behavior rebuilds on the next run and that an
       unchanged one does not
-- [ ] 9.6 Add `Behavior` to `_config.py`; add `behavior` to `Settings` with per-field inheritance in
+- [x] 9.6 Add `Behavior` to `_config.py`; add `behavior` to `Settings` with per-field inheritance in
       `override`; validate in `__post_init__` through `check_behavior` (design D13)
-- [ ] 9.7 Add `behavior` to `initialize` and to `Manager.compyle`; pass each member's behavior
+- [x] 9.7 Add `behavior` to `initialize` and to `Manager.compyle`; pass each member's behavior
       through to `compile_unit`; export `Behavior` from `compylr/__init__.py`
-- [ ] 9.8 `ruff check python/`, `mypy python/compylr`, `pytest`; commit
+- [x] 9.8 `ruff check python/`, `mypy python/compylr`, `pytest`; commit
 
 ## 10. Prove the default path did not move
 

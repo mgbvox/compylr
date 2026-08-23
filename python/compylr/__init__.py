@@ -19,7 +19,7 @@ compylr` on its own installs the compiler, not the ability to build what it gene
 
 from __future__ import annotations
 
-from ._config import DEFAULT_BACKEND, DISABLE_ENV, Settings, disabled_by_environment
+from ._config import DEFAULT_BACKEND, DISABLE_ENV, Behavior, Settings, disabled_by_environment
 from ._core import (
     BackendNotAvailableError,
     CompilationError,
@@ -37,6 +37,7 @@ __all__ = [
     "DEFAULT_BACKEND",
     "DISABLE_ENV",
     "BackendNotAvailableError",
+    "Behavior",
     "BuildError",
     "CompilationError",
     "CompiledClass",
