@@ -1556,7 +1556,8 @@
             "Name": "steps"
           }
         }
-      ]
+      ],
+      "doc": "`collatz_length` again, byte for byte, compiled under Rust's meanings instead.\n\n    The duplication is the experiment. Two functions with identical bodies and different\n    `behavior` settings differ in exactly one thing — what `%`, `//`, `*` and `+` are allowed to\n    do — so the benchmark's comparison between them is a comparison of behaviors and not of\n    programs. What the Rust stance gives up here is written down in the demo's README.\n    "
     },
     {
       "name": "component_count",

@@ -581,6 +581,13 @@ pub fn collatz_length(n: i64) -> Result<i64, RuntimeError> {
     Ok(steps)
 }
 
+/// `collatz_length` again, byte for byte, compiled under Rust's meanings instead.
+///
+///     The duplication is the experiment. Two functions with identical bodies and different
+///     `behavior` settings differ in exactly one thing — what `%`, `//`, `*` and `+` are allowed to
+///     do — so the benchmark's comparison between them is a comparison of behaviors and not of
+///     programs. What the Rust stance gives up here is written down in the demo's README.
+///     
 pub fn collatz_length_rust(n: i64) -> Result<i64, RuntimeError> {
     if ((&(n)) < (&(1i64))) {
         return Ok(0i64);

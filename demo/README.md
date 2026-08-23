@@ -163,11 +163,21 @@ positive input whose intermediate values fit in 64 bits, so those differences ch
 about this answer. That is the trade: less checking on a domain where the caller already promises
 the checks cannot fire, not a claim that the two behaviors are interchangeable for every input.
 
-On the recorded `make demo` run, the interpreted baseline was **9.45 µs** (18% spread), the
-Python-behavior build was **0.29 µs** (53% spread), and the Rust-behavior build was **0.27 µs**
-(47% spread). The control established a **72% noise floor**, so the difference between the two
-compiled behaviors was **not resolvable**. Both were clearly faster than interpretation; the
-harness cannot support a claim that one behavior was faster than the other.
+On the recorded `make demo` run, the interpreted baseline was **6.10 µs** (0% spread), the
+Python-behavior build was **0.27 µs** (1% spread), and the Rust-behavior build was **0.25 µs**
+(2% spread). The control established a **6% noise floor**, which that gap clears, so the run
+reported **1.1x** rather than declining to.
+
+Do not quote the 1.1x without the sentence after it. Across eight runs against the same build on
+an idle machine the compiled timings hardly moved — 0.27-0.28 µs against 0.25 µs every time — but
+the floor moved between 2% and 12%, and one run in eight reported `not resolvable` rather than a
+figure. An earlier recording on a loaded machine put the floor at 72% and said the same thing.
+Every one of those runs is right about itself; the comparison simply lives close to what this
+harness can see, and you should expect to see it decline to answer sometimes.
+
+The claim that survives every floor the harness has produced is the other one: better than twenty
+times against interpretation, on every run. Whether dropping Python's checks is worth a further
+tenth of the compiled time is a judgement about your own inputs.
 
 ### Every algorithm
 

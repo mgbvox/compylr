@@ -224,36 +224,6 @@ Functions at top level only, with mandatory parameter and return annotations.
 | `set[T]` | set | elements restricted the same way |
 | `tuple[A, B]` | tuple | a type per position |
 
-### Behavior axes
-
-By default, compiled operations keep the source language's behavior. Set a project-wide behavior
-with `compylr.initialize(behavior="rust")`, override one member with
-`@c.compyle(behavior="rust")`, or select individual axes while inheriting the rest:
-
-```python
-from compylr import Behavior
-
-c = compylr.initialize()
-
-@c.compyle(behavior=Behavior(overflow="rust", index="python"))
-def selected(xs: list[int], n: int) -> int:
-    return xs[n] + 1
-```
-
-Behavior is validated when `initialize` or the decorator runs. Each selected language must be the
-source or target of this compilation — `python` or `rust` today. Members with different behaviors
-may share one artifact because the choice belongs to each operation; members with different
-backends are still refused because a project produces one target artifact.
-
-| Behavior field | IR axis | Python behavior | Rust behavior |
-| --- | --- | --- | --- |
-| `overflow` | `integer_overflow` | report 64-bit integer overflow | use Rust's native operator; generated release builds wrap |
-| `floor_div` | `integer_division` | round toward negative infinity; report zero divisor | truncate toward zero; use native failure |
-| `true_div` | `exact_division` | report zero divisor | IEEE-754 result, including infinity |
-| `modulo` | `remainder` | sign follows divisor; report zero divisor | sign follows dividend; use native failure |
-| `index` | `sequence_index` | negative indexes count from the end; report out of range | indexes count from the start; use native failure |
-| `text_len` | `text_length` | count Unicode code points | count UTF-8 bytes |
-
 Operators: `+` `-` `*` `/` `//` `%` and the comparisons `==` `!=` `<` `<=` `>` `>=`, plus unary
 negation and calls to functions in the same unit.
 
@@ -390,6 +360,36 @@ That is not an oversight. Each decorated function is validated on its own, so a 
 module is invisible at that moment; rejecting it would make whether your code compiles depend on
 which function you happened to decorate first. Such a call is still checked — once every source is
 assembled into one unit.
+
+### Behavior axes
+
+By default, compiled operations keep the source language's behavior. Set a project-wide behavior
+with `compylr.initialize(behavior="rust")`, override one member with
+`@c.compyle(behavior="rust")`, or select individual axes while inheriting the rest:
+
+```python
+from compylr import Behavior
+
+c = compylr.initialize()
+
+@c.compyle(behavior=Behavior(overflow="rust", index="python"))
+def selected(xs: list[int], n: int) -> int:
+    return xs[n] + 1
+```
+
+Behavior is validated when `initialize` or the decorator runs. Each selected language must be the
+source or target of this compilation — `python` or `rust` today. Members with different behaviors
+may share one artifact because the choice belongs to each operation; members with different
+backends are still refused because a project produces one target artifact.
+
+| Behavior field | IR axis | Python behavior | Rust behavior |
+| --- | --- | --- | --- |
+| `overflow` | `integer_overflow` | report 64-bit integer overflow | use Rust's native operator; generated release builds wrap |
+| `floor_div` | `integer_division` | round toward negative infinity; report zero divisor | truncate toward zero; use native failure |
+| `true_div` | `exact_division` | report zero divisor | IEEE-754 result, including infinity |
+| `modulo` | `remainder` | sign follows divisor; report zero divisor | sign follows dividend; use native failure |
+| `index` | `sequence_index` | negative indexes count from the end; report out of range | indexes count from the start; use native failure |
+| `text_len` | `text_length` | count Unicode code points | count UTF-8 bytes |
 
 ### Control flow
 
