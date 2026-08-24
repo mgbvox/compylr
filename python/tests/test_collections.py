@@ -83,12 +83,15 @@ class TestSubscriptAndLen:
 
 class TestGeneratedSpellings:
     def test_collections_spell_recursively(self) -> None:
+        # `FastMap` rather than `HashMap`: generated containers carry the hasher the backend
+        # selects. It is an alias for `HashMap` with that hasher, so it is the same container —
+        # but the spelling is what says the choice was made rather than inherited.
         compiled = compile_unit("def f(d: dict[str, list[int]]) -> int:\n    return 1\n")
         source = compiled.target_sources["src/generated.rs"]
-        assert "HashMap<String, Vec<i64>>" in source
+        assert "FastMap<String, Vec<i64>>" in source
 
     def test_the_ir_artifact_names_no_rust_types(self) -> None:
         # The IR is what every backend consumes; a Rust spelling there is a leak.
         artifact = compile_unit(TOTAL).ir_artifact
-        for spelling in ("Vec<", "HashMap", "HashSet", "i64"):
+        for spelling in ("Vec<", "HashMap", "HashSet", "FastMap", "FastSet", "i64"):
             assert spelling not in artifact

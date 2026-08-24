@@ -4,11 +4,10 @@ expression: functions.trim()
 ---
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
-    TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
+    PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
+    py_borrow, py_place, py_subscript,
 };
 
 pub fn alias_chain(a: bool) -> Result<bool, RuntimeError> {
@@ -20,7 +19,7 @@ pub fn alias_chain(a: bool) -> Result<bool, RuntimeError> {
 pub fn alias_local() -> Result<String, RuntimeError> {
     let x: String = String::from("hi");
     let y: String = x.clone();
-    Ok(y.clone())
+    Ok(y)
 }
 
 pub fn alias_parameter(a: i64) -> Result<i64, RuntimeError> {

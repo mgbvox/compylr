@@ -163,6 +163,47 @@ impl PyAdd for String {
     }
 }
 
+/// In-place addition, for an accumulator that reads itself.
+///
+/// The shape `x = x + y` is ordinary Python and, for text, quadratic when emitted as a rebuild:
+/// every step allocates a fresh value and copies everything accumulated so far. CPython resizes in
+/// place when the target holds the only reference, so rebuilding was asymptotically *worse* than
+/// the interpreter being replaced — the one case where compiling made an algorithm slower rather
+/// than merely failing to make it faster.
+///
+/// A separate trait rather than a default method on [`PyAdd`], so each type states how it
+/// accumulates and the emitter never has to know which type it is looking at. The numeric
+/// implementations keep the checked arithmetic of `py_add` exactly: an in-place update that
+/// stopped reporting overflow would be a change of meaning wearing the costume of an optimization.
+pub trait PyAddAssign {
+    /// Add or concatenate `rhs` into `self`.
+    fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError>;
+}
+
+impl PyAddAssign for i64 {
+    /// Still checked. `py_add` reports overflow and so does this.
+    fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError> {
+        *self = self.checked_add(*rhs).ok_or(RuntimeError::Overflow)?;
+        Ok(())
+    }
+}
+
+impl PyAddAssign for f64 {
+    fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError> {
+        *self += *rhs;
+        Ok(())
+    }
+}
+
+impl PyAddAssign for String {
+    /// The reason the trait exists: append, rather than allocate a new string and copy both
+    /// halves into it.
+    fn py_add_assign(&mut self, rhs: &Self) -> Result<(), RuntimeError> {
+        self.push_str(rhs);
+        Ok(())
+    }
+}
+
 impl PyNum for i64 {
     fn py_sub(&self, rhs: &Self) -> Result<Self, RuntimeError> {
         self.checked_sub(*rhs).ok_or(RuntimeError::Overflow)
@@ -411,34 +452,177 @@ impl NativeNum for f64 {
 /// The element is cloned out, which is what lets the read-only subset work without threading
 /// borrows through generated code. For a scalar that is free.
 pub fn py_index<T: Clone>(items: &[T], index: i64, origin: IndexOrigin) -> Result<T, RuntimeError> {
-    Ok(items[resolve_index(index, items.len(), origin)?].clone())
+    items
+        .get(resolve_index(index, items.len(), origin)?)
+        .cloned()
+        .ok_or(RuntimeError::IndexOutOfRange)
 }
 
-/// Turn a declared index into an offset, or report that it is out of range.
+/// Turn a declared index into an offset, reporting only what the lookup cannot.
 ///
 /// Shared by every sequence operation that takes an index — reading, assigning, and borrowing a
 /// place to write through. Three copies of this was two too many: they are the same rule, and the
 /// one that drifted would disagree with the others on exactly the inputs (a negative index, an
 /// index one past the end) that a test suite is least likely to cover.
+///
+/// **The upper bound is deliberately not checked here.** Every caller follows this with a lookup
+/// that has to test it anyway — `get`, `get_mut` — so checking it here made every element read
+/// test the same bound twice and carry a panic path for a case that had just been ruled out.
+/// What is left is the part a lookup genuinely cannot do: turn a negative index into an offset
+/// under the origin the frontend declared, and reject one that is still negative.
+///
+/// `saturating_add` rather than `+`: `i64::MIN + length` overflows, which is a panic in a debug
+/// build for an index that is simply out of range. Saturating leaves it enormously negative,
+/// which is rejected on the next line.
 fn resolve_index(index: i64, length: usize, origin: IndexOrigin) -> Result<usize, RuntimeError> {
-    let length = length as i64;
     let resolved = match origin {
-        IndexOrigin::FromEitherEnd if index < 0 => index + length,
-        // Left as it is, so it fails the range check below rather than wrapping into an enormous
+        IndexOrigin::FromEitherEnd if index < 0 => index.saturating_add(length as i64),
+        // Left as it is, so it fails the range check rather than wrapping into an enormous
         // positive index — which is what a target's native indexing would do with it.
         IndexOrigin::FromEitherEnd | IndexOrigin::FromStart => index,
     };
-    if resolved < 0 || resolved >= length {
+    if resolved < 0 {
         return Err(RuntimeError::IndexOutOfRange);
     }
-    Ok(resolved as usize)
+    // Still `usize`-sized on a 32-bit target, where a huge positive index would truncate. The
+    // lookup rejects it either way, but truncating first could make it land *inside* the
+    // collection, which would be a wrong answer rather than a slow one.
+    usize::try_from(resolved).map_err(|_| RuntimeError::IndexOutOfRange)
 }
 
+/// The hasher generated containers use, and the reason it is not the standard one.
+///
+/// `RandomState` is chosen by the standard library to be resistant to a caller who is *trying* to
+/// collide keys — a real concern for a web server keying a map on request headers, and a cost
+/// paid by every program that hashes anything. It is also seeded per process, which is why
+/// mapping iteration order already varies between runs.
+///
+/// The comparison this project is measured against does not pay that cost: CPython hashes a small
+/// integer to itself, and caches a string's hash inside the string object. Generated code was
+/// paying SipHash per lookup against an interpreter paying nearly nothing, which is most of why
+/// `graphs.bfs_distances` ran slower compiled than interpreted.
+///
+/// **A hasher has no observable semantics.** It changes no answer, and mapping and set iteration
+/// order is already unguaranteed and already varies between runs, so a program this could break
+/// was broken before. That is exactly what makes it a performance choice rather than a behavior
+/// axis: `add-behavior-profiles` is built on axes where two languages disagree about *meaning*,
+/// and here nothing disagrees — one option is simply faster.
+///
+/// **What is given up:** this is not a cryptographic hash and offers no resistance to deliberate
+/// collisions. A compiled function that builds a mapping keyed by values an attacker chooses can
+/// be driven quadratic. That is a real trade and it is made deliberately, because the keys in the
+/// supported subset come from the user's own program. A program keying on untrusted input should
+/// not be relying on a transpiler's default hasher for its safety in any case.
+///
+/// The algorithm is the multiply-xor-rotate construction rustc uses for its own internal maps.
+/// Written out here rather than depended on, because this file is embedded verbatim into every
+/// generated crate and must compile with no dependency but `std`.
+const FAST_HASH_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+
+/// A fast, non-cryptographic hasher. The trade being made is written out on `FAST_HASH_SEED`,
+/// which is private -- named here as code rather than linked, because a link to it resolves
+/// only under `--document-private-items` and rustdoc refuses it otherwise.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct FastHasher {
+    hash: u64,
+}
+
+impl FastHasher {
+    /// Fold one word into the accumulated hash.
+    ///
+    /// The rotate is what keeps the high bits from being the only ones that move: multiplication
+    /// alone propagates upward, so consecutive small integers would otherwise differ only near
+    /// the top of the word and collide in a table that indexes off the bottom.
+    #[inline]
+    fn add(&mut self, word: u64) {
+        self.hash = (self.hash.rotate_left(5) ^ word).wrapping_mul(FAST_HASH_SEED);
+    }
+}
+
+impl std::hash::Hasher for FastHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut rest = bytes;
+        while let Some((chunk, tail)) = rest.split_first_chunk::<8>() {
+            self.add(u64::from_le_bytes(*chunk));
+            rest = tail;
+        }
+        if let Some((chunk, tail)) = rest.split_first_chunk::<4>() {
+            self.add(u32::from_le_bytes(*chunk) as u64);
+            rest = tail;
+        }
+        for &byte in rest {
+            self.add(byte as u64);
+        }
+    }
+
+    // Each of these would otherwise go through `write` and its byte loop. Integers are the
+    // overwhelmingly common key in generated code, so the whole point is that they do not.
+    #[inline]
+    fn write_u8(&mut self, value: u8) {
+        self.add(value as u64);
+    }
+
+    #[inline]
+    fn write_u16(&mut self, value: u16) {
+        self.add(value as u64);
+    }
+
+    #[inline]
+    fn write_u32(&mut self, value: u32) {
+        self.add(value as u64);
+    }
+
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        self.add(value);
+    }
+
+    #[inline]
+    fn write_u128(&mut self, value: u128) {
+        self.add(value as u64);
+        self.add((value >> 64) as u64);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, value: usize) {
+        self.add(value as u64);
+    }
+}
+
+/// Builds [`FastHasher`]s. Unseeded, because there is no seed to keep secret.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct FastHashBuilder;
+
+impl std::hash::BuildHasher for FastHashBuilder {
+    type Hasher = FastHasher;
+
+    #[inline]
+    fn build_hasher(&self) -> FastHasher {
+        FastHasher::default()
+    }
+}
+
+/// The mapping type generated code uses.
+///
+/// An alias rather than a new type: it *is* a `HashMap`, so every implementation above applies to
+/// it and a reader meets a familiar type rather than a wrapper to learn.
+pub type FastMap<K, V> = std::collections::HashMap<K, V, FastHashBuilder>;
+
+/// The set type generated code uses. See [`FastMap`].
+pub type FastSet<T> = std::collections::HashSet<T, FastHashBuilder>;
+
 /// Read a mapping value, reporting a missing key the way Python does.
-pub fn py_key<K, V>(map: &std::collections::HashMap<K, V>, key: &K) -> Result<V, RuntimeError>
+pub fn py_key<K, V, S>(map: &std::collections::HashMap<K, V, S>, key: &K) -> Result<V, RuntimeError>
 where
     K: std::hash::Hash + Eq + std::fmt::Debug,
     V: Clone,
+    S: std::hash::BuildHasher,
 {
     map.get(key)
         .cloned()
@@ -452,6 +636,11 @@ where
 /// `String::len` is the UTF-8 byte count, so it is the *only* one of the three that comes for free.
 pub fn py_str_len(value: &str, units: TextUnits) -> i64 {
     match units {
+        // The shortcut is **exact**, not approximate: in ASCII every byte is one code point and
+        // one UTF-16 unit, so the byte count is the answer rather than an estimate of it. It
+        // matters because `chars().count()` decodes the whole string on every `len()`, and
+        // `is_ascii` is a vectorized scan that the common case passes.
+        TextUnits::CodePoints | TextUnits::Utf16Units if value.is_ascii() => value.len() as i64,
         TextUnits::CodePoints => value.chars().count() as i64,
         TextUnits::Utf8Bytes => value.len() as i64,
         TextUnits::Utf16Units => value.chars().map(char::len_utf16).sum::<usize>() as i64,
@@ -481,10 +670,11 @@ impl<T: Clone> PyIndexable<i64> for Vec<T> {
     }
 }
 
-impl<K, V> PyIndexable<K> for std::collections::HashMap<K, V>
+impl<K, V, S> PyIndexable<K> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq + std::fmt::Debug,
     V: Clone,
+    S: std::hash::BuildHasher,
 {
     type Output = V;
     /// A key is not an offset, so there is nothing for the origin to decide.
@@ -527,14 +717,17 @@ impl<T> PySetItem<i64, T> for Vec<T> {
         // is a gap for one that declares `FromStart` — recorded here rather than papered over,
         // because closing it is an IR change and not a runtime one.
         let resolved = resolve_index(*index, self.len(), IndexOrigin::FromEitherEnd)?;
-        self[resolved] = value;
+        *self
+            .get_mut(resolved)
+            .ok_or(RuntimeError::IndexOutOfRange)? = value;
         Ok(())
     }
 }
 
-impl<K, V> PySetItem<K, V> for std::collections::HashMap<K, V>
+impl<K, V, S> PySetItem<K, V> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq + Clone,
+    S: std::hash::BuildHasher,
 {
     fn py_set(&mut self, key: &K, value: V) -> Result<(), RuntimeError> {
         self.insert(key.clone(), value);
@@ -559,13 +752,15 @@ pub trait PyBorrow<I> {
 impl<T> PyBorrow<i64> for Vec<T> {
     type Item = T;
     fn py_borrow(&self, index: &i64, origin: IndexOrigin) -> Result<&T, RuntimeError> {
-        Ok(&self[resolve_index(*index, self.len(), origin)?])
+        self.get(resolve_index(*index, self.len(), origin)?)
+            .ok_or(RuntimeError::IndexOutOfRange)
     }
 }
 
-impl<K, V> PyBorrow<K> for std::collections::HashMap<K, V>
+impl<K, V, S> PyBorrow<K> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq + std::fmt::Debug,
+    S: std::hash::BuildHasher,
 {
     type Item = V;
     /// A key is not an offset, so there is nothing for the origin to decide. A missing key reports
@@ -610,13 +805,14 @@ impl<T> PyPlace<i64> for Vec<T> {
     type Item = T;
     fn py_place(&mut self, index: &i64, origin: IndexOrigin) -> Result<&mut T, RuntimeError> {
         let resolved = resolve_index(*index, self.len(), origin)?;
-        Ok(&mut self[resolved])
+        self.get_mut(resolved).ok_or(RuntimeError::IndexOutOfRange)
     }
 }
 
-impl<K, V> PyPlace<K> for std::collections::HashMap<K, V>
+impl<K, V, S> PyPlace<K> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq + std::fmt::Debug,
+    S: std::hash::BuildHasher,
 {
     type Item = V;
     /// A key is not an offset, so there is nothing for the origin to decide.
@@ -661,18 +857,20 @@ impl<T: PartialEq> PyContains<T> for Vec<T> {
     }
 }
 
-impl<K, V> PyContains<K> for std::collections::HashMap<K, V>
+impl<K, V, S> PyContains<K> for std::collections::HashMap<K, V, S>
 where
     K: std::hash::Hash + Eq,
+    S: std::hash::BuildHasher,
 {
     fn py_contains(&self, key: &K) -> bool {
         self.contains_key(key)
     }
 }
 
-impl<T> PyContains<T> for std::collections::HashSet<T>
+impl<T, S> PyContains<T> for std::collections::HashSet<T, S>
 where
     T: std::hash::Hash + Eq,
+    S: std::hash::BuildHasher,
 {
     fn py_contains(&self, value: &T) -> bool {
         self.contains(value)
@@ -703,13 +901,13 @@ impl<T> PyLen for Vec<T> {
     }
 }
 
-impl<K, V> PyLen for std::collections::HashMap<K, V> {
+impl<K, V, S> PyLen for std::collections::HashMap<K, V, S> {
     fn py_len(&self, _units: TextUnits) -> i64 {
         self.len() as i64
     }
 }
 
-impl<T> PyLen for std::collections::HashSet<T> {
+impl<T, S> PyLen for std::collections::HashSet<T, S> {
     fn py_len(&self, _units: TextUnits) -> i64 {
         self.len() as i64
     }
@@ -732,25 +930,166 @@ pub trait PyIterate {
     type Item;
     /// The values, in whatever order the container defines.
     fn py_iter(&self) -> impl Iterator<Item = Self::Item> + '_;
+    /// The same values, borrowed rather than copied.
+    ///
+    /// A `for` whose body only *reads* the loop variable has no use for its own copy, and for a
+    /// collection of owned values that copy is an allocation per element per loop. The copying
+    /// form stays, because a body that assigns to the loop variable genuinely needs one.
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &Self::Item> + '_;
 }
 
 impl<T: Clone> PyIterate for Vec<T> {
     type Item = T;
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &T> + '_ {
+        self.iter()
+    }
     fn py_iter(&self) -> impl Iterator<Item = T> + '_ {
         self.iter().cloned()
     }
 }
 
-impl<K: Clone, V> PyIterate for std::collections::HashMap<K, V> {
+impl<K: Clone, V, S> PyIterate for std::collections::HashMap<K, V, S> {
     type Item = K;
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &K> + '_ {
+        self.keys()
+    }
     fn py_iter(&self) -> impl Iterator<Item = K> + '_ {
         self.keys().cloned()
     }
 }
 
-impl<T: Clone> PyIterate for std::collections::HashSet<T> {
+impl<T: Clone, S> PyIterate for std::collections::HashSet<T, S> {
     type Item = T;
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &T> + '_ {
+        self.iter()
+    }
     fn py_iter(&self) -> impl Iterator<Item = T> + '_ {
         self.iter().cloned()
+    }
+}
+
+// Borrowed values satisfy the reading traits, delegating to the owned implementations.
+//
+// A `for` whose body only reads its loop variable binds it by reference, which saves an
+// allocation and a copy per element per loop. Without these, that emitter change does not
+// compile: the traits are implemented on the owned types, so a borrowed loop variable does not
+// satisfy them. The emitter change is a few lines; this is the work that makes it legal.
+//
+// Only the *reading* traits get one. `PyAdd` and `PyNum` return `Self`, and `Self` would be a
+// reference here — there is no owned value to return, so a borrowed operand still has to be
+// cloned into one at the point of use. That is unchanged behaviour, not a gap.
+
+impl<T> PyLen for &T
+where
+    T: PyLen + ?Sized,
+{
+    fn py_len(&self, units: TextUnits) -> i64 {
+        (**self).py_len(units)
+    }
+}
+
+impl<T, I> PyContains<I> for &T
+where
+    T: PyContains<I> + ?Sized,
+{
+    fn py_contains(&self, value: &I) -> bool {
+        (**self).py_contains(value)
+    }
+}
+
+impl<T, I> PyIndexable<I> for &T
+where
+    T: PyIndexable<I> + ?Sized,
+{
+    type Output = T::Output;
+    fn py_get(&self, index: &I, origin: IndexOrigin) -> Result<Self::Output, RuntimeError> {
+        (**self).py_get(index, origin)
+    }
+}
+
+impl<T, I> PyBorrow<I> for &T
+where
+    T: PyBorrow<I> + ?Sized,
+{
+    type Item = T::Item;
+    fn py_borrow(&self, index: &I, origin: IndexOrigin) -> Result<&Self::Item, RuntimeError> {
+        (**self).py_borrow(index, origin)
+    }
+}
+
+impl<T> PyIterate for &T
+where
+    T: PyIterate + ?Sized,
+{
+    type Item = T::Item;
+    fn py_iter(&self) -> impl Iterator<Item = Self::Item> + '_ {
+        (**self).py_iter()
+    }
+    fn py_iter_borrowed(&self) -> impl Iterator<Item = &Self::Item> + '_ {
+        (**self).py_iter_borrowed()
+    }
+}
+
+/// Add into an indexed slot, resolving the index **once**.
+///
+/// `d[k] = d[k] + 1` is ordinary Python and was emitted as a read followed by a write: two
+/// separate lookups of the same key, so two hashes, on a statement whose whole purpose is to
+/// touch one entry. Counting occurrences — the single most common thing anyone does with a
+/// mapping — paid for it once per element.
+///
+/// The trait is indexed rather than mapping-specific because the emitter cannot tell a mapping
+/// from a sequence: it does not know an expression's type, so it emits one call and Rust selects
+/// the implementation, exactly as every other container operation here works.
+///
+/// A missing key still **reports** and is still not created. The fused form reaches for an
+/// existing slot and fails when there is none, which is what reading one already did — assignment
+/// is what creates a key, and this is not an assignment.
+pub trait PyAddAssignAt<I> {
+    /// What one slot holds.
+    type Value;
+    /// Add `delta` into the slot at `index`.
+    fn py_add_assign_at(
+        &mut self,
+        index: &I,
+        delta: &Self::Value,
+        origin: IndexOrigin,
+    ) -> Result<(), RuntimeError>;
+}
+
+impl<T> PyAddAssignAt<i64> for Vec<T>
+where
+    T: PyAddAssign,
+{
+    type Value = T;
+    fn py_add_assign_at(
+        &mut self,
+        index: &i64,
+        delta: &T,
+        origin: IndexOrigin,
+    ) -> Result<(), RuntimeError> {
+        let resolved = resolve_index(*index, self.len(), origin)?;
+        self.get_mut(resolved)
+            .ok_or(RuntimeError::IndexOutOfRange)?
+            .py_add_assign(delta)
+    }
+}
+
+impl<K, V, S> PyAddAssignAt<K> for std::collections::HashMap<K, V, S>
+where
+    K: std::hash::Hash + Eq + std::fmt::Debug,
+    V: PyAddAssign,
+    S: std::hash::BuildHasher,
+{
+    type Value = V;
+    /// A key is not an offset, so there is nothing for the origin to decide.
+    fn py_add_assign_at(
+        &mut self,
+        key: &K,
+        delta: &V,
+        _origin: IndexOrigin,
+    ) -> Result<(), RuntimeError> {
+        self.get_mut(key)
+            .ok_or_else(|| RuntimeError::MissingKey(format!("{key:?}")))?
+            .py_add_assign(delta)
     }
 }

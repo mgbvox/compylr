@@ -4,24 +4,23 @@ expression: functions.trim()
 ---
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
-    TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
+    PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
+    py_borrow, py_place, py_subscript,
 };
 
-pub fn counts(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeError> {
-    let mut seen: HashMap<String, i64> = HashMap::from([]);
+pub fn counts(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeError> {
+    let mut seen: FastMap<String, i64> = FastMap::from_iter([]);
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if PyContains::py_contains(&(seen), &(word)) {
                 {
-                    let __compylr_value = PyAdd::py_add(&(py_subscript(&(seen), &(word), IndexOrigin::FromEitherEnd)?), &(1i64))?;
+                    let __compylr_delta = 1i64;
                     let __compylr_index = word.clone();
-                    PySetItem::py_set(&mut (seen), &__compylr_index, __compylr_value)?;
+                    PyAddAssignAt::py_add_assign_at(&mut (seen), &__compylr_index, &__compylr_delta, IndexOrigin::FromEitherEnd)?;
                 }
             } else {
                 {
@@ -32,11 +31,11 @@ pub fn counts(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeError> 
             }
         }
     }
-    Ok(seen.clone())
+    Ok(seen)
 }
 
 pub fn evens_below(limit: i64) -> Result<Vec<i64>, RuntimeError> {
-    let mut found: Vec<i64> = vec![];
+    let mut found: Vec<i64> = Vec::with_capacity(usize::try_from(limit).unwrap_or(0));
     {
         let __compylr_stop: i64 = limit;
         let __compylr_step: i64 = 1i64;
@@ -57,18 +56,18 @@ pub fn evens_below(limit: i64) -> Result<Vec<i64>, RuntimeError> {
             }
         }
     }
-    Ok(found.clone())
+    Ok(found)
 }
 
 pub fn has_element(xs: Vec<i64>, x: i64) -> Result<bool, RuntimeError> {
     Ok(PyContains::py_contains(&(xs), &(x)))
 }
 
-pub fn has_key(d: HashMap<String, i64>, k: String) -> Result<bool, RuntimeError> {
+pub fn has_key(d: FastMap<String, i64>, k: String) -> Result<bool, RuntimeError> {
     Ok(PyContains::py_contains(&(d), &(k)))
 }
 
-pub fn has_member(s: HashSet<i64>, x: i64) -> Result<bool, RuntimeError> {
+pub fn has_member(s: FastSet<i64>, x: i64) -> Result<bool, RuntimeError> {
     Ok(PyContains::py_contains(&(s), &(x)))
 }
 
@@ -87,5 +86,5 @@ pub fn replace_first(n: i64) -> Result<Vec<i64>, RuntimeError> {
         let __compylr_index = 0i64;
         PySetItem::py_set(&mut (xs), &__compylr_index, __compylr_value)?;
     }
-    Ok(xs.clone())
+    Ok(xs)
 }

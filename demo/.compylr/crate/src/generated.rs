@@ -1,10 +1,8 @@
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits,
-    div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains, PyIterate, PyLen,
+    PyNum, PySetItem, RuntimeError, TextUnits, div_exact, py_borrow, py_place, py_subscript,
 };
 
 /// A stack of integers, over a list that never shrinks.
@@ -81,13 +79,13 @@ impl IntStack {
 /// An nth-prime that remembers what it has already computed.
 #[derive(Clone)]
 pub struct PrimeCache {
-    pub known: HashMap<i64, i64>,
+    pub known: FastMap<i64, i64>,
     pub hits: i64,
 }
 
 impl PrimeCache {
     pub fn __compylr_new() -> Result<Self, RuntimeError> {
-        let known: HashMap<i64, i64> = HashMap::from([]);
+        let known: FastMap<i64, i64> = FastMap::from_iter([]);
         let hits: i64 = 0i64;
         Ok(Self { known, hits })
     }
@@ -106,7 +104,7 @@ impl PrimeCache {
             if ((&(PyNum::rem_floor(&(n), &(d))?)) == (&(0i64))) {
                 return Ok(false);
             }
-            d = PyAdd::py_add(&(d), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut d, &(1i64))?;
         }
         Ok(true)
     }
@@ -132,9 +130,9 @@ impl PrimeCache {
         let mut found: i64 = 0i64;
         let mut candidate: i64 = 1i64;
         while ((&(found)) < (&(n))) {
-            candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
             if (self).is_prime(candidate)? {
-                found = PyAdd::py_add(&(found), &(1i64))?;
+                PyAddAssign::py_add_assign(&mut found, &(1i64))?;
             }
         }
         {
@@ -227,8 +225,8 @@ pub struct UnionFind {
 
 impl UnionFind {
     pub fn __compylr_new(size: i64) -> Result<Self, RuntimeError> {
-        let mut parent: Vec<i64> = vec![];
-        let mut rank: Vec<i64> = vec![];
+        let mut parent: Vec<i64> = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+        let mut rank: Vec<i64> = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
         let groups: i64 = size;
         {
             let __compylr_stop: i64 = size;
@@ -326,12 +324,14 @@ impl UnionFind {
             == (&(py_subscript(&((self).rank), &(right), IndexOrigin::FromEitherEnd)?)))
         {
             {
-                let __compylr_value = PyAdd::py_add(
-                    &(py_subscript(&((self).rank), &(left), IndexOrigin::FromEitherEnd)?),
-                    &(1i64),
-                )?;
+                let __compylr_delta = 1i64;
                 let __compylr_index = left.clone();
-                PySetItem::py_set(&mut ((self).rank), &__compylr_index, __compylr_value)?;
+                PyAddAssignAt::py_add_assign_at(
+                    &mut ((self).rank),
+                    &__compylr_index,
+                    &__compylr_delta,
+                    IndexOrigin::FromEitherEnd,
+                )?;
             }
         }
         (self).groups = PyNum::py_sub(&((self).groups.clone()), &(1i64))?;
@@ -354,7 +354,7 @@ pub fn average_of_counts(counts: Vec<i64>) -> Result<f64, RuntimeError> {
         let __compylr_iter = &counts;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let count: i64 = __compylr_item;
-            total = PyAdd::py_add(&(total), &(count))?;
+            PyAddAssign::py_add_assign(&mut total, &(count))?;
         }
     }
     Ok(div_exact(
@@ -402,10 +402,10 @@ pub fn balanced(tokens: Vec<i64>) -> Result<bool, RuntimeError> {
 ///     remaining element down by one.
 ///     
 pub fn bfs_distances(
-    graph: HashMap<i64, Vec<i64>>,
+    graph: FastMap<i64, Vec<i64>>,
     start: i64,
-) -> Result<HashMap<i64, i64>, RuntimeError> {
-    let mut distance: HashMap<i64, i64> = HashMap::from([]);
+) -> Result<FastMap<i64, i64>, RuntimeError> {
+    let mut distance: FastMap<i64, i64> = FastMap::from_iter([]);
     {
         let __compylr_value = 0i64;
         let __compylr_index = start.clone();
@@ -419,7 +419,7 @@ pub fn bfs_distances(
     let mut head: i64 = 0i64;
     while ((&(head)) < (&(PyLen::py_len(&(queue), TextUnits::CodePoints)))) {
         let node: i64 = py_subscript(&(queue), &(head), IndexOrigin::FromEitherEnd)?;
-        head = PyAdd::py_add(&(head), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut head, &(1i64))?;
         if !(PyContains::py_contains(&(graph), &(node))) {
             continue;
         }
@@ -445,7 +445,7 @@ pub fn bfs_distances(
             }
         }
     }
-    Ok(distance.clone())
+    Ok(distance)
 }
 
 /// The index of `target` in the ascending `xs`, or -1 when it is absent.
@@ -576,7 +576,7 @@ pub fn collatz_length(n: i64) -> Result<i64, RuntimeError> {
         } else {
             current = PyAdd::py_add(&(PyNum::py_mul(&(3i64), &(current))?), &(1i64))?;
         }
-        steps = PyAdd::py_add(&(steps), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut steps, &(1i64))?;
     }
     Ok(steps)
 }
@@ -615,8 +615,8 @@ pub fn component_count(size: i64, edges: Vec<(i64, i64)>) -> Result<i64, Runtime
     let mut sets: UnionFind = UnionFind::__compylr_new(size)?;
     {
         let __compylr_iter = &edges;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let edge: (i64, i64) = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let edge: &(i64, i64) = __compylr_item;
             (sets).union((edge).0.clone(), (edge).1.clone())?;
         }
     }
@@ -630,7 +630,8 @@ pub fn component_count(size: i64, edges: Vec<(i64, i64)>) -> Result<i64, Runtime
 ///     compylr rejects that transitively rather than letting the two languages disagree silently.
 ///     
 pub fn copy_of(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
-    let mut out: Vec<i64> = vec![];
+    let mut out: Vec<i64> =
+        Vec::with_capacity(PyLen::py_len(&(xs), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &xs;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
@@ -641,7 +642,7 @@ pub fn copy_of(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// How many of `words` are in `wanted`.
@@ -649,14 +650,14 @@ pub fn copy_of(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
 ///     The set is the point: this is a hash lookup per word rather than a scan of a list, and the
 ///     difference is the whole reason to hand a set across the boundary instead of a list.
 ///     
-pub fn count_present(words: Vec<String>, wanted: HashSet<String>) -> Result<i64, RuntimeError> {
+pub fn count_present(words: Vec<String>, wanted: FastSet<String>) -> Result<i64, RuntimeError> {
     let mut total: i64 = 0i64;
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if PyContains::py_contains(&(wanted), &(word)) {
-                total = PyAdd::py_add(&(total), &(1i64))?;
+                PyAddAssign::py_add_assign(&mut total, &(1i64))?;
             }
         }
     }
@@ -673,11 +674,11 @@ pub fn count_present(words: Vec<String>, wanted: HashSet<String>) -> Result<i64,
 ///     the recursive version does and what a reader will expect.
 ///     
 pub fn depth_first_order(
-    graph: HashMap<i64, Vec<i64>>,
+    graph: FastMap<i64, Vec<i64>>,
     start: i64,
 ) -> Result<Vec<i64>, RuntimeError> {
     let mut order: Vec<i64> = vec![];
-    let mut seen: HashMap<i64, i64> = HashMap::from([]);
+    let mut seen: FastMap<i64, i64> = FastMap::from_iter([]);
     let mut stack: Vec<i64> = vec![];
     {
         let __compylr_value = start.clone();
@@ -722,11 +723,11 @@ pub fn depth_first_order(
                     (stack).push(__compylr_value);
                 }
             }
-            top = PyAdd::py_add(&(top), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut top, &(1i64))?;
             index = PyNum::py_sub(&(index), &(1i64))?;
         }
     }
-    Ok(order.clone())
+    Ok(order)
 }
 
 /// The sum of the decimal digits of `n`, ignoring its sign.
@@ -737,7 +738,7 @@ pub fn digit_sum(n: i64) -> Result<i64, RuntimeError> {
     }
     let mut total: i64 = 0i64;
     while ((&(current)) > (&(0i64))) {
-        total = PyAdd::py_add(&(total), &(PyNum::rem_floor(&(current), &(10i64))?))?;
+        PyAddAssign::py_add_assign(&mut total, &(PyNum::rem_floor(&(current), &(10i64))?))?;
         current = PyNum::div_floor(&(current), &(10i64))?;
     }
     Ok(total)
@@ -958,7 +959,7 @@ pub fn fibonacci(n: i64) -> Result<i64, RuntimeError> {
         let held: i64 = current;
         current = PyAdd::py_add(&(previous), &(current))?;
         previous = held;
-        step = PyAdd::py_add(&(step), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut step, &(1i64))?;
     }
     Ok(previous)
 }
@@ -1001,7 +1002,7 @@ pub fn gcd(a: i64, b: i64) -> Result<i64, RuntimeError> {
 ///     completely exactly when it is acyclic, so one implementation answers both questions and the
 ///     two can never disagree.
 ///     
-pub fn has_cycle(graph: HashMap<i64, Vec<i64>>) -> Result<bool, RuntimeError> {
+pub fn has_cycle(graph: FastMap<i64, Vec<i64>>) -> Result<bool, RuntimeError> {
     Ok(
         ((&(PyLen::py_len(&(topological_order(graph.clone())?), TextUnits::CodePoints)))
             < (&(PyLen::py_len(&(node_list(graph.clone())?), TextUnits::CodePoints)))),
@@ -1034,7 +1035,7 @@ pub fn identity(size: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// `xs` in ascending order, by insertion sort.
@@ -1066,9 +1067,9 @@ pub fn insertion_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             let __compylr_index = PyAdd::py_add(&(j), &(1i64))?;
             PySetItem::py_set(&mut (out), &__compylr_index, __compylr_value)?;
         }
-        i = PyAdd::py_add(&(i), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// The floor of the square root of `n`, by Newton's method. -1 for a negative `n`.
@@ -1111,7 +1112,7 @@ pub fn is_sorted(xs: Vec<i64>) -> Result<bool, RuntimeError> {
         {
             return Ok(false);
         }
-        i = PyAdd::py_add(&(i), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
     Ok(true)
 }
@@ -1166,9 +1167,9 @@ pub fn iterative_primes_up_to_count(n: i64) -> Result<Vec<i64>, RuntimeError> {
                 (found).push(__compylr_value);
             }
         }
-        candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
     }
-    Ok(found.clone())
+    Ok(found)
 }
 
 /// `separator.join(words)`, written out.
@@ -1182,17 +1183,18 @@ pub fn joined(words: Vec<String>, separator: String) -> Result<String, RuntimeEr
     let mut first: bool = true;
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if first {
-                out = PyAdd::py_add(&(out), &(word))?;
+                PyAddAssign::py_add_assign(&mut out, &(word))?;
                 first = false;
             } else {
-                out = PyAdd::py_add(&(PyAdd::py_add(&(out), &(separator))?), &(word))?;
+                PyAddAssign::py_add_assign(&mut out, &(separator))?;
+                PyAddAssign::py_add_assign(&mut out, &(word))?;
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// The greatest total value that fits in `capacity`, taking each item at most once.
@@ -1339,15 +1341,15 @@ pub fn longest(words: Vec<String>) -> Result<String, RuntimeError> {
     let mut best_length: i64 = -1i64;
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if ((&(PyLen::py_len(&(word), TextUnits::CodePoints))) > (&(best_length))) {
                 best = word.clone();
                 best_length = PyLen::py_len(&(word), TextUnits::CodePoints);
             }
         }
     }
-    Ok(best.clone())
+    Ok(best)
 }
 
 /// The length of the longest subsequence common to both lists.
@@ -1467,7 +1469,7 @@ pub fn mean(xs: Vec<f64>) -> Result<f64, RuntimeError> {
         let __compylr_iter = &xs;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let x: f64 = __compylr_item;
-            total = PyAdd::py_add(&(total), &(x))?;
+            PyAddAssign::py_add_assign(&mut total, &(x))?;
         }
     }
     Ok(div_exact(
@@ -1530,13 +1532,13 @@ pub fn merge(left: Vec<i64>, right: Vec<i64>) -> Result<Vec<i64>, RuntimeError> 
                 let __compylr_value = py_subscript(&(left), &(i), IndexOrigin::FromEitherEnd)?;
                 (out).push(__compylr_value);
             }
-            i = PyAdd::py_add(&(i), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut i, &(1i64))?;
         } else {
             {
                 let __compylr_value = py_subscript(&(right), &(j), IndexOrigin::FromEitherEnd)?;
                 (out).push(__compylr_value);
             }
-            j = PyAdd::py_add(&(j), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut j, &(1i64))?;
         }
     }
     while ((&(i)) < (&(PyLen::py_len(&(left), TextUnits::CodePoints)))) {
@@ -1544,16 +1546,16 @@ pub fn merge(left: Vec<i64>, right: Vec<i64>) -> Result<Vec<i64>, RuntimeError> 
             let __compylr_value = py_subscript(&(left), &(i), IndexOrigin::FromEitherEnd)?;
             (out).push(__compylr_value);
         }
-        i = PyAdd::py_add(&(i), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
     while ((&(j)) < (&(PyLen::py_len(&(right), TextUnits::CodePoints)))) {
         {
             let __compylr_value = py_subscript(&(right), &(j), IndexOrigin::FromEitherEnd)?;
             (out).push(__compylr_value);
         }
-        j = PyAdd::py_add(&(j), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut j, &(1i64))?;
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// `xs` in ascending order, by merge sort. O(n log n), and stable.
@@ -1569,8 +1571,10 @@ pub fn merge_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
         return Ok(copy_of(xs.clone())?);
     }
     let middle: i64 = PyNum::div_floor(&(PyLen::py_len(&(xs), TextUnits::CodePoints)), &(2i64))?;
-    let mut left: Vec<i64> = vec![];
-    let mut right: Vec<i64> = vec![];
+    let mut left: Vec<i64> =
+        Vec::with_capacity(PyLen::py_len(&(xs), TextUnits::CodePoints) as usize);
+    let mut right: Vec<i64> =
+        Vec::with_capacity(PyLen::py_len(&(xs), TextUnits::CodePoints) as usize);
     let mut index: i64 = 0i64;
     {
         let __compylr_iter = &xs;
@@ -1587,7 +1591,7 @@ pub fn merge_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
                     (right).push(__compylr_value);
                 }
             }
-            index = PyAdd::py_add(&(index), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut index, &(1i64))?;
         }
     }
     Ok(merge(
@@ -1603,11 +1607,12 @@ pub fn merge_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
 ///     remember to honour a flag.
 ///     
 pub fn missing(haystack: String, needles: Vec<String>) -> Result<Vec<String>, RuntimeError> {
-    let mut out: Vec<String> = vec![];
+    let mut out: Vec<String> =
+        Vec::with_capacity(PyLen::py_len(&(needles), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &needles;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let needle: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let needle: &String = __compylr_item;
             if !(PyContains::py_contains(&(haystack), &(needle))) {
                 {
                     let __compylr_value = needle.clone();
@@ -1616,7 +1621,7 @@ pub fn missing(haystack: String, needles: Vec<String>) -> Result<Vec<String>, Ru
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// The most frequent word, ties broken by taking the alphabetically first. `""` when empty.
@@ -1627,7 +1632,7 @@ pub fn missing(haystack: String, needles: Vec<String>) -> Result<Vec<String>, Ru
 ///     and returns one element needs a rule like this one, or it is not a function.
 ///     
 pub fn most_common(words: Vec<String>) -> Result<String, RuntimeError> {
-    let counts: HashMap<String, i64> = word_count(words.clone())?;
+    let counts: FastMap<String, i64> = word_count(words.clone())?;
     let mut best: String = String::from("");
     let mut best_count: i64 = 0i64;
     {
@@ -1650,7 +1655,7 @@ pub fn most_common(words: Vec<String>) -> Result<String, RuntimeError> {
             }
         }
     }
-    Ok(best.clone())
+    Ok(best)
 }
 
 /// The matrix product. Empty when the shapes do not line up.
@@ -1717,8 +1722,8 @@ pub fn multiply(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> Result<Vec<Vec<i64
                             let k: i64 = __compylr_cursor;
                             __compylr_cursor =
                                 PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-                            total = PyAdd::py_add(
-                                &(total),
+                            PyAddAssign::py_add_assign(
+                                &mut total,
                                 &(PyNum::py_mul(
                                     &(py_subscript(
                                         &(*py_borrow(&(left), &(i), IndexOrigin::FromEitherEnd)?),
@@ -1747,7 +1752,7 @@ pub fn multiply(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> Result<Vec<Vec<i64
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// Every node the graph mentions — keys and neighbours alike — in ascending order.
@@ -1758,8 +1763,8 @@ pub fn multiply(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> Result<Vec<Vec<i64
 ///     happened to decorate first; requiring the annotation does not. The call is still checked —
 ///     once every source is assembled into one unit.
 ///     
-pub fn node_list(graph: HashMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
-    let mut seen: HashMap<i64, i64> = HashMap::from([]);
+pub fn node_list(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
+    let mut seen: FastMap<i64, i64> = FastMap::from_iter([]);
     let mut raw: Vec<i64> = vec![];
     {
         let __compylr_iter = &graph;
@@ -1797,7 +1802,7 @@ pub fn node_list(graph: HashMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError
         }
     }
     let ordered: Vec<i64> = merge_sort(raw.clone())?;
-    Ok(ordered.clone())
+    Ok(ordered)
 }
 
 /// `xs` rescaled so its smallest value is 0.0 and its largest is 1.0.
@@ -1837,7 +1842,7 @@ pub fn normalize(xs: Vec<f64>) -> Result<Vec<f64>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// How many of `needles` appear anywhere in `haystack`.
@@ -1850,10 +1855,10 @@ pub fn occurrences(haystack: String, needles: Vec<String>) -> Result<i64, Runtim
     let mut total: i64 = 0i64;
     {
         let __compylr_iter = &needles;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let needle: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let needle: &String = __compylr_item;
             if PyContains::py_contains(&(haystack), &(needle)) {
-                total = PyAdd::py_add(&(total), &(1i64))?;
+                PyAddAssign::py_add_assign(&mut total, &(1i64))?;
             }
         }
     }
@@ -1896,7 +1901,7 @@ pub fn recursive_is_prime(n: i64) -> Result<bool, RuntimeError> {
         if ((&(PyNum::rem_floor(&(n), &(d))?)) == (&(0i64))) {
             return Ok(false);
         }
-        d = PyAdd::py_add(&(d), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut d, &(1i64))?;
     }
     Ok(true)
 }
@@ -1909,7 +1914,7 @@ pub fn recursive_next_prime(after: i64) -> Result<i64, RuntimeError> {
         if recursive_is_prime(candidate)? {
             found = candidate;
         }
-        candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
     }
     Ok(found)
 }
@@ -1950,17 +1955,18 @@ pub fn remainder(a: i64, b: i64) -> Result<i64, RuntimeError> {
 ///     does too, and is why the emitted loop clones rather than holding a borrow across the body.
 ///     
 pub fn row_sums(matrix: Vec<Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
-    let mut out: Vec<i64> = vec![];
+    let mut out: Vec<i64> =
+        Vec::with_capacity(PyLen::py_len(&(matrix), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &matrix;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let row: Vec<i64> = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let row: &Vec<i64> = __compylr_item;
             let mut total: i64 = 0i64;
             {
                 let __compylr_iter = &row;
                 for __compylr_item in PyIterate::py_iter(__compylr_iter) {
                     let value: i64 = __compylr_item;
-                    total = PyAdd::py_add(&(total), &(value))?;
+                    PyAddAssign::py_add_assign(&mut total, &(value))?;
                 }
             }
             {
@@ -1969,7 +1975,7 @@ pub fn row_sums(matrix: Vec<Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// Every element multiplied by `factor`.
@@ -1980,12 +1986,14 @@ pub fn row_sums(matrix: Vec<Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
 ///     compiling a program whose two versions disagree.
 ///     
 pub fn scale(matrix: Vec<Vec<i64>>, factor: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
-    let mut out: Vec<Vec<i64>> = vec![];
+    let mut out: Vec<Vec<i64>> =
+        Vec::with_capacity(PyLen::py_len(&(matrix), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &matrix;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let row: Vec<i64> = __compylr_item;
-            let mut scaled: Vec<i64> = vec![];
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let row: &Vec<i64> = __compylr_item;
+            let mut scaled: Vec<i64> =
+                Vec::with_capacity(PyLen::py_len(&(row), TextUnits::CodePoints) as usize);
             {
                 let __compylr_iter = &row;
                 for __compylr_item in PyIterate::py_iter(__compylr_iter) {
@@ -2002,7 +2010,7 @@ pub fn scale(matrix: Vec<Vec<i64>>, factor: i64) -> Result<Vec<Vec<i64>>, Runtim
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// `xs` in ascending order, by repeatedly selecting the smallest remaining element.
@@ -2022,7 +2030,7 @@ pub fn selection_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             {
                 smallest = j;
             }
-            j = PyAdd::py_add(&(j), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut j, &(1i64))?;
         }
         let held: i64 = py_subscript(&(out), &(i), IndexOrigin::FromEitherEnd)?;
         {
@@ -2035,9 +2043,9 @@ pub fn selection_sort(xs: Vec<i64>) -> Result<Vec<i64>, RuntimeError> {
             let __compylr_index = smallest.clone();
             PySetItem::py_set(&mut (out), &__compylr_index, __compylr_value)?;
         }
-        i = PyAdd::py_add(&(i), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// Every prime below `limit`, by the sieve of Eratosthenes.
@@ -2051,7 +2059,7 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
     if ((&(limit)) < (&(3i64))) {
         return Ok(vec![]);
     }
-    let mut composite: Vec<bool> = vec![];
+    let mut composite: Vec<bool> = Vec::with_capacity(usize::try_from(limit).unwrap_or(0));
     {
         let __compylr_stop: i64 = limit;
         let __compylr_step: i64 = 1i64;
@@ -2073,7 +2081,7 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
     let mut candidate: i64 = 2i64;
     while ((&(PyNum::py_mul(&(candidate), &(candidate))?)) < (&(limit))) {
         if py_subscript(&(composite), &(candidate), IndexOrigin::FromEitherEnd)? {
-            candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
             continue;
         }
         let mut multiple: i64 = PyNum::py_mul(&(candidate), &(candidate))?;
@@ -2083,9 +2091,9 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
                 let __compylr_index = multiple.clone();
                 PySetItem::py_set(&mut (composite), &__compylr_index, __compylr_value)?;
             }
-            multiple = PyAdd::py_add(&(multiple), &(candidate))?;
+            PyAddAssign::py_add_assign(&mut multiple, &(candidate))?;
         }
-        candidate = PyAdd::py_add(&(candidate), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut candidate, &(1i64))?;
     }
     let mut primes: Vec<i64> = vec![];
     {
@@ -2109,7 +2117,7 @@ pub fn sieve(limit: i64) -> Result<Vec<i64>, RuntimeError> {
             }
         }
     }
-    Ok(primes.clone())
+    Ok(primes)
 }
 
 /// The smaller of two integers — `min` is not in the subset.
@@ -2137,7 +2145,7 @@ pub fn square_root(value: f64) -> Result<f64, RuntimeError> {
             &(PyAdd::py_add(&(guess), &(div_exact(&(value), &(guess))?))?),
             &(2.0f64),
         )?;
-        step = PyAdd::py_add(&(step), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut step, &(1i64))?;
     }
     Ok(guess)
 }
@@ -2155,7 +2163,7 @@ pub fn standard_deviation(xs: Vec<f64>) -> Result<f64, RuntimeError> {
 ///     disagree about what writing to one of them does.
 ///     
 pub fn table_of_zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
-    let mut table: Vec<Vec<i64>> = vec![];
+    let mut table: Vec<Vec<i64>> = Vec::with_capacity(usize::try_from(rows).unwrap_or(0));
     {
         let __compylr_stop: i64 = rows;
         let __compylr_step: i64 = 1i64;
@@ -2168,7 +2176,7 @@ pub fn table_of_zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeE
         {
             let _row: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-            let mut line: Vec<i64> = vec![];
+            let mut line: Vec<i64> = Vec::with_capacity(usize::try_from(columns).unwrap_or(0));
             {
                 let __compylr_stop: i64 = columns;
                 let __compylr_step: i64 = 1i64;
@@ -2193,7 +2201,7 @@ pub fn table_of_zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeE
             }
         }
     }
-    Ok(table.clone())
+    Ok(table)
 }
 
 /// The digits of `n` in `base`, most significant first. Negative `n` is treated as positive.
@@ -2234,7 +2242,7 @@ pub fn to_base(n: i64, base: i64) -> Result<Vec<i64>, RuntimeError> {
         }
         index = PyNum::py_sub(&(index), &(1i64))?;
     }
-    Ok(digits.clone())
+    Ok(digits)
 }
 
 /// An order in which every edge points forward. Empty when the graph has a cycle.
@@ -2247,9 +2255,12 @@ pub fn to_base(n: i64, base: i64) -> Result<Vec<i64>, RuntimeError> {
 ///     An empty result is ambiguous for an empty graph, which has no order to return either way.
 ///     `has_cycle` is the unambiguous question.
 ///     
-pub fn topological_order(graph: HashMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
+pub fn topological_order(graph: FastMap<i64, Vec<i64>>) -> Result<Vec<i64>, RuntimeError> {
     let nodes: Vec<i64> = node_list(graph.clone())?;
-    let mut indegree: HashMap<i64, i64> = HashMap::from([]);
+    let mut indegree: FastMap<i64, i64> = FastMap::with_capacity_and_hasher(
+        PyLen::py_len(&(nodes), TextUnits::CodePoints) as usize,
+        Default::default(),
+    );
     {
         let __compylr_iter = &nodes;
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
@@ -2273,19 +2284,21 @@ pub fn topological_order(graph: HashMap<i64, Vec<i64>>) -> Result<Vec<i64>, Runt
                 for __compylr_item in PyIterate::py_iter(__compylr_iter) {
                     let neighbour: i64 = __compylr_item;
                     {
-                        let __compylr_value = PyAdd::py_add(
-                            &(py_subscript(&(indegree), &(neighbour), IndexOrigin::FromEitherEnd)?),
-                            &(1i64),
-                        )?;
+                        let __compylr_delta = 1i64;
                         let __compylr_index = neighbour.clone();
-                        PySetItem::py_set(&mut (indegree), &__compylr_index, __compylr_value)?;
+                        PyAddAssignAt::py_add_assign_at(
+                            &mut (indegree),
+                            &__compylr_index,
+                            &__compylr_delta,
+                            IndexOrigin::FromEitherEnd,
+                        )?;
                     }
                 }
             }
         }
     }
     let mut order: Vec<i64> = vec![];
-    let mut placed: HashMap<i64, i64> = HashMap::from([]);
+    let mut placed: FastMap<i64, i64> = FastMap::from_iter([]);
     while ((&(PyLen::py_len(&(order), TextUnits::CodePoints)))
         < (&(PyLen::py_len(&(nodes), TextUnits::CodePoints))))
     {
@@ -2342,7 +2355,7 @@ pub fn topological_order(graph: HashMap<i64, Vec<i64>>) -> Result<Vec<i64>, Runt
             return Ok(vec![]);
         }
     }
-    Ok(order.clone())
+    Ok(order)
 }
 
 /// The combined length of every word, in **code points**.
@@ -2354,9 +2367,12 @@ pub fn total_length(words: Vec<String>) -> Result<i64, RuntimeError> {
     let mut total: i64 = 0i64;
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
-            total = PyAdd::py_add(&(total), &(PyLen::py_len(&(word), TextUnits::CodePoints)))?;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
+            PyAddAssign::py_add_assign(
+                &mut total,
+                &(PyLen::py_len(&(word), TextUnits::CodePoints)),
+            )?;
         }
     }
     Ok(total)
@@ -2389,8 +2405,8 @@ pub fn trace(matrix: Vec<Vec<i64>>) -> Result<i64, RuntimeError> {
         {
             let i: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-            total = PyAdd::py_add(
-                &(total),
+            PyAddAssign::py_add_assign(
+                &mut total,
                 &(py_subscript(
                     &(*py_borrow(&(matrix), &(i), IndexOrigin::FromEitherEnd)?),
                     &(i),
@@ -2454,7 +2470,7 @@ pub fn transpose(matrix: Vec<Vec<i64>>) -> Result<Vec<Vec<i64>>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// Duplicates removed, **first-seen order kept**.
@@ -2464,12 +2480,16 @@ pub fn transpose(matrix: Vec<Vec<i64>>) -> Result<Vec<Vec<i64>>, RuntimeError> {
 ///     mapping here is used as a seen-set, which is what it is good for: membership, not order.
 ///     
 pub fn unique_words(words: Vec<String>) -> Result<Vec<String>, RuntimeError> {
-    let mut seen: HashMap<String, i64> = HashMap::from([]);
-    let mut out: Vec<String> = vec![];
+    let mut seen: FastMap<String, i64> = FastMap::with_capacity_and_hasher(
+        PyLen::py_len(&(words), TextUnits::CodePoints) as usize,
+        Default::default(),
+    );
+    let mut out: Vec<String> =
+        Vec::with_capacity(PyLen::py_len(&(words), TextUnits::CodePoints) as usize);
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if PyContains::py_contains(&(seen), &(word)) {
                 continue;
             }
@@ -2484,7 +2504,7 @@ pub fn unique_words(words: Vec<String>) -> Result<Vec<String>, RuntimeError> {
             }
         }
     }
-    Ok(out.clone())
+    Ok(out)
 }
 
 /// The population variance — the mean of the squared deviations. Zero for an empty list.
@@ -2504,7 +2524,7 @@ pub fn variance(xs: Vec<f64>) -> Result<f64, RuntimeError> {
         for __compylr_item in PyIterate::py_iter(__compylr_iter) {
             let x: f64 = __compylr_item;
             let deviation: f64 = PyNum::py_sub(&(x), &(centre))?;
-            total = PyAdd::py_add(&(total), &(PyNum::py_mul(&(deviation), &(deviation))?))?;
+            PyAddAssign::py_add_assign(&mut total, &(PyNum::py_mul(&(deviation), &(deviation))?))?;
         }
     }
     Ok(div_exact(
@@ -2519,8 +2539,8 @@ pub fn variance(xs: Vec<f64>) -> Result<f64, RuntimeError> {
 ///     subset resolves. A set is therefore something you receive, test against, or return whole —
 ///     which covers what a lookup table is for, and not much else.
 ///     
-pub fn vowel_letters() -> Result<HashSet<String>, RuntimeError> {
-    Ok(HashSet::from([
+pub fn vowel_letters() -> Result<FastSet<String>, RuntimeError> {
+    Ok(FastSet::from_iter([
         String::from("a"),
         String::from("e"),
         String::from("i"),
@@ -2534,20 +2554,22 @@ pub fn vowel_letters() -> Result<HashSet<String>, RuntimeError> {
 ///     `word in counts` tests the mapping's keys, as Python does. Reading a key that is absent is
 ///     still an error — assignment is what creates one — so the `else` is not optional.
 ///     
-pub fn word_count(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeError> {
-    let mut counts: HashMap<String, i64> = HashMap::from([]);
+pub fn word_count(words: Vec<String>) -> Result<FastMap<String, i64>, RuntimeError> {
+    let mut counts: FastMap<String, i64> = FastMap::from_iter([]);
     {
         let __compylr_iter = &words;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let word: String = __compylr_item;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let word: &String = __compylr_item;
             if PyContains::py_contains(&(counts), &(word)) {
                 {
-                    let __compylr_value = PyAdd::py_add(
-                        &(py_subscript(&(counts), &(word), IndexOrigin::FromEitherEnd)?),
-                        &(1i64),
-                    )?;
+                    let __compylr_delta = 1i64;
                     let __compylr_index = word.clone();
-                    PySetItem::py_set(&mut (counts), &__compylr_index, __compylr_value)?;
+                    PyAddAssignAt::py_add_assign_at(
+                        &mut (counts),
+                        &__compylr_index,
+                        &__compylr_delta,
+                        IndexOrigin::FromEitherEnd,
+                    )?;
                 }
             } else {
                 {
@@ -2558,5 +2580,5 @@ pub fn word_count(words: Vec<String>) -> Result<HashMap<String, i64>, RuntimeErr
             }
         }
     }
-    Ok(counts.clone())
+    Ok(counts)
 }

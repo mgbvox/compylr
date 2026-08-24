@@ -80,8 +80,8 @@ pub fn rust_ty(ty: &Ty) -> String {
         Ty::Str => "String".to_string(),
         Ty::Unit => "()".to_string(),
         Ty::List(element) => format!("Vec<{}>", rust_ty(element)),
-        Ty::Dict(key, value) => format!("HashMap<{}, {}>", rust_ty(key), rust_ty(value)),
-        Ty::Set(element) => format!("HashSet<{}>", rust_ty(element)),
+        Ty::Dict(key, value) => format!("FastMap<{}, {}>", rust_ty(key), rust_ty(value)),
+        Ty::Set(element) => format!("FastSet<{}>", rust_ty(element)),
         // A class emits a struct of the same name, so the instance type is spelled the same way.
         Ty::Instance(class) => rust_ident(class),
         Ty::Tuple(elements) => {
@@ -322,17 +322,18 @@ fn emit_crate_root(_unit: &Unit) -> String {
 /// The translated functions, with the imports they need and nothing else.
 fn emit_generated(functions: &str) -> String {
     format!(
+        // The hashed containers come from the runtime rather than from `std`: they carry the
+        // hasher generated code selects, and `std`'s aliases would pin the default one.
         "//! Translated by compylr.\n\
          \n\
-         use std::collections::{{HashMap, HashSet}};\n\
-         \n\
          use crate::compat::{{\n\
-         {}IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,\n\
-         {}TextUnits, div_exact, py_borrow, py_place, py_subscript,\n\
+         {}FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,\n\
+         {}PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,\n\
+         {}py_borrow, py_place, py_subscript,\n\
          }};\n\
          \n\
          {functions}",
-        "    ", "    "
+        "    ", "    ", "    "
     )
 }
 
@@ -884,6 +885,199 @@ fn expr_calls_any_of(expr: &Expr, named: &BTreeSet<String>) -> bool {
     }
 }
 
+/// The operands appended by `name = name + a + b + ...`, in evaluation order.
+///
+/// Three conditions, and each is what makes the in-place form mean what the source meant:
+///
+/// * every operator in the chain is addition — it is the one whose rebuild-per-step is quadratic;
+/// * the assigned name is the **leftmost** operand, so nothing reads a value that has already
+///   been modified. `x = y + x` is the mirrored form, it looks like it should work, and for text
+///   it would silently produce the wrong string;
+/// * no operand reads the name **anywhere**. `x = x + x` and `x = x + (x + y)` are the shapes
+///   that would otherwise reach here, and both read the target being modified.
+///
+/// Stated as a condition rather than as an analysis: the rule is checkable from the node in hand,
+/// so the transformation is safe by construction rather than safe if some inference is right.
+///
+/// **The chain, not just the pair, is the point.** `a + b + c` parses as `(a + b) + c`, so a
+/// three-operand accumulation presents its left operand as a `Binary` rather than as the name.
+/// Handling only the pair looked complete and left the hot line of the demo's `joined` — which is
+/// `out = out + separator + word`, run once per word — rebuilding the whole accumulated string
+/// every iteration. The narrow rule fired on that function exactly once, on the line that runs
+/// once.
+///
+/// Walking the left spine preserves evaluation order exactly rather than reassociating, which is
+/// what makes it safe for floats: `((x + a) + b)` and `x += a; x += b` perform the same two
+/// additions in the same order, so they round identically. Nothing here assumes `+` is
+/// associative, because for `f64` it is not.
+///
+/// **When an unchecked arithmetic mode reaches the IR**, the mode on each `BinOp::Add` in this
+/// chain has to be carried to the call site rather than dropped — an accumulator that kept a
+/// check the user asked to drop would be as wrong as one that dropped a check they wanted.
+fn accumulated_operands<'a>(name: &str, value: &'a Expr) -> Option<Vec<&'a Expr>> {
+    let mut operands = Vec::new();
+    let mut node = value;
+    loop {
+        let Expr::Binary {
+            op: BinOp::Add { checked },
+            left,
+            right,
+        } = node
+        else {
+            return None;
+        };
+        // Only a reporting chain rewrites. `PyAddAssign` reports overflow -- deliberately, so
+        // that an in-place update cannot quietly stop reporting -- and there is no in-place
+        // helper that does not. Using it for a link whose program declined to define an overflow
+        // would put back the check that behavior removed, which is the mirror of the mistake this
+        // rule exists to avoid. Declining leaves the ordinary emission, which is correct under
+        // either mode; what it costs is the in-place win for an unchecked accumulator, and
+        // recovering that means an unchecked counterpart to the trait rather than a merge.
+        if *checked != Checked::Reported {
+            return None;
+        }
+        operands.push(right.as_ref());
+        match left.as_ref() {
+            // The chain bottomed out on the accumulated name itself.
+            Expr::Name(target) if target == name => {
+                // Collected from the outside in, so put them back in evaluation order.
+                operands.reverse();
+                // No operand anywhere in the chain may read the name, because each append is
+                // applied before the next operand is evaluated.
+                if operands.iter().any(|expr| expr_reads_name(expr, name)) {
+                    return None;
+                }
+                return Some(operands);
+            }
+            // `a + b + c` parses as `(a + b) + c`, so keep walking down the left spine.
+            inner @ Expr::Binary {
+                op: BinOp::Add { .. },
+                ..
+            } => node = inner,
+            _ => return None,
+        }
+    }
+}
+
+/// Whether `expr` reads `name` anywhere inside it.
+///
+/// Deliberately conservative: a name reached through a subscript, a call argument, or a container
+/// literal all count. The caller uses this to *decline* a rewrite, so over-reporting costs a
+/// missed optimization and under-reporting would cost a wrong answer.
+fn expr_reads_name(expr: &Expr, name: &str) -> bool {
+    match expr {
+        Expr::Name(found) => found == name,
+        Expr::Literal(_) => false,
+        Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
+            expr_reads_name(inner, name)
+        }
+        Expr::Len { value, .. } => expr_reads_name(value, name),
+        Expr::Attribute { object, .. } => expr_reads_name(object, name),
+        Expr::TupleIndex { base, .. } => expr_reads_name(base, name),
+        Expr::Binary { left, right, .. } => {
+            expr_reads_name(left, name) || expr_reads_name(right, name)
+        }
+        Expr::Subscript { base, index, .. } => {
+            expr_reads_name(base, name) || expr_reads_name(index, name)
+        }
+        Expr::Contains { value, container } => {
+            expr_reads_name(value, name) || expr_reads_name(container, name)
+        }
+        Expr::Range { start, stop, step } => {
+            expr_reads_name(start, name)
+                || expr_reads_name(stop, name)
+                || expr_reads_name(step, name)
+        }
+        Expr::ListLit(items) | Expr::SetLit(items) | Expr::TupleLit(items) => {
+            items.iter().any(|item| expr_reads_name(item, name))
+        }
+        Expr::DictLit(pairs) => pairs
+            .iter()
+            .any(|(key, value)| expr_reads_name(key, name) || expr_reads_name(value, name)),
+        Expr::Call { args, .. } | Expr::Construct { args, .. } => {
+            args.iter().any(|arg| expr_reads_name(arg, name))
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            expr_reads_name(receiver, name) || args.iter().any(|arg| expr_reads_name(arg, name))
+        }
+    }
+}
+
+/// The added operand of `d[k] = d[k] + v`, when the statement has exactly that shape.
+///
+/// Four conditions, and each is a way the fused form would otherwise mean something else:
+///
+/// * the operator is addition, and the *read* is the left operand — `d[k] = v + d[k]` is the
+///   mirrored form and would concatenate text the wrong way round;
+/// * the read is of the **same** collection at the **same** index, compared structurally. `d[k] =
+///   d[j] + 1` is two different slots and must stay two operations;
+/// * the read's index origin is the one assignment uses. `Stmt::SetItem` carries no origin and
+///   resolves a negative index from either end, so fusing a read that counts from the start
+///   would move which element is written;
+/// * the added operand does not touch the collection. The fused form holds it mutably for the
+///   duration, and `d[k] = d[k] + d[j]` would ask for a shared borrow inside that.
+///
+/// Returns the origin alongside the operand so the emitter does not have to re-derive it.
+fn indexed_accumulation<'a>(
+    collection: &Expr,
+    index: &Expr,
+    value: &'a Expr,
+) -> Option<(&'a Expr, IndexOrigin)> {
+    let Expr::Binary {
+        op: BinOp::Add { checked },
+        left,
+        right,
+    } = value
+    else {
+        return None;
+    };
+    // Reporting only, for the reason on `accumulated_operands`: the fused helper reports, and a
+    // program that declined to define an overflow must not have one reported at it.
+    if *checked != Checked::Reported {
+        return None;
+    }
+    let Expr::Subscript {
+        base,
+        index: read_at,
+        origin,
+        checked: read_checked,
+    } = left.as_ref()
+    else {
+        return None;
+    };
+    // The read half has its own mode, and fusing replaces it with the helper's. A read that
+    // declined to define an out-of-range index keeps the emission its node asked for.
+    if *read_checked != Checked::Reported {
+        return None;
+    }
+    if *origin != ASSIGNMENT_ORIGIN {
+        return None;
+    }
+    if base.as_ref() != collection || read_at.as_ref() != index {
+        return None;
+    }
+    if let Some(root) = place_root(collection)
+        && expr_reads_name(right, root)
+    {
+        return None;
+    }
+    Some((right, *origin))
+}
+
+/// The origin `Stmt::SetItem` resolves an index under.
+///
+/// Assignment carries no origin of its own — see the note on the sequence implementation of
+/// `PySetItem` — so a read may only be fused into an assignment when it agrees with this.
+const ASSIGNMENT_ORIGIN: IndexOrigin = IndexOrigin::FromEitherEnd;
+
+/// How an origin is spelled in generated code.
+fn origin_expr(origin: IndexOrigin) -> &'static str {
+    match origin {
+        IndexOrigin::FromEitherEnd => "IndexOrigin::FromEitherEnd",
+        IndexOrigin::FromStart => "IndexOrigin::FromStart",
+    }
+}
+
 /// Emit a function body, ending in a tail expression rather than a `return`.
 ///
 /// The final statement becomes the tail so the generated function has no unreachable trailing
@@ -906,7 +1100,21 @@ fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
 
     match tail {
         Some(Stmt::Return(expr)) => {
-            let value = emit_expr(expr, unit, &function.ret)?;
+            // A bare local in tail position is **moved**, not cloned. The function is ending and
+            // the original is about to be dropped, so the copy has no reader.
+            //
+            // Tail position is doing real work here rather than being cautious. A `return` nested
+            // inside a loop over the same name would move out of a value the loop borrows; tail
+            // position is the last statement at the top level and therefore cannot sit inside a
+            // loop, so the move is safe by construction rather than safe if an analysis is right.
+            //
+            // Only a bare name. An attribute is deliberately excluded: the instance outlives the
+            // call, and moving out of a field would empty it.
+            let value = match expr {
+                // `self` is the receiver, a borrow, and never movable.
+                Expr::Name(name) if name != "self" => rust_ident(name),
+                _ => emit_expr(expr, unit, &function.ret)?,
+            };
             let _ = writeln!(out, "    Ok({value})");
         }
         Some(Stmt::ReturnUnit) => out.push_str("    Ok(())\n"),
@@ -946,10 +1154,12 @@ impl Emitter<'_> {
     /// Emit a sequence of statements at a given indentation depth.
     fn stmts(&mut self, stmts: &[Stmt], depth: usize) -> Result<(), BackendError> {
         let pad = "    ".repeat(depth);
-        for stmt in stmts {
+        for (position, stmt) in stmts.iter().enumerate() {
             match stmt {
                 Stmt::Bind { name, ty, value } => {
-                    let value = emit_expr(value, self.unit, ty)?;
+                    let value =
+                        known_capacity_initializer(stmts, position, name, ty, value, self.unit)
+                            .unwrap_or(emit_expr(value, self.unit, ty)?);
                     // `mut` only when something assigns to it later, so generated code carries no
                     // avoidable warning. Scanning the enclosing block rather than the whole
                     // function: lowering scopes a binding to the block that introduced it, so
@@ -967,8 +1177,27 @@ impl Emitter<'_> {
                     );
                 }
                 Stmt::Assign { name, ty, value } => {
-                    let value = emit_expr(value, self.unit, ty)?;
-                    let _ = writeln!(self.out, "{pad}{} = {value};", rust_ident(name));
+                    if let Some(operands) = accumulated_operands(name, value) {
+                        // `x = x + a + b` updates in place. For text the rebuild form is
+                        // quadratic — it copies everything accumulated so far on every step —
+                        // which made compiling asymptotically worse than the interpreter rather
+                        // than merely no better. The operand type follows the same rule the
+                        // ordinary addition uses, so a string operand is borrowed, not cloned.
+                        let operand = if *ty == Ty::Str { Ty::Unit } else { ty.clone() };
+                        // One append per operand, left to right: the same additions the rebuild
+                        // form performed, in the same order, without the intermediate values.
+                        for expr in operands {
+                            let rhs = emit_expr(expr, self.unit, &operand)?;
+                            let _ = writeln!(
+                                self.out,
+                                "{pad}PyAddAssign::py_add_assign(&mut {}, &({rhs}))?;",
+                                rust_ident(name)
+                            );
+                        }
+                    } else {
+                        let value = emit_expr(value, self.unit, ty)?;
+                        let _ = writeln!(self.out, "{pad}{} = {value};", rust_ident(name));
+                    }
                 }
                 Stmt::Return(expr) => {
                     let value = emit_expr(expr, self.unit, &self.function.ret)?;
@@ -1004,17 +1233,36 @@ impl Emitter<'_> {
                     // target's index. That is not cosmetic: `d[k] = d[k] + 1` reads the same
                     // collection it writes, and evaluating inline would ask for a shared borrow
                     // inside a mutable one.
-                    let collection = emit_place(collection, self.unit, Access::Mutable)?;
+                    // `d[k] = d[k] + v` is one entry being updated, and was emitted as a read
+                    // and then a write — two lookups of the same key, so two hashes on a
+                    // statement whose whole purpose is to touch one slot. Counting occurrences
+                    // is the most common thing anyone does with a mapping, and it paid for that
+                    // once per element.
+                    let fused = indexed_accumulation(collection, index, value);
+                    let place = emit_place(collection, self.unit, Access::Mutable)?;
                     let index = emit_owned_operand(index, self.unit)?;
-                    let value = emit_owned_operand(value, self.unit)?;
-                    let _ = writeln!(self.out, "{pad}{{");
-                    let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
-                    let _ = writeln!(self.out, "{pad}    let __compylr_index = {index};");
-                    let _ = writeln!(
-                        self.out,
-                        "{pad}    PySetItem::py_set(&mut ({collection}), &__compylr_index, __compylr_value)?;"
-                    );
-                    let _ = writeln!(self.out, "{pad}}}");
+                    if let Some((delta, origin)) = fused {
+                        let delta = emit_owned_operand(delta, self.unit)?;
+                        let _ = writeln!(self.out, "{pad}{{");
+                        let _ = writeln!(self.out, "{pad}    let __compylr_delta = {delta};");
+                        let _ = writeln!(self.out, "{pad}    let __compylr_index = {index};");
+                        let _ = writeln!(
+                            self.out,
+                            "{pad}    PyAddAssignAt::py_add_assign_at(&mut ({place}), &__compylr_index, &__compylr_delta, {})?;",
+                            origin_expr(origin)
+                        );
+                        let _ = writeln!(self.out, "{pad}}}");
+                    } else {
+                        let value = emit_owned_operand(value, self.unit)?;
+                        let _ = writeln!(self.out, "{pad}{{");
+                        let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
+                        let _ = writeln!(self.out, "{pad}    let __compylr_index = {index};");
+                        let _ = writeln!(
+                            self.out,
+                            "{pad}    PySetItem::py_set(&mut ({place}), &__compylr_index, __compylr_value)?;"
+                        );
+                        let _ = writeln!(self.out, "{pad}}}");
+                    }
                 }
                 Stmt::Append { sequence, value } => {
                     // Bound first for the same reason: `xs.append(xs[0])` reads what it extends.
@@ -1175,23 +1423,133 @@ impl Emitter<'_> {
             let place = emit_place(iterable, self.unit, Access::Shared)?;
             let _ = writeln!(self.out, "{pad}    let __compylr_iter = &{place};");
         }
+        // A body that never writes the loop variable has no use for its own copy of each element.
+        // The same `is_assigned` answer that decides whether the binding is `mut` decides this,
+        // so there is no second analysis to disagree with the first.
+        //
+        // Scalars are excluded, and not merely because the saving would be nothing: an `i64` is
+        // consumed *by value* wherever it is read, so binding one behind a reference would be a
+        // type error in the body rather than a copy avoided. The exclusion is what the saving
+        // looks like when there is none — for a collection of owned values, the copy it removes
+        // is an allocation per element per loop.
+        let borrowed =
+            mutable.is_empty() && !ty.is_trivially_copyable() && !compared_in(body, name);
+        let iteration = if borrowed {
+            "py_iter_borrowed"
+        } else {
+            "py_iter"
+        };
         let _ = writeln!(
             self.out,
-            "{pad}    for __compylr_item in PyIterate::py_iter(__compylr_iter) {{"
+            "{pad}    for __compylr_item in PyIterate::{iteration}(__compylr_iter) {{"
         );
         // The loop variable is bound inside rather than in the pattern, so it carries the element
         // type lowering derived — a disagreement between the two then fails to compile here,
         // rather than somewhere in the body.
+        let element = rust_ty(ty);
+        let declared = if borrowed {
+            format!("&{element}")
+        } else {
+            element
+        };
         let _ = writeln!(
             self.out,
-            "{pad}        let {mutable}{bound}: {} = __compylr_item;",
-            rust_ty(ty)
+            "{pad}        let {mutable}{bound}: {declared} = __compylr_item;"
         );
         self.stmts(body, depth + 2)?;
         let _ = writeln!(self.out, "{pad}    }}");
         let _ = writeln!(self.out, "{pad}}}");
         Ok(())
     }
+}
+
+/// Preallocate an empty collection that a later loop builds once per iteration.
+///
+/// Only a bare-name iterable is used: reading its length has no side effects, while evaluating a
+/// call or another expression here would run it once for the capacity and again for the loop. The
+/// statements between the binding and loop must leave both names alone, so the early length is the
+/// trip count the loop will actually see.
+fn known_capacity_initializer(
+    stmts: &[Stmt],
+    position: usize,
+    name: &str,
+    ty: &Ty,
+    value: &Expr,
+    unit: &Unit,
+) -> Option<String> {
+    let empty = matches!((ty, value), (Ty::List(_), Expr::ListLit(items)) if items.is_empty())
+        || matches!((ty, value), (Ty::Dict(_, _), Expr::DictLit(items)) if items.is_empty());
+    if !empty {
+        return None;
+    }
+
+    for (offset, stmt) in stmts[position + 1..].iter().enumerate() {
+        let Stmt::For { iter, body, .. } = stmt else {
+            continue;
+        };
+        if collection_insertions(body, name, ty) != 1 {
+            continue;
+        }
+        let leading = &stmts[position + 1..position + 1 + offset];
+        if is_assigned(leading, name, unit) {
+            return None;
+        }
+
+        let capacity = match iter {
+            Expr::Name(iterable) if !is_assigned(leading, iterable, unit) => {
+                format!(
+                    "PyLen::py_len(&({}), TextUnits::CodePoints) as usize",
+                    rust_ident(iterable)
+                )
+            }
+            Expr::Range { start, stop, step }
+                if matches!(&**start, Expr::Literal(Literal::Int(0)))
+                    && matches!(&**step, Expr::Literal(Literal::Int(1))) =>
+            {
+                let stop = match &**stop {
+                    Expr::Name(stop) if !is_assigned(leading, stop, unit) => rust_ident(stop),
+                    Expr::Literal(Literal::Int(stop)) => int_literal(*stop),
+                    _ => continue,
+                };
+                format!("usize::try_from({stop}).unwrap_or(0)")
+            }
+            _ => continue,
+        };
+        return Some(match ty {
+            Ty::List(_) => format!("Vec::with_capacity({capacity})"),
+            Ty::Dict(_, _) => {
+                format!("FastMap::with_capacity_and_hasher({capacity}, Default::default())")
+            }
+            _ => unreachable!("empty only accepts list and mapping types"),
+        });
+    }
+    None
+}
+
+/// Count writes that add one element or entry to `name` anywhere in a loop body.
+fn collection_insertions(stmts: &[Stmt], name: &str, ty: &Ty) -> usize {
+    stmts
+        .iter()
+        .map(|stmt| match stmt {
+            Stmt::Append { sequence, .. }
+                if matches!(ty, Ty::List(_)) && place_root(sequence) == Some(name) =>
+            {
+                1
+            }
+            Stmt::SetItem { collection, .. }
+                if matches!(ty, Ty::Dict(_, _)) && place_root(collection) == Some(name) =>
+            {
+                1
+            }
+            Stmt::If {
+                then, otherwise, ..
+            } => collection_insertions(then, name, ty) + collection_insertions(otherwise, name, ty),
+            Stmt::While { body, .. } | Stmt::For { body, .. } => {
+                collection_insertions(body, name, ty)
+            }
+            _ => 0,
+        })
+        .sum()
 }
 
 /// Emit an expression as a **place**: something that can be written through.
@@ -1327,6 +1685,84 @@ fn emit_owned_operand(expr: &Expr, unit: &Unit) -> Result<String, BackendError> 
 /// both write to something reached through subscripts and attributes, so the chain is followed to
 /// its root. `f(xs)[0] = v` is not expressible, which is why a root that is not a name simply does
 /// not count as a write.
+/// Whether any comparison in `stmts` reads `name`.
+///
+/// This decides *against* borrowing a loop variable, and the reason is a genuine asymmetry in
+/// Rust rather than caution.
+///
+/// Every other position a loop variable reaches is a function argument — a runtime helper, a
+/// generated call — and a function argument is a coercion site, so `&&String` becomes `&String`
+/// on its own. That is why binding by reference works everywhere else without the emitter knowing
+/// anything about types.
+///
+/// A comparison is not a function argument. `a < b` selects a `PartialOrd` implementation *before*
+/// any coercion is considered, and `&&String: PartialOrd<&String>` does not exist — so an owned
+/// local compared against a borrowed loop variable fails to compile. There is no reference depth
+/// the emitter could pick that is right for both operands, because it does not know which side is
+/// which.
+///
+/// So a compared loop variable keeps its copy. The demo found this, not the fixture suite: a
+/// tie-break of the form `if word < best` in `text.most_common`.
+fn compared_in(stmts: &[Stmt], name: &str) -> bool {
+    fn in_expr(expr: &Expr, name: &str) -> bool {
+        match expr {
+            Expr::Binary { op, left, right } if op.is_comparison() => {
+                // Only a **direct** name operand matters. `len(row) > best` compares two
+                // integers, and the borrowed value never reaches the operator — the length call
+                // took it by reference and returned an owned number. Declining to borrow there
+                // would give up the saving for nothing.
+                let names_it = |side: &Expr| matches!(side, Expr::Name(found) if found == name);
+                names_it(left) || names_it(right) || in_expr(left, name) || in_expr(right, name)
+            }
+            Expr::Binary { left, right, .. } => in_expr(left, name) || in_expr(right, name),
+            Expr::Subscript { base, index, .. } => in_expr(base, name) || in_expr(index, name),
+            Expr::Contains { value, container } => in_expr(value, name) || in_expr(container, name),
+            Expr::Range { start, stop, step } => {
+                in_expr(start, name) || in_expr(stop, name) || in_expr(step, name)
+            }
+            Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
+                in_expr(inner, name)
+            }
+            Expr::Len { value, .. } => in_expr(value, name),
+            Expr::Attribute { object, .. } => in_expr(object, name),
+            Expr::TupleIndex { base, .. } => in_expr(base, name),
+            Expr::ListLit(items) | Expr::SetLit(items) | Expr::TupleLit(items) => {
+                items.iter().any(|item| in_expr(item, name))
+            }
+            Expr::DictLit(pairs) => pairs
+                .iter()
+                .any(|(key, value)| in_expr(key, name) || in_expr(value, name)),
+            Expr::Call { args, .. } | Expr::Construct { args, .. } => {
+                args.iter().any(|arg| in_expr(arg, name))
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                in_expr(receiver, name) || args.iter().any(|arg| in_expr(arg, name))
+            }
+            Expr::Literal(_) | Expr::Name(_) => false,
+        }
+    }
+
+    stmts.iter().any(|stmt| match stmt {
+        Stmt::Return(expr) | Stmt::Effect(expr) => in_expr(expr, name),
+        Stmt::Bind { value, .. } | Stmt::Assign { value, .. } => in_expr(value, name),
+        Stmt::SetAttr { object, value, .. } => in_expr(object, name) || in_expr(value, name),
+        Stmt::SetItem {
+            collection,
+            index,
+            value,
+        } => in_expr(collection, name) || in_expr(index, name) || in_expr(value, name),
+        Stmt::Append { sequence, value } => in_expr(sequence, name) || in_expr(value, name),
+        Stmt::If {
+            test,
+            then,
+            otherwise,
+        } => in_expr(test, name) || compared_in(then, name) || compared_in(otherwise, name),
+        Stmt::While { test, body } => in_expr(test, name) || compared_in(body, name),
+        Stmt::For { iter, body, .. } => in_expr(iter, name) || compared_in(body, name),
+        Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => false,
+    })
+}
+
 fn is_assigned(stmts: &[Stmt], name: &str, unit: &Unit) -> bool {
     let names_it = |expr: &Expr| place_root(expr) == Some(name);
     stmts.iter().any(|stmt| match stmt {
@@ -1482,7 +1918,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
         Expr::SetLit(items) => {
             let element = element_ty(expected);
             let rendered = render_all(items, unit, &element)?;
-            format!("HashSet::from([{}])", rendered.join(", "))
+            format!("FastSet::from_iter([{}])", rendered.join(", "))
         }
         Expr::TupleLit(items) => {
             // A type per position, so each element is rendered against its own.
@@ -1514,7 +1950,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
                     emit_expr(value, unit, &value_ty)?
                 ));
             }
-            format!("HashMap::from([{}])", rendered.join(", "))
+            format!("FastMap::from_iter([{}])", rendered.join(", "))
         }
         Expr::Attribute { object, name } => {
             // Cloned rather than moved: reading one field must not consume the object, and the

@@ -4,11 +4,10 @@ expression: functions.trim()
 ---
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
-    TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
+    PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
+    py_borrow, py_place, py_subscript,
 };
 
 pub fn countdown(n: i64) -> Result<i64, RuntimeError> {
@@ -25,7 +24,7 @@ pub fn countdown(n: i64) -> Result<i64, RuntimeError> {
         {
             let i: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-            steps = PyAdd::py_add(&(steps), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut steps, &(1i64))?;
         }
     }
     Ok(steps)
@@ -54,13 +53,13 @@ pub fn halve_until_odd(mut n: i64) -> Result<i64, RuntimeError> {
     Ok(n)
 }
 
-pub fn key_lengths(d: HashMap<String, i64>) -> Result<i64, RuntimeError> {
+pub fn key_lengths(d: FastMap<String, i64>) -> Result<i64, RuntimeError> {
     let mut total_length: i64 = 0i64;
     {
         let __compylr_iter = &d;
-        for __compylr_item in PyIterate::py_iter(__compylr_iter) {
-            let k: String = __compylr_item;
-            total_length = PyAdd::py_add(&(total_length), &(PyLen::py_len(&(k), TextUnits::CodePoints)))?;
+        for __compylr_item in PyIterate::py_iter_borrowed(__compylr_iter) {
+            let k: &String = __compylr_item;
+            PyAddAssign::py_add_assign(&mut total_length, &(PyLen::py_len(&(k), TextUnits::CodePoints)))?;
         }
     }
     Ok(total_length)
@@ -75,7 +74,7 @@ pub fn skip_negatives(xs: Vec<i64>) -> Result<i64, RuntimeError> {
             if ((&(x)) < (&(0i64))) {
                 continue;
             }
-            kept = PyAdd::py_add(&(kept), &(1i64))?;
+            PyAddAssign::py_add_assign(&mut kept, &(1i64))?;
         }
     }
     Ok(kept)
@@ -95,7 +94,7 @@ pub fn stepped(n: i64) -> Result<i64, RuntimeError> {
         {
             let i: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-            seen = PyAdd::py_add(&(seen), &(i))?;
+            PyAddAssign::py_add_assign(&mut seen, &(i))?;
         }
     }
     Ok(seen)
@@ -115,7 +114,7 @@ pub fn total(n: i64) -> Result<i64, RuntimeError> {
         {
             let i: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-            running = PyAdd::py_add(&(running), &(i))?;
+            PyAddAssign::py_add_assign(&mut running, &(i))?;
         }
     }
     Ok(running)

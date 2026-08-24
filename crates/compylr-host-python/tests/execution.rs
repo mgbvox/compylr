@@ -451,7 +451,7 @@ mod collections {
             "missing_key",
             "def get(d: dict[str, int], k: str) -> int:\n    return d[k]\n",
             r#"
-    let mut d = std::collections::HashMap::new();
+    let mut d = compat::FastMap::default();
     d.insert(String::from("a"), 1i64);
     println!("{}", get(d.clone(), String::from("a")).unwrap());
     match get(d.clone(), String::from("zzz")) {
@@ -536,7 +536,7 @@ mod collections {
             "nested",
             "def inner(d: dict[str, list[int]], k: str) -> int:\n    xs = d[k]\n    return xs[0]\n",
             r#"
-    let mut d = std::collections::HashMap::new();
+    let mut d = compat::FastMap::default();
     d.insert(String::from("k"), vec![42i64, 43]);
     println!("{}", inner(d, String::from("k")).unwrap());
 "#,
@@ -704,11 +704,11 @@ fn iterating_a_collection_preserves_order_and_leaves_it_readable() {
         r#"
     println!("{}", digits(vec![1, 2, 3]).unwrap());
     println!("{}", twice(vec![1, 2, 3]).unwrap());
-    let mut d = std::collections::HashMap::new();
+    let mut d = compat::FastMap::default();
     d.insert(String::from("ab"), 1i64);
     d.insert(String::from("cde"), 2i64);
     println!("{}", key_chars(d).unwrap());
-    println!("{}", set_total(std::collections::HashSet::from([1i64, 2, 3])).unwrap());
+    println!("{}", set_total(compat::FastSet::from_iter([1i64, 2, 3])).unwrap());
 "#,
     );
     let lines: Vec<&str> = out.lines().collect();
@@ -881,7 +881,7 @@ fn a_nested_read_borrows_the_intermediate_rather_than_cloning_it() {
     println!("{}", measured(m.clone(), 0).unwrap());
     println!("{}", held(m.clone(), 1, 4).unwrap());
     println!("{}", summed(m.clone(), 1).unwrap());
-    let mut d = std::collections::HashMap::new();
+    let mut d = compat::FastMap::default();
     d.insert(String::from("k"), vec![7i64, 8]);
     println!("{}", through_a_mapping(d.clone(), String::from("k"), 1).unwrap());
     println!("{}", missing_row(d, String::from("absent")).is_err());
@@ -1123,8 +1123,8 @@ fn membership_means_what_each_container_means_by_it() {
         r#"
     println!("{}", in_list(vec![1, 2, 3], 2).unwrap());
     println!("{}", in_list(vec![1, 2, 3], 9).unwrap());
-    println!("{}", in_set(std::collections::HashSet::from([1i64, 2]), 2).unwrap());
-    let mut d = std::collections::HashMap::new();
+    println!("{}", in_set(compat::FastSet::from_iter([1i64, 2]), 2).unwrap());
+    let mut d = compat::FastMap::default();
     d.insert(String::from("a"), 7i64);
     println!("{}", in_map(d.clone(), String::from("a")).unwrap());
     println!("{}", in_map(d, String::from("7")).unwrap());
@@ -2142,4 +2142,535 @@ mod both_stances_of_every_axis {
 /// same bundle the pipeline uses.
 fn python_stance() -> compylr_ir::Behavior {
     compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
+}
+
+/// In-place accumulation, checked by running it.
+///
+/// The emission tests assert that `x = x + y` compiles to an in-place update. That is a claim
+/// about text, and the thing that would actually hurt is an in-place update producing a different
+/// *answer* — text assembled in the wrong order, or an overflow that stopped being reported
+/// because the checked helper was traded for a raw `+=`. Only running it settles those.
+#[test]
+fn string_accumulation_builds_the_same_text_as_before() {
+    let out = run(
+        "accumulate_str",
+        concat!(
+            "def joined(words: list[str], sep: str) -> str:\n",
+            "    out = \"\"\n",
+            "    i = 0\n",
+            "    while i < len(words):\n",
+            "        out = out + words[i]\n",
+            "        out = out + sep\n",
+            "        i = i + 1\n",
+            "    return out\n",
+        ),
+        r#"
+    let words = vec![
+        String::from("alpha"),
+        String::from("beta"),
+        String::from("gamma"),
+    ];
+    println!("{}", joined(words, String::from("-")).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "alpha-beta-gamma-");
+}
+
+#[test]
+fn accumulation_preserves_order_for_non_ascii_text() {
+    // Appending in place and rebuilding differ in where the bytes are copied, and a rule that
+    // matched the mirrored form would reverse them. Non-ASCII makes a byte-level mistake visible
+    // as mojibake rather than as a merely reordered word.
+    let out = run(
+        "accumulate_unicode",
+        concat!(
+            "def grow(head: str, tail: str) -> str:\n",
+            "    out = head\n",
+            "    out = out + tail\n",
+            "    return out\n",
+        ),
+        r#"
+    println!("{}", grow(String::from("héllo·"), String::from("wörld✓")).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "héllo·wörld✓");
+}
+
+#[test]
+fn the_mirrored_form_still_prepends() {
+    // `x = y + x` must keep meaning `y` followed by `x`. This is the test that would fail if the
+    // rewrite over-fired onto the shape that looks like it should work.
+    let out = run(
+        "accumulate_mirrored",
+        concat!(
+            "def prefixed(head: str, tail: str) -> str:\n",
+            "    out = tail\n",
+            "    out = head + out\n",
+            "    return out\n",
+        ),
+        r#"
+    println!("{}", prefixed(String::from("<<"), String::from(">>")).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "<<>>");
+}
+
+#[test]
+fn integer_accumulation_still_reports_overflow() {
+    // The in-place numeric implementation keeps `checked_add`. An `+=` here would wrap silently
+    // in release and panic in debug, and both are a change of meaning rather than a speedup.
+    let out = run(
+        "accumulate_overflow",
+        concat!(
+            "def climb(start: int, step: int) -> int:\n",
+            "    total = start\n",
+            "    total = total + step\n",
+            "    return total\n",
+        ),
+        r#"
+    println!("{}", climb(1, 2).unwrap());
+    match climb(9223372036854775807, 1) {
+        Ok(value) => println!("no overflow reported: {value}"),
+        Err(error) => println!("reported: {error}"),
+    }
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "3");
+    assert_eq!(lines[1], "reported: integer overflow");
+}
+
+#[test]
+fn float_accumulation_sums_as_before() {
+    let out = run(
+        "accumulate_float",
+        concat!(
+            "def total(values: list[float]) -> float:\n",
+            "    sum = 0.0\n",
+            "    i = 0\n",
+            "    while i < len(values):\n",
+            "        sum = sum + values[i]\n",
+            "        i = i + 1\n",
+            "    return sum\n",
+        ),
+        r#"
+    println!("{}", total(vec![0.5, 1.25, 2.25]).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "4");
+}
+
+#[test]
+fn a_collection_built_in_a_loop_still_accumulates_correctly() {
+    // The loop counter is itself an accumulator (`i = i + 1`), so this exercises the rewrite in
+    // the position where getting it wrong hangs rather than answers wrongly.
+    let out = run(
+        "accumulate_counter",
+        concat!(
+            "def squares(n: int) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    i = 0\n",
+            "    while i < n:\n",
+            "        out.append(i * i)\n",
+            "        i = i + 1\n",
+            "    return out\n",
+        ),
+        r#"
+    println!("{:?}", squares(5).unwrap());
+"#,
+    );
+    assert_eq!(out.trim(), "[0, 1, 4, 9, 16]");
+}
+
+#[test]
+fn a_chain_accumulation_keeps_its_order() {
+    // This is the demo's `joined`, which is the function the in-place rule exists for. The risk
+    // the emission test cannot see is ordering: two appends in the wrong order still compile and
+    // still produce a string of the right length.
+    let out = run(
+        "accumulate_chain",
+        concat!(
+            "def joined(words: list[str], separator: str) -> str:\n",
+            "    out = \"\"\n",
+            "    first = True\n",
+            "    for word in words:\n",
+            "        if first:\n",
+            "            out = out + word\n",
+            "            first = False\n",
+            "        else:\n",
+            "            out = out + separator + word\n",
+            "    return out\n",
+        ),
+        r#"
+    let words = vec![
+        String::from("alpha"),
+        String::from("beta"),
+        String::from("gamma"),
+    ];
+    println!("{}", joined(words, String::from("-")).unwrap());
+    println!("{}", joined(vec![String::from("solo")], String::from("-")).unwrap());
+    println!("[{}]", joined(vec![], String::from("-")).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "alpha-beta-gamma");
+    assert_eq!(lines[1], "solo");
+    assert_eq!(lines[2], "[]");
+}
+
+#[test]
+fn a_chain_accumulation_of_floats_rounds_identically() {
+    // Floating-point addition is not associative, so a rule that reassociated `((x + a) + b)`
+    // into `x + (a + b)` would change the last bits. Walking the left spine performs the same two
+    // additions in the same order; these values are chosen so the two groupings differ.
+    let out = run(
+        "accumulate_chain_float",
+        concat!(
+            "def drift(a: float, b: float) -> float:\n",
+            "    total = 1.0\n",
+            "    total = total + a + b\n",
+            "    return total\n",
+        ),
+        r#"
+    let a = 1e16_f64;
+    let b = -1e16_f64;
+    println!("{}", drift(a, b).unwrap());
+    println!("{}", (1.0_f64 + a) + b);
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(
+        lines[0], lines[1],
+        "the compiled chain must round exactly as the left-associative source does"
+    );
+}
+
+#[test]
+fn a_chain_accumulation_of_integers_still_reports_overflow() {
+    // Each step keeps its check, so the overflow is reported at the same operand it would have
+    // been reported at before.
+    let out = run(
+        "accumulate_chain_overflow",
+        concat!(
+            "def climb(a: int, b: int) -> int:\n",
+            "    total = 9223372036854775806\n",
+            "    total = total + a + b\n",
+            "    return total\n",
+        ),
+        r#"
+    println!("{:?}", climb(1, 0).map_err(|e| e.to_string()));
+    println!("{:?}", climb(1, 1).map_err(|e| e.to_string()));
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "Ok(9223372036854775807)");
+    assert_eq!(lines[1], "Err(\"integer overflow\")");
+}
+
+#[test]
+fn a_collection_built_in_a_loop_survives_being_moved_out() {
+    let out = run(
+        "moved_return",
+        concat!(
+            "def build(n: int) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    i = 0\n",
+            "    while i < n:\n",
+            "        out.append(i * 2)\n",
+            "        i = i + 1\n",
+            "    return out\n",
+        ),
+        r#"
+    println!("{:?}", build(5).unwrap());
+    println!("{:?}", build(0).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[0, 2, 4, 6, 8]");
+    assert_eq!(lines[1], "[]");
+}
+
+#[test]
+fn a_returned_attribute_leaves_the_instance_intact() {
+    // The instance outlives the call, so a field must be copied rather than moved out of. If the
+    // move rule ever reached an attribute, the *second* call would come back empty — which is
+    // why this reads it twice.
+    let out = run(
+        "moved_return_attribute",
+        concat!(
+            "class Bag:\n",
+            "    def __init__(self, items: list[int]) -> None:\n",
+            "        self.items: list[int] = items\n",
+            "\n",
+            "    def contents(self) -> list[int]:\n",
+            "        return self.items\n",
+        ),
+        r#"
+    let bag = Bag::__compylr_new(vec![1i64, 2, 3]).unwrap();
+    println!("{:?}", bag.contents().unwrap());
+    println!("{:?}", bag.contents().unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[1, 2, 3]");
+    assert_eq!(
+        lines[1], "[1, 2, 3]",
+        "reading a field twice must give the same answer twice"
+    );
+}
+
+#[test]
+fn a_non_tail_return_still_answers_correctly() {
+    let out = run(
+        "moved_return_branch",
+        concat!(
+            "def pick(early: list[int], rest: list[int], flag: bool) -> list[int]:\n",
+            "    if flag:\n",
+            "        return early\n",
+            "    return rest\n",
+        ),
+        r#"
+    println!("{:?}", pick(vec![1i64], vec![2i64], true).unwrap());
+    println!("{:?}", pick(vec![1i64], vec![2i64], false).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[1]");
+    assert_eq!(lines[1], "[2]");
+}
+
+#[test]
+fn a_fused_mapping_update_counts_correctly() {
+    let out = run(
+        "fused_tally",
+        concat!(
+            "def tally(words: list[str]) -> dict[str, int]:\n",
+            "    counts: dict[str, int] = {}\n",
+            "    for word in words:\n",
+            "        if word in counts:\n",
+            "            counts[word] = counts[word] + 1\n",
+            "        else:\n",
+            "            counts[word] = 1\n",
+            "    return counts\n",
+        ),
+        r#"
+    let words = vec![
+        String::from("a"),
+        String::from("b"),
+        String::from("a"),
+        String::from("a"),
+    ];
+    let counts = tally(words).unwrap();
+    // Sorted before printing: mapping iteration order is not guaranteed and varies between runs.
+    let mut pairs: Vec<(String, i64)> = counts.into_iter().collect();
+    pairs.sort();
+    println!("{pairs:?}");
+"#,
+    );
+    assert_eq!(out.trim(), r#"[("a", 3), ("b", 1)]"#);
+}
+
+#[test]
+fn a_fused_update_of_a_missing_key_still_reports_and_does_not_create_it() {
+    // The whole risk of fusing a read into a write is that the fused form quietly *inserts*.
+    // Reading a key that is absent is an error in this subset; assignment is what creates one.
+    let out = run(
+        "fused_missing_key",
+        concat!(
+            "def bump(k: str) -> int:\n",
+            "    counts: dict[str, int] = {}\n",
+            "    counts[\"present\"] = 1\n",
+            "    counts[k] = counts[k] + 1\n",
+            "    return len(counts)\n",
+        ),
+        r#"
+    match bump(String::from("present")) {
+        Ok(size) => println!("ok {size}"),
+        Err(error) => println!("reported: {error}"),
+    }
+    match bump(String::from("absent")) {
+        Ok(size) => println!("no error, size {size}"),
+        Err(error) => println!("reported: {error}"),
+    }
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "ok 1");
+    assert_eq!(
+        lines[1], "reported: \"absent\"",
+        "a fused update must not invent the key it was told to add to"
+    );
+}
+
+#[test]
+fn a_fused_sequence_update_reports_out_of_range() {
+    let out = run(
+        "fused_sequence",
+        concat!(
+            "def bump(n: int, at: int) -> list[int]:\n",
+            "    xs: list[int] = []\n",
+            "    i = 0\n",
+            "    while i < n:\n",
+            "        xs.append(i)\n",
+            "        i = i + 1\n",
+            "    xs[at] = xs[at] + 10\n",
+            "    return xs\n",
+        ),
+        r#"
+    println!("{:?}", bump(3, 0).unwrap());
+    println!("{:?}", bump(3, -1).unwrap());
+    println!("{:?}", bump(3, 5).map_err(|e| e.to_string()));
+    println!("{:?}", bump(3, -9).map_err(|e| e.to_string()));
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[10, 1, 2]");
+    assert_eq!(
+        lines[1], "[0, 1, 12]",
+        "a negative index counts from the end"
+    );
+    assert_eq!(lines[2], r#"Err("index out of range")"#);
+    assert_eq!(lines[3], r#"Err("index out of range")"#);
+}
+
+#[test]
+fn a_fused_text_update_concatenates_in_the_right_order() {
+    let out = run(
+        "fused_text",
+        concat!(
+            "def build(parts: list[str]) -> dict[str, str]:\n",
+            "    out: dict[str, str] = {}\n",
+            "    out[\"k\"] = \"\"\n",
+            "    for part in parts:\n",
+            "        out[\"k\"] = out[\"k\"] + part\n",
+            "    return out\n",
+        ),
+        r#"
+    let parts = vec![String::from("a"), String::from("b"), String::from("c")];
+    let built = build(parts).unwrap();
+    println!("{}", built["k"]);
+"#,
+    );
+    assert_eq!(out.trim(), "abc");
+}
+
+#[test]
+fn a_fused_integer_update_still_reports_overflow() {
+    let out = run(
+        "fused_overflow",
+        concat!(
+            "def climb(step: int) -> list[int]:\n",
+            "    xs: list[int] = []\n",
+            "    xs.append(9223372036854775807)\n",
+            "    xs[0] = xs[0] + step\n",
+            "    return xs\n",
+        ),
+        r#"
+    println!("{:?}", climb(0).unwrap());
+    println!("{:?}", climb(1).map_err(|e| e.to_string()));
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[9223372036854775807]");
+    assert_eq!(lines[1], r#"Err("integer overflow")"#);
+}
+
+/// A text parameter reaches every position an expression can, and the code still compiles.
+///
+/// This exists because an attempt to pass text by reference rather than by value passed the whole
+/// suite and still emitted Rust that would not compile. Borrowing a parameter is only sound where
+/// every use of it tolerates a borrow, and four ordinary shapes do not: storing it in a container,
+/// using it as a mapping value, ordering it against a literal, and testing it for membership in a
+/// sequence. Each failed as a rustc error about generated code rather than as a diagnostic about
+/// the user's function — the failure mode the whole repository is arranged to avoid.
+///
+/// So the guard is a compile, not an assertion on emitted text: the property is that the generated
+/// crate builds at all. The printed answers are checked too, because a shape that compiles and
+/// stores the wrong thing would otherwise pass.
+#[test]
+fn a_text_parameter_is_usable_in_every_position() {
+    let out = run(
+        "text_parameter_positions",
+        concat!(
+            "class Shelf:\n",
+            "    def __init__(self, label: str) -> None:\n",
+            "        self.label: str = label\n",
+            "        self.items: list[str] = []\n",
+            "\n",
+            "    def stash(self, name: str) -> None:\n",
+            "        self.items.append(name)\n",
+            "\n",
+            "    def echo(self, name: str) -> str:\n",
+            "        return name\n",
+            "\n",
+            "def stored(who: str) -> list[str]:\n",
+            "    xs: list[str] = []\n",
+            "    xs.append(who)\n",
+            "    return xs\n",
+            "\n",
+            "def as_value(who: str) -> dict[str, str]:\n",
+            "    d: dict[str, str] = {}\n",
+            "    d[\"k\"] = who\n",
+            "    return d\n",
+            "\n",
+            "def as_key(who: str) -> dict[str, int]:\n",
+            "    d: dict[str, int] = {}\n",
+            "    d[who] = 1\n",
+            "    return d\n",
+            "\n",
+            "def at_index(who: str) -> list[str]:\n",
+            "    xs: list[str] = []\n",
+            "    xs.append(\"placeholder\")\n",
+            "    xs[0] = who\n",
+            "    return xs\n",
+            "\n",
+            "def ordered(who: str) -> bool:\n",
+            "    return who < \"m\"\n",
+            "\n",
+            "def among(who: str, xs: list[str]) -> bool:\n",
+            "    return who in xs\n",
+            "\n",
+            "def through_a_method(who: str) -> str:\n",
+            "    s = Shelf(\"shelf\")\n",
+            "    return s.echo(who)\n",
+            "\n",
+            "def owned_through_a_method() -> str:\n",
+            "    s = Shelf(\"shelf\")\n",
+            "    built = \"a\" + \"b\"\n",
+            "    return s.echo(built)\n",
+            "\n",
+            "def stashed(who: str) -> int:\n",
+            "    s = Shelf(\"shelf\")\n",
+            "    s.stash(who)\n",
+            "    return len(s.items)\n",
+        ),
+        r#"
+    println!("{:?}", stored(String::from("é")).unwrap());
+    println!("{:?}", as_value(String::from("v")).unwrap()["k"]);
+    println!("{}", as_key(String::from("猫")).unwrap()["猫"]);
+    println!("{:?}", at_index(String::from("z")).unwrap());
+    println!("{}", ordered(String::from("a")).unwrap());
+    println!("{}", ordered(String::from("z")).unwrap());
+    println!("{}", among(String::from("b"), vec![String::from("a"), String::from("b")]).unwrap());
+    println!("{}", among(String::from("q"), vec![String::from("a")]).unwrap());
+    println!("{}", through_a_method(String::from("🦀")).unwrap());
+    println!("{}", owned_through_a_method().unwrap());
+    println!("{}", stashed(String::from("x")).unwrap());
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], r#"["é"]"#);
+    assert_eq!(lines[1], r#""v""#);
+    assert_eq!(lines[2], "1");
+    assert_eq!(
+        lines[3], r#"["z"]"#,
+        "a written element replaces the placeholder"
+    );
+    assert_eq!(lines[4], "true");
+    assert_eq!(lines[5], "false");
+    assert_eq!(lines[6], "true");
+    assert_eq!(lines[7], "false");
+    assert_eq!(lines[8], "🦀");
+    assert_eq!(lines[9], "ab");
+    assert_eq!(lines[10], "1");
 }

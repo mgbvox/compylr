@@ -1,6 +1,8 @@
 //! The Python boundary for the translated functions.
 
-use std::collections::{HashMap, HashSet};
+// The hashed containers come from the runtime rather than from `std`. A wrapper signature has to
+// name the same type the translated function does, and `std`'s aliases pin the default hasher.
+use crate::compat::{FastMap, FastSet};
 
 use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyOverflowError, PyValueError, PyZeroDivisionError,
@@ -224,7 +226,7 @@ fn __compylr_export_1(tokens: Vec<i64>) -> PyResult<bool> {
 
 #[pyfunction]
 #[pyo3(name = "bfs_distances")]
-fn __compylr_export_2(graph: HashMap<i64, Vec<i64>>, start: i64) -> PyResult<HashMap<i64, i64>> {
+fn __compylr_export_2(graph: FastMap<i64, Vec<i64>>, start: i64) -> PyResult<FastMap<i64, i64>> {
     generated::bfs_distances(graph, start).map_err(__compylr_to_py_err)
 }
 
@@ -266,13 +268,13 @@ fn __compylr_export_8(xs: Vec<i64>) -> PyResult<Vec<i64>> {
 
 #[pyfunction]
 #[pyo3(name = "count_present")]
-fn __compylr_export_9(words: Vec<String>, wanted: HashSet<String>) -> PyResult<i64> {
+fn __compylr_export_9(words: Vec<String>, wanted: FastSet<String>) -> PyResult<i64> {
     generated::count_present(words, wanted).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "depth_first_order")]
-fn __compylr_export_10(graph: HashMap<i64, Vec<i64>>, start: i64) -> PyResult<Vec<i64>> {
+fn __compylr_export_10(graph: FastMap<i64, Vec<i64>>, start: i64) -> PyResult<Vec<i64>> {
     generated::depth_first_order(graph, start).map_err(__compylr_to_py_err)
 }
 
@@ -320,7 +322,7 @@ fn __compylr_export_17(a: i64, b: i64) -> PyResult<i64> {
 
 #[pyfunction]
 #[pyo3(name = "has_cycle")]
-fn __compylr_export_18(graph: HashMap<i64, Vec<i64>>) -> PyResult<bool> {
+fn __compylr_export_18(graph: FastMap<i64, Vec<i64>>) -> PyResult<bool> {
     generated::has_cycle(graph).map_err(__compylr_to_py_err)
 }
 
@@ -446,7 +448,7 @@ fn __compylr_export_38(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> PyResult<Ve
 
 #[pyfunction]
 #[pyo3(name = "node_list")]
-fn __compylr_export_39(graph: HashMap<i64, Vec<i64>>) -> PyResult<Vec<i64>> {
+fn __compylr_export_39(graph: FastMap<i64, Vec<i64>>) -> PyResult<Vec<i64>> {
     generated::node_list(graph).map_err(__compylr_to_py_err)
 }
 
@@ -554,7 +556,7 @@ fn __compylr_export_56(n: i64, base: i64) -> PyResult<Vec<i64>> {
 
 #[pyfunction]
 #[pyo3(name = "topological_order")]
-fn __compylr_export_57(graph: HashMap<i64, Vec<i64>>) -> PyResult<Vec<i64>> {
+fn __compylr_export_57(graph: FastMap<i64, Vec<i64>>) -> PyResult<Vec<i64>> {
     generated::topological_order(graph).map_err(__compylr_to_py_err)
 }
 
@@ -590,13 +592,13 @@ fn __compylr_export_62(xs: Vec<f64>) -> PyResult<f64> {
 
 #[pyfunction]
 #[pyo3(name = "vowel_letters")]
-fn __compylr_export_63() -> PyResult<HashSet<String>> {
+fn __compylr_export_63() -> PyResult<FastSet<String>> {
     generated::vowel_letters().map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "word_count")]
-fn __compylr_export_64(words: Vec<String>) -> PyResult<HashMap<String, i64>> {
+fn __compylr_export_64(words: Vec<String>) -> PyResult<FastMap<String, i64>> {
     generated::word_count(words).map_err(__compylr_to_py_err)
 }
 

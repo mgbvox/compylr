@@ -70,6 +70,10 @@ resolve differences it currently cannot (item 0 below), so that work is a shared
   it. **This is the largest lever and the one with real design risk**, so it is staged behind the
   rest.
 
+  **Outcome: the cost is documented and measured; the `&str` parameter is not delivered.** Never
+  being mutated turned out not to be sufficient, because a parameter can also be *stored*. See
+  design D6 and task 8.4 for what broke and what the better-targeted follow-up is.
+
 - **The runtime sweep**: `py_index` bounds-checks twice; `py_str_len` decodes the whole string on
   every `len()` under `CodePoints`; `d[k] = d[k] + 1` performs three hash lookups where one would
   do; nothing uses `with_capacity`.
@@ -93,15 +97,15 @@ resolve differences it currently cannot (item 0 below), so that work is a shared
 - `rust-backend`: emission avoids avoidable copies (in-place accumulation, borrowed iteration,
   moved returns); the runtime's hashed containers are parameterised over their hasher rather than
   pinned to the standard one; the runtime's indexing and length helpers do not repeat work.
-- `python-bindings`: a read-only string parameter crosses the boundary without being copied, and
-  the per-element cost of crossing is a stated property rather than an accident.
+- `python-bindings`: the per-element cost of crossing the boundary is a stated property rather
+  than an accident. (Borrowing a read-only string parameter was attempted and reverted; see D6.)
 - `demo`: the benchmark reports run-to-run spread and a noise floor, and the repository guards
   against a performance regression in the generated code.
 
 ## Impact
 
 **Rust.** `compylr-bridge-python-rust` (`bindings.rs` — `cargo_manifest` gains a release profile;
-the generated PyO3 signatures for read-only string parameters). `compylr-backend-rust` (`rust.rs` —
+generated PyO3 signatures are unchanged). `compylr-backend-rust` (`rust.rs` —
 the accumulator peephole, borrowed loop variables, tail-position moves, container literals through
 `FromIterator`; `runtime.rs` — the hasher parameter and its self-contained implementation, blanket
 impls over `&T`, `py_index`, `py_str_len`).

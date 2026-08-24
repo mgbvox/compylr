@@ -131,6 +131,11 @@ demo: develop ## Every algorithm, compiled against interpreted: make demo SCALE=
 	cd $(DEMO) && uv sync --extra dev --quiet
 	cd $(DEMO) && uv run python -m algorithms.benchmark --scale $(SCALE)
 
+.PHONY: demo-performance
+demo-performance: develop ## Slow: guard recorded scale-four speedups against measured noise
+	cd $(DEMO) && uv sync --extra dev --quiet
+	cd $(DEMO) && uv run python -m algorithms.benchmark --scale 4 --check-performance
+
 .PHONY: demo-primes
 demo-primes: develop ## The nth prime three ways, compiled against interpreted: make demo-primes N=500
 	cd $(DEMO) && uv sync --extra dev --quiet
