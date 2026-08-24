@@ -1,0 +1,38 @@
+name: Set up Rust
+description: >
+  Initialize the submodule the build actually needs, install a toolchain, and restore the cargo
+  cache. Shared by every job in every workflow so that they agree about all three.
+
+inputs:
+  components:
+    description: "rustup components, comma separated (e.g. 'rustfmt, clippy')"
+    required: false
+    # A component rather than the empty string: every job wants at least one, and an empty list is
+    # the kind of edge case an action handles until it does not.
+    default: "rustfmt"
+
+runs:
+  using: composite
+  steps:
+    # `Cargo.toml` depends on four ruff crates **by path**, so a checkout without this submodule
+    # fails in seconds with a manifest error that reads like a broken build. That is exactly what
+    # the first version of this workflow did.
+    #
+    # Only this one: `.gitmodules` also lists two py2many checkouts, which are reading material
+    # under `inspiration/` rather than anything the compiler links against. Cloning them would be
+    # a minute of CI time per job for no compilation.
+    - name: The vendored ruff submodule
+      shell: bash
+      run: git submodule update --init --depth 1 vendored/ruff
+
+    # No `rust-toolchain.toml` in the repository, so the version is whatever stable is. The
+    # workspace is edition 2024, which needs 1.85 or newer.
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: ${{ inputs.components }}
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # The vendored ruff crates are a large, entirely static dependency. Keying on the lockfile
+        # alone would rebuild them whenever any of this repository's own manifests changed.
+        shared-key: compylr

@@ -2,21 +2,93 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
+  # Denied here rather than only in clippy, so an ordinary `cargo build` cannot land a warning that
+  # the lint job would have caught. Set once at the workflow level so every job compiles with the
+  # same flags and can therefore share a cache.
+  RUSTFLAGS: "-D warnings"
 
 jobs:
-  build:
-
+  lint:
+    name: fmt and clippy
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check
+      # Not `--all-features`: `compylr-host-python` has an `extension-module` feature that tells
+      # PyO3 not to link libpython. That is required for a wheel and breaks anything that runs,
+      # so enabling every feature would fail to link the test binaries.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      # The bridge tests initialize a Python interpreter, so this build links libpython rather
+      # than being an extension module. A runner's system Python is not guaranteed to ship the
+      # shared library; this one is.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/setup-rust
+      - run: cargo test --workspace
+
+  doc:
+    name: rustdoc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      # Every public item in this workspace carries documentation, and a broken intra-doc link is
+      # a promise the docs do not keep. `--no-deps` keeps the vendored ruff crates out of it.
+      - run: cargo doc --workspace --no-deps --lib
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/setup-rust
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      # `main.rs` is the CLI's argument plumbing and the vendored tree is not ours, so neither
+      # belongs in the number -- the same exclusions the Makefile uses.
+      - name: Measure
+        run: |
+          cargo llvm-cov --workspace \
+            --ignore-filename-regex '(vendored/|/main\.rs)' \
+            --summary-only | tee coverage.txt
+      - name: Report
+        run: |
+          {
+            echo '## Rust coverage'
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

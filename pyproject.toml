@@ -13,7 +13,14 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11", "maturin>=1.9,<2.0"]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "ty>=0.0.74",
+    "pre-commit>=3.7",
+    "maturin>=1.9,<2.0",
+]
 
 [project.scripts]
 # The Python entry point. The Rust binary keeps its `--emit` surface and is reached through
@@ -54,11 +61,26 @@ extend-exclude = ["python/fixtures", "python/entrypoint.py", "vendored", "inspir
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
-[tool.mypy]
-python_version = "3.11"
-strict = true
-# The compiled module has no source for mypy to read; its surface is declared in `_core.pyi`.
-ignore_missing_imports = false
+[tool.ty.environment]
+# The floor from `requires-python`. Checking against the oldest supported version is the point:
+# checking against the newest would accept syntax and stdlib a supported interpreter does not have.
+python-version = "3.11"
 
 [tool.ty.src]
-exclude = ["vendored", "inspiration", "scripts"]
+# `python/fixtures/` is compiler *input*, and `rejected/` is deliberately invalid -- type-checking
+# it would report exactly the errors it exists to contain, which is the same reason ruff excludes
+# it. `demo/` is its own project with its own configuration and is checked from there.
+exclude = [
+    "python/fixtures",
+    "python/entrypoint.py",
+    "vendored",
+    "inspiration",
+    "demo",
+    "target",
+    "worktrees",
+]
+
+[tool.ty.rules]
+# The compiled half of the package has no source to read; `_core.pyi` is its declared surface, so
+# an unresolved import there would be a missing stub rather than a missing module.
+unresolved-import = "error"

@@ -13,6 +13,7 @@ failed when someone's laptop was busy would teach people to ignore it.
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -45,7 +46,7 @@ class TestTheTimingLoop:
 
 
 @pytest.fixture(scope="module")
-def prime_runs() -> tuple[dict[str, Any], dict[str, Any]]:
+def prime_runs() -> tuple[prime_benchmark.Measurement, prime_benchmark.Measurement]:
     """One compiled run and one interpreted run of the nth-prime benchmark."""
     n, repetitions = 40, 1
     return (
@@ -55,7 +56,7 @@ def prime_runs() -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 @pytest.fixture(scope="module")
-def algorithm_runs() -> tuple[dict[str, Any], dict[str, Any]]:
+def algorithm_runs() -> tuple[benchmark.Measurement, benchmark.Measurement]:
     """The same, for the benchmark over every algorithm."""
     return (
         benchmark._run_child(1, 1, disabled=False),
@@ -70,13 +71,13 @@ class TestTheComparisonIsHonest:
     def runs(
         self,
         request: pytest.FixtureRequest,
-        prime_runs: tuple[dict[str, Any], dict[str, Any]],
-        algorithm_runs: tuple[dict[str, Any], dict[str, Any]],
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        prime_runs: tuple[prime_benchmark.Measurement, prime_benchmark.Measurement],
+        algorithm_runs: tuple[benchmark.Measurement, benchmark.Measurement],
+    ) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
         return prime_runs if request.param == "prime" else algorithm_runs
 
     def test_the_two_runs_really_are_different_modes(
-        self, runs: tuple[dict[str, Any], dict[str, Any]]
+        self, runs: tuple[Mapping[str, Any], Mapping[str, Any]]
     ) -> None:
         # Without this the benchmark could be comparing a process against itself and reporting a
         # speedup of 1.0 as if it meant something.
@@ -85,14 +86,14 @@ class TestTheComparisonIsHonest:
         assert interpreted["compiled"] is False
 
     def test_both_modes_agree_on_every_answer(
-        self, runs: tuple[dict[str, Any], dict[str, Any]]
+        self, runs: tuple[Mapping[str, Any], Mapping[str, Any]]
     ) -> None:
         # If they disagreed, every timing would be measuring two different computations.
         compiled, interpreted = runs
         assert compiled["answers"] == interpreted["answers"]
 
     def test_every_workload_is_measured_in_both_modes(
-        self, runs: tuple[dict[str, Any], dict[str, Any]]
+        self, runs: tuple[Mapping[str, Any], Mapping[str, Any]]
     ) -> None:
         compiled, interpreted = runs
         assert compiled["seconds"].keys() == interpreted["seconds"].keys()
@@ -101,7 +102,7 @@ class TestTheComparisonIsHonest:
             assert interpreted["seconds"][key] > 0, key
 
     def test_the_control_row_is_present_in_both(
-        self, runs: tuple[dict[str, Any], dict[str, Any]]
+        self, runs: tuple[Mapping[str, Any], Mapping[str, Any]]
     ) -> None:
         # The reference is never compiled, so its ratio is what "no difference" looks like on this
         # machine. Reading the other rows against 1.0 instead would overstate every one of them.
@@ -112,7 +113,7 @@ class TestTheComparisonIsHonest:
 
 class TestTheNthPrimeTable:
     def test_it_names_the_noise_floor_and_reports_agreement(
-        self, prime_runs: tuple[dict[str, Any], dict[str, Any]]
+        self, prime_runs: tuple[prime_benchmark.Measurement, prime_benchmark.Measurement]
     ) -> None:
         table = prime_benchmark.format_comparison(*prime_runs)
         assert "noise floor" in table
@@ -128,7 +129,7 @@ class TestTheNthPrimeTable:
 
 class TestTheAlgorithmsTable:
     def test_it_lists_every_workload_and_reports_agreement(
-        self, algorithm_runs: tuple[dict[str, Any], dict[str, Any]]
+        self, algorithm_runs: tuple[benchmark.Measurement, benchmark.Measurement]
     ) -> None:
         table = benchmark.format_comparison(*algorithm_runs)
         for workload in benchmark.workloads(scale=1):
@@ -137,7 +138,7 @@ class TestTheAlgorithmsTable:
         assert "Both modes returned the same answer" in table
 
     def test_the_rows_are_ordered_by_how_much_compiling_helped(
-        self, algorithm_runs: tuple[dict[str, Any], dict[str, Any]]
+        self, algorithm_runs: tuple[benchmark.Measurement, benchmark.Measurement]
     ) -> None:
         # The spread is what the table is for, so it is sorted rather than listed in source order.
         compiled, interpreted = algorithm_runs

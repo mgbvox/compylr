@@ -258,6 +258,15 @@ silently was the first.
 * TDD: write tests before implementation. Run `cargo fmt --all`,
   `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before
   committing. Commit at each checkpoint rather than batching.
+* **The benchmark tables in both READMEs are generated.** `scripts/update_benchmarks.py` rewrites
+  the blocks between `<!-- benchmark:NAME -->` markers from a real run, and
+  `.github/workflows/benchmark.yml` runs it and commits the result. Editing a table by hand is
+  editing output: the next run overwrites it. Moving or renaming a marker is what breaks the job,
+  so the script's `--check` mode runs in CI and on commit.
+* **CI, the Makefile and the pre-commit hooks run the same commands.** `make check` is what the
+  workflows do; `.pre-commit-config.yaml` is the subset fast enough to run on a commit. When you
+  add a check, add it in all three, or it is a check people discover in a pull request instead.
+  Type checking is **ty** — mypy is no longer a dependency, and neither is its configuration.
 * **Keep `README.md` in sync.** It is the entry point for anyone who has not read the specs, so
   it must never describe a state the code is not in. `tests/readme.rs` enforces the mechanical
   half — the type table, operator list, capability list, module layout, and every referenced
@@ -298,9 +307,14 @@ cargo run -p compylr-cli -- --emit crate --out ./out python/fixtures/accepted/al
 
 # Python (needs the venv; `maturin develop` rebuilds compylr._core after Rust changes)
 uv venv && source .venv/bin/activate
-uv pip install maturin pytest pytest-cov ruff mypy && maturin develop --release
+uv pip install -e ".[dev]" && maturin develop --release
 pytest                    # includes slow tests that compile Rust; -m "not slow" to skip
-ruff check python/ && mypy python/compylr
+ruff check python/ scripts/ && ruff format --check python/ scripts/
+ty check python/compylr   # ty, not mypy -- `make py-types`
+
+# The same checks, on the half of the tree you touched
+make hooks                # install the pre-commit hooks, once
+make precommit            # run every hook over everything
 
 # Run any project interpreted, with compylr out of the way entirely
 COMPYLR_DISABLE=1 python your_program.py
@@ -312,8 +326,10 @@ make demo-primes          # the nth prime three ways; N=500
 # The demo project (its own uv project; verified by python/tests/test_demo.py)
 cd demo && uv sync && uv run compylr compyle src && uv run python -m algorithms
 cd demo && uv run python -m algorithms.nth_prime 25
-cd demo && uv run pytest && uv run ruff check . && uv run mypy src
+cd demo && uv run pytest && uv run ruff check . && uv run ty check src
 
+./scripts/update_benchmarks.py              # re-measure, rewrite the README tables
+./scripts/update_benchmarks.py --check      # markers only; measures nothing
 ./scripts/render_change_epub.py             # spec -> EPUB in reports/
 ./scripts/send_to_kindle.py <file> --dry-run
 ```
