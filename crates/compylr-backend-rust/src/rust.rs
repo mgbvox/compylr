@@ -28,8 +28,9 @@ use compylr_ir::Guarantee;
 use std::collections::BTreeSet;
 
 use compylr_ir::{
-    BinOp, Class, DivMode, Expr, Function, IndexOrigin, Literal, RemSign, Rounding, Stmt,
-    TextUnits, Ty, Unit, returns_on_all_paths,
+    BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin, IntegerDivision, LanguageBehavior,
+    Literal, RemSign, Remainder, Rounding, SequenceIndex, Stmt, TextUnits, Ty, Unit,
+    returns_on_all_paths,
 };
 
 /// The runtime helpers, embedded verbatim into generated crates.
@@ -178,6 +179,45 @@ const OPTIONS: &[TargetOption] = &[TargetOption {
     implemented: false,
 }];
 
+/// What Rust means, on every behavior axis.
+///
+/// The **source of truth** for what a user gets when they ask an axis to take the target's
+/// meaning. Emission reads the modes on the node rather than this constant — a node is what says
+/// what a program means — but this is what puts those modes there when an axis resolves to Rust.
+///
+/// Describes Rust and nothing else. Nothing here mentions Python, which is the property that
+/// keeps adding a third language to one declaration rather than one per pair.
+///
+/// A note on overflow, because it is the axis with two answers. `Unchecked` says the *program*
+/// declines to define a result outside the integer range — it does not say "wrap". Rust's own `+`
+/// panics under `overflow-checks` and wraps without them; compylr builds generated crates
+/// `--release`, whose default is to wrap, but the crate under `.compylr/` is a real crate someone
+/// may build in debug and get the other answer. That is what "Rust's own operator" means, and it
+/// is why the mode is named for what the program says rather than for what any build does.
+pub const RUST_BEHAVIOR: LanguageBehavior = LanguageBehavior {
+    // `i64::MAX + 1` is not defined by the program: it panics or wraps depending on the profile.
+    integer_overflow: Checked::Unchecked,
+    // `-7 / 2` is `-3`, and a zero divisor panics rather than being reported.
+    integer_division: IntegerDivision {
+        rounding: Rounding::TowardZero,
+        checked: Checked::Unchecked,
+    },
+    // `1.0 / 0.0` is `inf` — IEEE-754 defines it, and the program does not report it.
+    exact_division: Checked::Unchecked,
+    // `-7 % 2` is `-1`, and a zero divisor panics.
+    remainder: Remainder {
+        sign: RemSign::Dividend,
+        checked: Checked::Unchecked,
+    },
+    // `xs[-1]` does not compile as a backwards index; an index outside the slice panics.
+    sequence_index: SequenceIndex {
+        origin: IndexOrigin::FromStart,
+        checked: Checked::Unchecked,
+    },
+    // `"é".len()` is 2.
+    text_length: TextUnits::Utf8Bytes,
+};
+
 impl Backend for RustBackend {
     fn name(&self) -> &'static str {
         "rust"
@@ -185,6 +225,10 @@ impl Backend for RustBackend {
 
     fn preserves(&self) -> &'static [Guarantee] {
         PRESERVES
+    }
+
+    fn behavior(&self) -> &'static LanguageBehavior {
+        &RUST_BEHAVIOR
     }
 
     fn options(&self) -> &'static [TargetOption] {
@@ -561,7 +605,10 @@ fn attribute_reads_as_locals(expr: &Expr) -> Expr {
             name: name.clone(),
         },
         Expr::Literal(_) | Expr::Name(_) => expr.clone(),
-        Expr::Neg(inner) => Expr::Neg(boxed(inner)),
+        Expr::Neg { value, checked } => Expr::Neg {
+            value: boxed(value),
+            checked: *checked,
+        },
         Expr::ToFloat(inner) => Expr::ToFloat(boxed(inner)),
         Expr::Not(inner) => Expr::Not(boxed(inner)),
         Expr::Len { value, units } => Expr::Len {
@@ -599,10 +646,12 @@ fn attribute_reads_as_locals(expr: &Expr) -> Expr {
             base,
             index,
             origin,
+            checked,
         } => Expr::Subscript {
             base: boxed(base),
             index: boxed(index),
             origin: *origin,
+            checked: *checked,
         },
         Expr::Contains { value, container } => Expr::Contains {
             value: boxed(value),
@@ -814,7 +863,7 @@ fn expr_calls_any_of(expr: &Expr, named: &BTreeSet<String>) -> bool {
                 || args.iter().any(|a| expr_calls_any_of(a, named))
         }
         Expr::Literal(_) | Expr::Name(_) => false,
-        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => {
+        Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
             expr_calls_any_of(inner, named)
         }
         Expr::Len { value, .. } => expr_calls_any_of(value, named),
@@ -870,13 +919,23 @@ fn accumulated_operands<'a>(name: &str, value: &'a Expr) -> Option<Vec<&'a Expr>
     let mut node = value;
     loop {
         let Expr::Binary {
-            op: BinOp::Add,
+            op: BinOp::Add { checked },
             left,
             right,
         } = node
         else {
             return None;
         };
+        // Only a reporting chain rewrites. `PyAddAssign` reports overflow -- deliberately, so
+        // that an in-place update cannot quietly stop reporting -- and there is no in-place
+        // helper that does not. Using it for a link whose program declined to define an overflow
+        // would put back the check that behavior removed, which is the mirror of the mistake this
+        // rule exists to avoid. Declining leaves the ordinary emission, which is correct under
+        // either mode; what it costs is the in-place win for an unchecked accumulator, and
+        // recovering that means an unchecked counterpart to the trait rather than a merge.
+        if *checked != Checked::Reported {
+            return None;
+        }
         operands.push(right.as_ref());
         match left.as_ref() {
             // The chain bottomed out on the accumulated name itself.
@@ -891,7 +950,10 @@ fn accumulated_operands<'a>(name: &str, value: &'a Expr) -> Option<Vec<&'a Expr>
                 return Some(operands);
             }
             // `a + b + c` parses as `(a + b) + c`, so keep walking down the left spine.
-            inner @ Expr::Binary { op: BinOp::Add, .. } => node = inner,
+            inner @ Expr::Binary {
+                op: BinOp::Add { .. },
+                ..
+            } => node = inner,
             _ => return None,
         }
     }
@@ -906,7 +968,9 @@ fn expr_reads_name(expr: &Expr, name: &str) -> bool {
     match expr {
         Expr::Name(found) => found == name,
         Expr::Literal(_) => false,
-        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => expr_reads_name(inner, name),
+        Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
+            expr_reads_name(inner, name)
+        }
         Expr::Len { value, .. } => expr_reads_name(value, name),
         Expr::Attribute { object, .. } => expr_reads_name(object, name),
         Expr::TupleIndex { base, .. } => expr_reads_name(base, name),
@@ -960,21 +1024,32 @@ fn indexed_accumulation<'a>(
     value: &'a Expr,
 ) -> Option<(&'a Expr, IndexOrigin)> {
     let Expr::Binary {
-        op: BinOp::Add,
+        op: BinOp::Add { checked },
         left,
         right,
     } = value
     else {
         return None;
     };
+    // Reporting only, for the reason on `accumulated_operands`: the fused helper reports, and a
+    // program that declined to define an overflow must not have one reported at it.
+    if *checked != Checked::Reported {
+        return None;
+    }
     let Expr::Subscript {
         base,
         index: read_at,
         origin,
+        checked: read_checked,
     } = left.as_ref()
     else {
         return None;
     };
+    // The read half has its own mode, and fusing replaces it with the helper's. A read that
+    // declined to define an out-of-range index keeps the emission its node asked for.
+    if *read_checked != Checked::Reported {
+        return None;
+    }
     if *origin != ASSIGNMENT_ORIGIN {
         return None;
     }
@@ -1509,7 +1584,18 @@ fn emit_place(expr: &Expr, unit: &Unit, access: Access) -> Result<String, Backen
             base,
             index,
             origin,
+            checked,
         } => {
+            // Rust's own indexing *is* a place, so an unchecked read needs no helper to
+            // produce one — `xs[i]` is assignable and borrowable exactly as the helper's
+            // dereference is. The mutable and shared cases differ only in how the caller uses it.
+            if *checked == Checked::Unchecked && *origin == IndexOrigin::FromStart {
+                return Ok(format!(
+                    "({})[{} as usize]",
+                    emit_place(base, unit, access)?,
+                    emit_expr(index, unit, &Ty::Unit)?
+                ));
+            }
             let (helper, borrow) = match access {
                 Access::Mutable => ("py_place", "&mut "),
                 Access::Shared => ("py_borrow", "&"),
@@ -1634,7 +1720,9 @@ fn compared_in(stmts: &[Stmt], name: &str) -> bool {
             Expr::Range { start, stop, step } => {
                 in_expr(start, name) || in_expr(stop, name) || in_expr(step, name)
             }
-            Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => in_expr(inner, name),
+            Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
+                in_expr(inner, name)
+            }
             Expr::Len { value, .. } => in_expr(value, name),
             Expr::Attribute { object, .. } => in_expr(object, name),
             Expr::TupleIndex { base, .. } => in_expr(base, name),
@@ -1733,7 +1821,9 @@ fn visit_exprs(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
     visit(expr);
     match expr {
         Expr::Literal(_) | Expr::Name(_) => {}
-        Expr::Neg(inner) | Expr::ToFloat(inner) | Expr::Not(inner) => visit_exprs(inner, visit),
+        Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
+            visit_exprs(inner, visit)
+        }
         Expr::Len { value, .. } => visit_exprs(value, visit),
         Expr::Attribute { object, .. } => visit_exprs(object, visit),
         Expr::TupleIndex { base, .. } => visit_exprs(base, visit),
@@ -1810,9 +1900,9 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
                 name
             }
         }
-        Expr::Neg(inner) => {
-            let inner = emit_expr(inner, unit, expected)?;
-            format!("PyNum::py_neg(&({inner}))?")
+        Expr::Neg { value, checked } => {
+            let inner = emit_expr(value, unit, expected)?;
+            emit_neg(&inner, *checked, expected)
         }
         Expr::ToFloat(inner) => {
             // The operand is an integer expression; `expected` describes the float context it is
@@ -1929,6 +2019,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             base,
             index,
             origin,
+            checked,
         } => {
             // The base is borrowed rather than consumed, so a collection read twice is not moved
             // — and, when it is itself a subscript, borrowed rather than *cloned*. `m[i][j]` used
@@ -1937,14 +2028,29 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             // The origin is read off the node and passed through. A backend that assumed one would
             // be silently wrong for any frontend meaning the other, on exactly the inputs — a
             // negative index — that nobody writes a test for by accident.
+            //
+            // An unchecked read counting from the start is Rust's own indexing. The clone stays:
+            // it is what the *value* form means in this subset regardless of the mode, and
+            // dropping it would move a value out of a collection that may be read again. The
+            // bounds check is what the mode removes, not the copy.
             let base = emit_place(base, unit, Access::Shared)?;
             let index = emit_expr(index, unit, &Ty::Unit)?;
-            format!(
-                "py_subscript(&({base}), &({index}), {})?",
-                rust_index_origin(*origin)
-            )
+            if *checked == Checked::Unchecked && *origin == IndexOrigin::FromStart {
+                format!("({base})[{index} as usize].clone()")
+            } else {
+                format!(
+                    "py_subscript(&({base}), &({index}), {})?",
+                    rust_index_origin(*origin)
+                )
+            }
         }
         Expr::Len { value, units } => {
+            // Left as the dispatch under every mode, deliberately. `PyLen` already selects by
+            // operand type, and for a *collection* `len` is a count of elements under every
+            // reading — so a bare `.len()` would be right for a string declaring UTF-8 bytes and
+            // wrong for nothing, while the backend cannot see which of the two it has without
+            // re-deriving the type. The dispatch costs a call that inlines away; guessing costs
+            // a wrong answer.
             let value = emit_place(value, unit, Access::Shared)?;
             format!("PyLen::py_len(&({value}), {})", rust_text_units(*units))
         }
@@ -1980,6 +2086,20 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             format!("{}({})?", rust_ident(callee), rendered.join(", "))
         }
     })
+}
+
+/// Emit an arithmetic negation, honouring the mode the node declares.
+///
+/// The expected type reaches here, so an unchecked negation is Rust's own `-` where the type is
+/// known. Where it is not, the dispatch is used for the reason [`emit_binary`] records: the
+/// backend must not re-derive types, and both numeric types happen to negate with the same
+/// operator only because they are the only two that reach here.
+fn emit_neg(inner: &str, checked: Checked, expected: &Ty) -> String {
+    match checked {
+        Checked::Reported => format!("PyNum::py_neg(&({inner}))?"),
+        Checked::Unchecked if expected.is_numeric() => format!("(-({inner}))"),
+        Checked::Unchecked => format!("crate::compat::NativeNum::native_neg(&({inner}))"),
+    }
 }
 
 /// The element type of an expected collection type, or unit when the context says nothing.
@@ -2025,14 +2145,28 @@ fn emit_binary(
     }
 
     // Exact division's operands are always floats: lowering inserted the promotion nodes.
-    if op
-        == (BinOp::Div {
-            mode: DivMode::Exact,
-        })
+    //
+    // Matched on the *mode* rather than compared against a whole operator value: the checking
+    // mode is an independent axis, so `op == BinOp::Div { mode: Exact, checked: Reported }` would
+    // have quietly stopped recognising an exact division the moment a behavior waived its zero
+    // divisor, and sent it down the integer path instead.
+    if let BinOp::Div {
+        mode: DivMode::Exact,
+        checked,
+    } = op
     {
         let left = emit_expr(left, unit, &Ty::Float)?;
         let right = emit_expr(right, unit, &Ty::Float)?;
-        return Ok(format!("div_exact(&({left}), &({right}))?"));
+        // Both operands are floats whatever `expected` says, because lowering inserted the
+        // promotions — so a bare `/` is always well typed here and no dispatch is needed.
+        //
+        // The unchecked answer is an *infinity*, not undefined behaviour: IEEE-754 defines
+        // `1.0 / 0.0`, and Rust yields it. This is the one axis where taking the target's stance
+        // produces a value rather than leaving the result genuinely unspecified.
+        return Ok(match checked {
+            Checked::Reported => format!("div_exact(&({left}), &({right}))?"),
+            Checked::Unchecked => format!("(({left}) / ({right}))"),
+        });
     }
 
     // Arithmetic operands share the expression's own type, except that a string operand must not
@@ -2047,23 +2181,119 @@ fn emit_binary(
     // Read off the node, not off the operator's name. The same `BinOp::Div` reaches here meaning
     // either rounding, and a backend that assumed one of them would be silently wrong for any
     // frontend that meant the other.
+    //
+    // The checking mode is bound in every arm rather than wildcarded. An arm written
+    // `BinOp::Add { .. }` would compile and emit a reporting helper for a node that declared it
+    // wanted none — the exact failure mode this mode exists to prevent, and one no test written
+    // in Python could catch while the only frontend reports everything.
+    //
+    // Three answers per operator, not two, and the split is what design D6 buys:
+    //
+    // * **Reported** — the helper that reproduces the source language's meaning, unchanged.
+    // * **Unchecked with a known expected type** — Rust's bare operator. Part of what a user is
+    //   buying is generated source they can read and recognise; `.compylr/` full of
+    //   `NativeAdd::native_add` would deliver the speed and not the claim.
+    // * **Unchecked with an unknown expected type** — the infallible dispatch. `expected` is
+    //   `Ty::Unit` under a comparison, whose operands say nothing about the result type, and
+    //   `a + b > c` has to compile for integers and for strings alike. A bare `+` on two owned
+    //   `String`s does not.
+    //
+    // The checking mode is bound in every arm rather than wildcarded. An arm written
+    // `BinOp::Add { .. }` would compile and emit a reporting helper for a node that declared it
+    // wanted none — the exact failure this mode exists to prevent, and one no test written in
+    // Python could catch while the only frontend reports everything.
+    let native = expected.is_numeric();
     let call = match op {
-        BinOp::Add => "PyAdd::py_add",
-        BinOp::Sub => "PyNum::py_sub",
-        BinOp::Mul => "PyNum::py_mul",
+        BinOp::Add {
+            checked: Checked::Reported,
+        } => "PyAdd::py_add",
+        BinOp::Sub {
+            checked: Checked::Reported,
+        } => "PyNum::py_sub",
+        BinOp::Mul {
+            checked: Checked::Reported,
+        } => "PyNum::py_mul",
         BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Reported,
         } => "PyNum::div_floor",
         BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Reported,
         } => "PyNum::div_trunc",
         BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         } => "PyNum::rem_floor",
         BinOp::Rem {
             sign: RemSign::Dividend,
+            checked: Checked::Reported,
         } => "PyNum::rem_trunc",
+
+        // Rust's own operators, where Rust's own operator is what the node declares.
+        BinOp::Add {
+            checked: Checked::Unchecked,
+        } if native => return Ok(format!("(({left}) + ({right}))")),
+        BinOp::Sub {
+            checked: Checked::Unchecked,
+        } if native => return Ok(format!("(({left}) - ({right}))")),
+        BinOp::Mul {
+            checked: Checked::Unchecked,
+        } if native => return Ok(format!("(({left}) * ({right}))")),
+        BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Unchecked,
+        } if *expected == Ty::Int => return Ok(format!("(({left}) / ({right}))")),
+        BinOp::Rem {
+            sign: RemSign::Dividend,
+            checked: Checked::Unchecked,
+        } if *expected == Ty::Int => return Ok(format!("(({left}) % ({right}))")),
+
+        // The infallible dispatch, for the same operations where the type is not known.
+        BinOp::Add {
+            checked: Checked::Unchecked,
+        } => "crate::compat::NativeAdd::native_add",
+        BinOp::Sub {
+            checked: Checked::Unchecked,
+        } => "crate::compat::NativeNum::native_sub",
+        BinOp::Mul {
+            checked: Checked::Unchecked,
+        } => "crate::compat::NativeNum::native_mul",
+        BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Unchecked,
+        } => "crate::compat::NativeNum::native_div_trunc",
+        BinOp::Rem {
+            sign: RemSign::Dividend,
+            checked: Checked::Unchecked,
+        } => "crate::compat::NativeNum::native_rem_trunc",
+
+        // A flooring division, or a remainder taking the divisor's sign, whose failure the
+        // program declined to define. **This combination is real and is the likeliest thing to
+        // get wrong.** It is reachable from `Behavior(floor_div="python", overflow="rust")`, and
+        // Rust's `/` does not floor — emitting a bare `/` here would silently produce `-3` where
+        // the program says `-4`. The correcting helper stays; only the checking goes.
+        //
+        // The helper it falls through to still reports a zero divisor, which is more than the
+        // node asked for and never less. Getting the rounding right matters; refusing to report a
+        // failure the program left undefined does not.
+        BinOp::Div {
+            mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Unchecked,
+        } => "PyNum::div_floor",
+        BinOp::Rem {
+            sign: RemSign::Divisor,
+            checked: Checked::Unchecked,
+        } => "PyNum::rem_floor",
+
         _ => unreachable!("comparisons and exact division are handled above"),
     };
-    Ok(format!("{call}(&({left}), &({right}))?"))
+
+    // A dispatch returns a value; a reporting helper returns a result.
+    let propagate = if call.starts_with("crate::compat::Native") {
+        ""
+    } else {
+        "?"
+    };
+    Ok(format!("{call}(&({left}), &({right})){propagate}"))
 }

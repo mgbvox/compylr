@@ -13,6 +13,11 @@ from compylr import _core
 TOTAL = "def total(xs: list[int]) -> int:\n    return xs[0] + len(xs)\n"
 
 
+def compile_unit(source: str) -> _core.CompiledUnit:
+    """Compile one source under the inherited behavior."""
+    return _core.compile_unit([(source, {})])
+
+
 class TestAnnotations:
     @pytest.mark.parametrize(
         "annotation",
@@ -81,12 +86,12 @@ class TestGeneratedSpellings:
         # `FastMap` rather than `HashMap`: generated containers carry the hasher the backend
         # selects. It is an alias for `HashMap` with that hasher, so it is the same container —
         # but the spelling is what says the choice was made rather than inherited.
-        compiled = _core.compile_unit(["def f(d: dict[str, list[int]]) -> int:\n    return 1\n"])
+        compiled = compile_unit("def f(d: dict[str, list[int]]) -> int:\n    return 1\n")
         source = compiled.target_sources["src/generated.rs"]
         assert "FastMap<String, Vec<i64>>" in source
 
     def test_the_ir_artifact_names_no_rust_types(self) -> None:
         # The IR is what every backend consumes; a Rust spelling there is a leak.
-        artifact = _core.compile_unit([TOTAL]).ir_artifact
+        artifact = compile_unit(TOTAL).ir_artifact
         for spelling in ("Vec<", "HashMap", "HashSet", "FastMap", "FastSet", "i64"):
             assert spelling not in artifact

@@ -19,6 +19,7 @@ expression: functions
                     left: Binary {
                         op: Rem {
                             sign: Divisor,
+                            checked: Reported,
                         },
                         left: Name(
                             "n",

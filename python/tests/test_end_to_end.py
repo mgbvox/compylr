@@ -28,6 +28,14 @@ def _floordiv(a: int, b: int) -> int:
     return a // b
 
 
+def _rust_floordiv(a: int, b: int) -> int:
+    return a // b
+
+
+def _mixed_floordiv(a: int, b: int) -> tuple[int, int]:
+    return (a // b, _rust_floordiv(a, b))
+
+
 def _modulo(a: int, b: int) -> int:
     return a % b
 
@@ -79,6 +87,8 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> compylr.Manager:
 
     c.compyle(_add)
     c.compyle(_floordiv)
+    c.compyle(behavior="rust")(_rust_floordiv)
+    c.compyle(behavior="python")(_mixed_floordiv)
     c.compyle(_modulo)
     c.compyle(_ratio)
     c.compyle(_concat)
@@ -146,6 +156,8 @@ class TestArtifacts:
         assert {
             "_add",
             "_floordiv",
+            "_rust_floordiv",
+            "_mixed_floordiv",
             "_modulo",
             "_ratio",
             "_concat",
@@ -202,6 +214,8 @@ class TestArtifacts:
         assert set(state["functions"]) == {
             "_add",
             "_floordiv",
+            "_rust_floordiv",
+            "_mixed_floordiv",
             "_modulo",
             "_ratio",
             "_concat",
@@ -353,6 +367,8 @@ class TestReuseAcrossProcesses:
         for fn in (
             _add,
             _floordiv,
+            _rust_floordiv,
+            _mixed_floordiv,
             _modulo,
             _ratio,
             _concat,
@@ -362,9 +378,50 @@ class TestReuseAcrossProcesses:
             _from_mapping,
             _make_pair,
         ):
-            fresh.compyle(fn)
+            if fn is _rust_floordiv:
+                fresh.compyle(behavior="rust")(fn)
+            elif fn is _mixed_floordiv:
+                fresh.compyle(behavior="python")(fn)
+            else:
+                fresh.compyle(fn)
 
         assert fresh._functions["_floordiv"](-7, 2) == -4
+
+
+class TestMixedBehavior:
+    def test_both_behaviors_share_one_artifact_and_keep_their_rounding(
+        self, project: compylr.Manager
+    ) -> None:
+        assert project._functions["_floordiv"](-7, 2) == -4
+        assert project._functions["_rust_floordiv"](-7, 2) == -3
+        assert project._functions["_mixed_floordiv"](-7, 2) == (-4, -3)
+
+        state = json.loads(project.paths.state.read_text())
+        assert {"_floordiv", "_rust_floordiv", "_mixed_floordiv"} <= set(state["functions"])
+
+    def test_changing_behavior_rebuilds_and_an_unchanged_behavior_reuses(
+        self, tmp_path: Path
+    ) -> None:
+        from compylr import _manager
+
+        root = tmp_path / ".compylr"
+
+        first = compylr.initialize(root=root, behavior="python")
+        first.compyle(_floordiv)
+        assert first._functions["_floordiv"](-7, 2) == -4
+        assert first.last_build_invoked_toolchain
+
+        _manager._reset_for_tests()
+        changed = compylr.initialize(root=root, behavior="rust")
+        changed.compyle(_floordiv)
+        assert changed._functions["_floordiv"](-7, 2) == -3
+        assert changed.last_build_invoked_toolchain
+
+        _manager._reset_for_tests()
+        unchanged = compylr.initialize(root=root, behavior="rust")
+        unchanged.compyle(_floordiv)
+        assert unchanged._functions["_floordiv"](-7, 2) == -3
+        assert not unchanged.last_build_invoked_toolchain
 
 
 class TestDocumentedFunctions:
@@ -412,6 +469,8 @@ class TestArtifactsFollowTheProject:
         for fn in (
             _add,
             _floordiv,
+            _rust_floordiv,
+            _mixed_floordiv,
             _modulo,
             _ratio,
             _concat,
@@ -421,7 +480,12 @@ class TestArtifactsFollowTheProject:
             _from_mapping,
             _make_pair,
         ):
-            fresh.compyle(fn)
+            if fn is _rust_floordiv:
+                fresh.compyle(behavior="rust")(fn)
+            elif fn is _mixed_floordiv:
+                fresh.compyle(behavior="python")(fn)
+            else:
+                fresh.compyle(fn)
 
         assert fresh.paths.root == root
         assert fresh._functions["_floordiv"](-7, 2) == -4

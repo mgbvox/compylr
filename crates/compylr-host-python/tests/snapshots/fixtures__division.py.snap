@@ -21,6 +21,7 @@ expression: functions
                 Binary {
                     op: Div {
                         mode: Exact,
+                        checked: Reported,
                     },
                     left: ToFloat(
                         Name(
@@ -57,6 +58,7 @@ expression: functions
                         mode: Integer(
                             TowardNegInf,
                         ),
+                        checked: Reported,
                     },
                     left: Name(
                         "a",
@@ -93,6 +95,7 @@ expression: functions
                 Binary {
                     op: Rem {
                         sign: Divisor,
+                        checked: Reported,
                     },
                     left: Name(
                         "a",

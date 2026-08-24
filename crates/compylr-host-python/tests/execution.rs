@@ -23,7 +23,7 @@ use compylr_registry::backends::lookup;
 
 fn unit_from(source: &str) -> Unit {
     let parsed = parse_source(source).expect("fixture must parse");
-    let (functions, classes) = lower_source_members(&parsed)
+    let (functions, classes) = lower_source_members(&parsed, python_stance())
         .unwrap_or_else(|e| panic!("should lower: {}", e.render(source)));
     let mut unit = Unit::new();
     for function in functions {
@@ -47,6 +47,20 @@ fn run(label: &str, source: &str, main_body: &str) -> String {
 ///
 /// Separate so that a mode no source language in this repo can produce still gets executed.
 fn run_unit(label: &str, unit: &Unit, main_body: &str) -> String {
+    run_unit_with(label, unit, main_body, &[])
+}
+
+/// The same, compiled with optimizations — which is how compylr builds generated crates.
+///
+/// Needed for exactly one case, and it is not a performance one. Rust's arithmetic panics under
+/// `overflow-checks` and wraps without them, and the toolchain builds `--release`, whose default
+/// is to wrap. A test asserting what an unchecked overflow *does* has to compile the way a user's
+/// build compiles or it asserts the other answer.
+fn run_unit_optimized(label: &str, unit: &Unit, main_body: &str) -> String {
+    run_unit_with(label, unit, main_body, &["-O"])
+}
+
+fn run_unit_with(label: &str, unit: &Unit, main_body: &str, flags: &[&str]) -> String {
     let emitted = lookup("rust").unwrap().emit(unit).expect("must emit");
 
     // The crate is written out and a `main.rs` added beside it, so the code under test is
@@ -73,6 +87,7 @@ fn run_unit(label: &str, unit: &Unit, main_body: &str) -> String {
     let compile = Command::new("rustc")
         .arg("--edition")
         .arg("2024")
+        .args(flags)
         .arg("-o")
         .arg(&binary_path)
         .arg(&source_path)
@@ -1439,7 +1454,7 @@ mod folding {
 mod modes_python_cannot_write {
     use super::*;
     use compylr_diagnostics::span::Span;
-    use compylr_ir::{BinOp, DivMode, Expr, Function, Param, RemSign, Rounding, Stmt, Ty};
+    use compylr_ir::{BinOp, Checked, DivMode, Expr, Function, Param, RemSign, Rounding, Stmt, Ty};
 
     /// A unit holding one function `op(a, b) -> int` applying `op` to its two parameters.
     fn binary_unit(op: BinOp) -> Unit {
@@ -1473,6 +1488,7 @@ mod modes_python_cannot_write {
     fn division_rounding_toward_zero_truncates() {
         let unit = binary_unit(BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Reported,
         });
         let out = run_unit(
             "mode_div_trunc",
@@ -1489,6 +1505,7 @@ mod modes_python_cannot_write {
     fn division_rounding_toward_negative_infinity_floors() {
         let unit = binary_unit(BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Reported,
         });
         let out = run_unit(
             "mode_div_floor",
@@ -1504,6 +1521,7 @@ mod modes_python_cannot_write {
     fn remainder_taking_the_sign_of_the_dividend() {
         let unit = binary_unit(BinOp::Rem {
             sign: RemSign::Dividend,
+            checked: Checked::Reported,
         });
         let out = run_unit(
             "mode_rem_trunc",
@@ -1519,6 +1537,7 @@ mod modes_python_cannot_write {
     fn remainder_taking_the_sign_of_the_divisor() {
         let unit = binary_unit(BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         });
         let out = run_unit(
             "mode_rem_floor",
@@ -1556,6 +1575,7 @@ mod modes_python_cannot_write {
                     base: Box::new(Expr::name("xs")),
                     index: Box::new(Expr::name("i")),
                     origin,
+                    checked: Checked::Reported,
                 })],
                 doc: None,
                 span: Span::default(),
@@ -1639,9 +1659,16 @@ mod modes_python_cannot_write {
                     "quotient",
                     BinOp::Div {
                         mode: DivMode::Integer(rounding),
+                        checked: Checked::Reported,
                     },
                 ),
-                ("remainder", BinOp::Rem { sign }),
+                (
+                    "remainder",
+                    BinOp::Rem {
+                        sign,
+                        checked: Checked::Reported,
+                    },
+                ),
             ] {
                 unit.add_function(Function {
                     name: name.to_string(),
@@ -1814,6 +1841,307 @@ mod positions_the_backend_rendered_wrongly {
         );
         assert_eq!(out.trim(), "9");
     }
+}
+
+/// Both stances of every axis, executed.
+///
+/// The emission tests assert the *form* — that an unchecked add becomes a bare `+`. That is the
+/// half a user is buying and it is not the half that can be wrong in a way nobody notices. A bare
+/// `+` where the node declared flooring division still looks fine in a string comparison and
+/// answers `-3` where the program says `-4`.
+///
+/// Every unit here is hand-built. That is the only way to reach a mode the Python frontend cannot
+/// currently produce, and it is what stops a backend defect hiding behind the frontend's choices:
+/// no origin, no behavior, nothing for the backend to consult except the node.
+mod both_stances_of_every_axis {
+    use compylr_diagnostics::span::Span;
+    use compylr_ir::{
+        BinOp, Checked, DivMode, Expr, Function, IndexOrigin, Param, RemSign, Rounding, Stmt,
+        TextUnits, Ty, Unit,
+    };
+
+    use super::*;
+
+    fn binary_unit(op: BinOp, ty: Ty) -> Unit {
+        let mut unit = Unit::new();
+        unit.add_function(Function {
+            name: "op".to_string(),
+            params: vec![
+                Param {
+                    name: "a".to_string(),
+                    ty: ty.clone(),
+                },
+                Param {
+                    name: "b".to_string(),
+                    ty: ty.clone(),
+                },
+            ],
+            ret: ty,
+            body: vec![Stmt::Return(Expr::Binary {
+                op,
+                left: Box::new(Expr::name("a")),
+                right: Box::new(Expr::name("b")),
+            })],
+            doc: None,
+            span: Span::default(),
+        })
+        .unwrap();
+        unit
+    }
+
+    /// Integer overflow: reported reports, unchecked wraps under `--release`.
+    ///
+    /// The unchecked half is compiled with `-O` deliberately. Rust's `+` panics under
+    /// `overflow-checks` and wraps without them, and compylr builds generated crates
+    /// `--release` — so this is what a user's build actually does. It is also exactly why the
+    /// mode is named `Unchecked` and not `Wrapping`: the other build gives the other answer, and
+    /// a mode claiming to wrap would be a lie in half of them.
+    #[test]
+    fn integer_overflow_reports_or_is_left_to_the_target() {
+        let reported = binary_unit(
+            BinOp::Add {
+                checked: Checked::Reported,
+            },
+            Ty::Int,
+        );
+        let out = run_unit(
+            "axis_overflow_reported",
+            &reported,
+            "    println!(\"{:?}\", op(i64::MAX, 1).is_err());\n\
+             \x20   println!(\"{}\", op(2, 3).unwrap());",
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["true", "5"]);
+
+        let unchecked = binary_unit(
+            BinOp::Add {
+                checked: Checked::Unchecked,
+            },
+            Ty::Int,
+        );
+        let out = run_unit_optimized(
+            "axis_overflow_unchecked",
+            &unchecked,
+            "    println!(\"{}\", op(i64::MAX, 1).unwrap());\n\
+             \x20   println!(\"{}\", op(2, 3).unwrap());",
+        );
+        assert_eq!(
+            out.lines().collect::<Vec<_>>(),
+            [i64::MIN.to_string(), "5".to_string()]
+        );
+    }
+
+    /// Integer division: the rounding and the checking are independent.
+    ///
+    /// All four combinations, because the pair that matters most is the one Python's frontend
+    /// cannot produce and a careless backend gets wrong — flooring with an unchecked divisor,
+    /// which must still floor.
+    #[test]
+    fn integer_division_rounds_as_declared_under_either_checking_mode() {
+        for (label, rounding, expected) in [
+            ("floor", Rounding::TowardNegInf, "-4"),
+            ("trunc", Rounding::TowardZero, "-3"),
+        ] {
+            for (suffix, checked) in [
+                ("reported", Checked::Reported),
+                ("unchecked", Checked::Unchecked),
+            ] {
+                let unit = binary_unit(
+                    BinOp::Div {
+                        mode: DivMode::Integer(rounding),
+                        checked,
+                    },
+                    Ty::Int,
+                );
+                let out = run_unit(
+                    &format!("axis_div_{label}_{suffix}"),
+                    &unit,
+                    "    println!(\"{}\", op(-7, 2).unwrap());",
+                );
+                assert_eq!(
+                    out.trim(),
+                    expected,
+                    "{label}/{suffix}: the rounding must not move with the checking mode"
+                );
+            }
+        }
+    }
+
+    /// Remainder, likewise, in all four combinations.
+    #[test]
+    fn remainder_takes_the_declared_sign_under_either_checking_mode() {
+        for (label, sign, expected) in [
+            ("divisor", RemSign::Divisor, "1"),
+            ("dividend", RemSign::Dividend, "-1"),
+        ] {
+            for (suffix, checked) in [
+                ("reported", Checked::Reported),
+                ("unchecked", Checked::Unchecked),
+            ] {
+                let unit = binary_unit(BinOp::Rem { sign, checked }, Ty::Int);
+                let out = run_unit(
+                    &format!("axis_rem_{label}_{suffix}"),
+                    &unit,
+                    "    println!(\"{}\", op(-7, 2).unwrap());",
+                );
+                assert_eq!(out.trim(), expected, "{label}/{suffix}");
+            }
+        }
+    }
+
+    /// Exact division: reported reports a zero divisor, unchecked yields the IEEE result.
+    ///
+    /// The one axis where the target's stance produces a *value* rather than leaving the result
+    /// genuinely undefined — IEEE-754 says `1.0 / 0.0` is an infinity, and Rust agrees.
+    #[test]
+    fn exact_division_reports_a_zero_divisor_or_yields_an_infinity() {
+        let reported = binary_unit(
+            BinOp::Div {
+                mode: DivMode::Exact,
+                checked: Checked::Reported,
+            },
+            Ty::Float,
+        );
+        let out = run_unit(
+            "axis_exact_reported",
+            &reported,
+            "    println!(\"{}\", op(1.0, 0.0).is_err());\n\
+             \x20   println!(\"{}\", op(7.0, 2.0).unwrap());",
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["true", "3.5"]);
+
+        let unchecked = binary_unit(
+            BinOp::Div {
+                mode: DivMode::Exact,
+                checked: Checked::Unchecked,
+            },
+            Ty::Float,
+        );
+        let out = run_unit(
+            "axis_exact_unchecked",
+            &unchecked,
+            "    println!(\"{}\", op(1.0, 0.0).unwrap());\n\
+             \x20   println!(\"{}\", op(7.0, 2.0).unwrap());",
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["inf", "3.5"]);
+    }
+
+    fn subscript_unit(origin: IndexOrigin, checked: Checked) -> Unit {
+        let mut unit = Unit::new();
+        unit.add_function(Function {
+            name: "read".to_string(),
+            params: vec![
+                Param {
+                    name: "xs".to_string(),
+                    ty: Ty::List(Box::new(Ty::Int)),
+                },
+                Param {
+                    name: "i".to_string(),
+                    ty: Ty::Int,
+                },
+            ],
+            ret: Ty::Int,
+            body: vec![Stmt::Return(Expr::Subscript {
+                base: Box::new(Expr::name("xs")),
+                index: Box::new(Expr::name("i")),
+                origin,
+                checked,
+            })],
+            doc: None,
+            span: Span::default(),
+        })
+        .unwrap();
+        unit
+    }
+
+    /// Indexing: the origin and the checking are independent, and all four run.
+    ///
+    /// The in-range answer is the same under all four, which is the point — a user who waived the
+    /// bounds check did not ask for different elements, only for the check to go. Only the
+    /// out-of-range and negative cases are allowed to differ.
+    #[test]
+    fn indexing_resolves_as_declared_under_either_checking_mode() {
+        for (label, origin) in [
+            ("either", IndexOrigin::FromEitherEnd),
+            ("start", IndexOrigin::FromStart),
+        ] {
+            for (suffix, checked) in [
+                ("reported", Checked::Reported),
+                ("unchecked", Checked::Unchecked),
+            ] {
+                let out = run_unit(
+                    &format!("axis_index_{label}_{suffix}"),
+                    &subscript_unit(origin, checked),
+                    "    println!(\"{}\", read(vec![10, 20, 30], 1).unwrap());",
+                );
+                assert_eq!(
+                    out.trim(),
+                    "20",
+                    "{label}/{suffix}: an in-range read is the same under every combination"
+                );
+            }
+        }
+
+        // A negative index is the last element under one origin and out of range under the other.
+        let out = run_unit(
+            "axis_index_negative_either",
+            &subscript_unit(IndexOrigin::FromEitherEnd, Checked::Reported),
+            "    println!(\"{}\", read(vec![10, 20, 30], -1).unwrap());",
+        );
+        assert_eq!(out.trim(), "30");
+
+        let out = run_unit(
+            "axis_index_negative_start",
+            &subscript_unit(IndexOrigin::FromStart, Checked::Reported),
+            "    println!(\"{}\", read(vec![10, 20, 30], -1).is_err());",
+        );
+        assert_eq!(out.trim(), "true");
+    }
+
+    /// Text length: each reading counts differently, and the axis has no checking mode.
+    #[test]
+    fn text_length_counts_in_the_declared_units() {
+        for (label, units, expected) in [
+            ("codepoints", TextUnits::CodePoints, "2"),
+            ("utf8", TextUnits::Utf8Bytes, "6"),
+            ("utf16", TextUnits::Utf16Units, "3"),
+        ] {
+            let mut unit = Unit::new();
+            unit.add_function(Function {
+                name: "size".to_string(),
+                params: vec![Param {
+                    name: "s".to_string(),
+                    ty: Ty::Str,
+                }],
+                ret: Ty::Int,
+                body: vec![Stmt::Return(Expr::Len {
+                    value: Box::new(Expr::name("s")),
+                    units,
+                })],
+                doc: None,
+                span: Span::default(),
+            })
+            .unwrap();
+
+            // "é" is one code point, two UTF-8 bytes, one UTF-16 unit; the rocket is one code
+            // point, four UTF-8 bytes, and a surrogate *pair* in UTF-16. Together: 2 code
+            // points, 6 bytes, 3 UTF-16 units — three different numbers, which is what makes
+            // this string able to tell all three readings apart.
+            let out = run_unit(
+                &format!("axis_len_{label}"),
+                &unit,
+                "    println!(\"{}\", size(\"\\u{e9}\\u{1F680}\".to_string()).unwrap());",
+            );
+            assert_eq!(out.trim(), expected, "{label}");
+        }
+    }
+}
+
+/// Python's own stance, which is what an unconfigured compilation resolves to.
+///
+/// Read from the frontend's declaration rather than rebuilt here, so these tests lower under the
+/// same bundle the pipeline uses.
+fn python_stance() -> compylr_ir::Behavior {
+    compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
 }
 
 /// In-place accumulation, checked by running it.

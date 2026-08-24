@@ -8,6 +8,14 @@
 use compylr_core::frontend::FrontendError;
 use compylr_registry::frontends as frontend;
 
+/// A source lowered under Python's own stance, which is what an unconfigured project resolves to.
+fn py_source(text: &str) -> compylr_core::Source {
+    compylr_core::Source::new(
+        text,
+        compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR),
+    )
+}
+
 #[test]
 fn python_is_implemented() {
     let frontend = frontend::lookup("python").expect("python must be implemented");
@@ -82,7 +90,7 @@ fn every_reserved_name_is_listed_but_only_some_can_compile() {
 fn the_frontend_lowers_source_text_into_a_unit() {
     let frontend = frontend::lookup("python").unwrap();
     let unit = frontend
-        .lower(&["def double(n: int) -> int:\n    return n * 2\n".to_string()])
+        .lower(&[py_source("def double(n: int) -> int:\n    return n * 2\n")])
         .expect("a supported program must lower");
     assert_eq!(unit.functions().count(), 1);
 }
@@ -93,8 +101,8 @@ fn sources_assemble_into_one_unit_across_files() {
     let frontend = frontend::lookup("python").unwrap();
     let unit = frontend
         .lower(&[
-            "def double(n: int) -> int:\n    return n * 2\n".to_string(),
-            "def quadruple(n: int) -> int:\n    return double(double(n))\n".to_string(),
+            py_source("def double(n: int) -> int:\n    return n * 2\n"),
+            py_source("def quadruple(n: int) -> int:\n    return double(double(n))\n"),
         ])
         .expect("a call across sources must type");
     assert_eq!(unit.functions().count(), 2);
@@ -104,10 +112,10 @@ fn sources_assemble_into_one_unit_across_files() {
 fn a_syntax_failure_and_a_subset_rejection_are_different_kinds() {
     let frontend = frontend::lookup("python").unwrap();
     let syntax = frontend
-        .lower(&["def broken(:\n".to_string()])
+        .lower(&[py_source("def broken(:\n")])
         .expect_err("must fail");
     let unsupported = frontend
-        .lower(&["def f(a):\n    return a\n".to_string()])
+        .lower(&[py_source("def f(a):\n    return a\n")])
         .expect_err("must fail");
 
     assert!(syntax.is_syntax(), "{syntax}");
@@ -121,7 +129,7 @@ fn a_syntax_failure_and_a_subset_rejection_are_different_kinds() {
 fn a_failure_carries_a_resolved_line_and_column() {
     let frontend = frontend::lookup("python").unwrap();
     let error = frontend
-        .lower(&["def f(a: int) -> int:\n    return a + \"x\"\n".to_string()])
+        .lower(&[py_source("def f(a: int) -> int:\n    return a + \"x\"\n")])
         .expect_err("must fail");
     assert_eq!(error.line(), 2);
     assert!(error.column() > 1, "{error}");
@@ -148,6 +156,107 @@ fn the_python_frontend_declares_what_it_requires() {
     }
 }
 
+/// Each language declares its own stance, on every axis, and mentions no other language.
+///
+/// The two declarations are the whole of the N + M property: a third language costs one
+/// declaration and no edit to any existing one. Nothing but a test notices when a declaration
+/// starts reaching for a name it should not know.
+mod declared_stances {
+    use compylr_core::{Axis, Behavior};
+    use compylr_ir::{Checked, IndexOrigin, RemSign, Rounding, TextUnits};
+
+    use super::*;
+
+    #[test]
+    fn both_endpoints_answer_for_every_axis() {
+        let source = frontend::lookup("python").unwrap().behavior();
+        let target = compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior();
+
+        // `stance` is an exhaustive match, so an axis with no field cannot compile. What this
+        // adds is that *both* sides answer: a component somehow given a partial bundle would
+        // fail here rather than at the first program that used the missing axis.
+        for axis in Axis::ALL {
+            assert_eq!(source.stance(axis).axis(), axis);
+            assert_eq!(target.stance(axis).axis(), axis);
+        }
+    }
+
+    /// Python's stance, axis by axis, spelled out rather than compared against another bundle.
+    ///
+    /// Written as literals on purpose. Comparing the declaration against something derived from
+    /// the same declaration would pass however wrong both were; these are the answers a Python
+    /// programmer would give, checked against the answers the frontend gives.
+    #[test]
+    fn python_declares_pythons_meanings() {
+        let python = frontend::lookup("python").unwrap().behavior();
+
+        assert_eq!(python.integer_overflow, Checked::Reported);
+        assert_eq!(python.integer_division.rounding, Rounding::TowardNegInf);
+        assert_eq!(python.integer_division.checked, Checked::Reported);
+        assert_eq!(python.exact_division, Checked::Reported);
+        assert_eq!(python.remainder.sign, RemSign::Divisor);
+        assert_eq!(python.remainder.checked, Checked::Reported);
+        assert_eq!(python.sequence_index.origin, IndexOrigin::FromEitherEnd);
+        assert_eq!(python.sequence_index.checked, Checked::Reported);
+        assert_eq!(python.text_length, TextUnits::CodePoints);
+    }
+
+    /// Rust's stance, likewise.
+    #[test]
+    fn rust_declares_rusts_meanings() {
+        let rust = compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior();
+
+        assert_eq!(rust.integer_overflow, Checked::Unchecked);
+        assert_eq!(rust.integer_division.rounding, Rounding::TowardZero);
+        assert_eq!(rust.integer_division.checked, Checked::Unchecked);
+        assert_eq!(rust.exact_division, Checked::Unchecked);
+        assert_eq!(rust.remainder.sign, RemSign::Dividend);
+        assert_eq!(rust.remainder.checked, Checked::Unchecked);
+        assert_eq!(rust.sequence_index.origin, IndexOrigin::FromStart);
+        assert_eq!(rust.sequence_index.checked, Checked::Unchecked);
+        assert_eq!(rust.text_length, TextUnits::Utf8Bytes);
+    }
+
+    /// The two disagree on every axis, which is what makes all six worth having.
+    ///
+    /// An axis the two languages agreed on would be a setting with one value — not a choice, and
+    /// not something a user could meaningfully ask for.
+    #[test]
+    fn the_pair_compylr_ships_disagrees_on_every_axis() {
+        let python = frontend::lookup("python").unwrap().behavior();
+        let rust = compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior();
+
+        for axis in Axis::ALL {
+            assert_ne!(
+                python.stance(axis),
+                rust.stance(axis),
+                "{axis} is declared identically by both languages, so it is not a choice"
+            );
+        }
+    }
+
+    /// A declaration describes one language, so resolving to it produces exactly it.
+    ///
+    /// The property that would break first if a declaration ever started hedging toward the
+    /// other language: resolving every axis to Python must reproduce Python's bundle unchanged.
+    #[test]
+    fn resolving_to_one_language_reproduces_its_declaration() {
+        let python = frontend::lookup("python").unwrap().behavior();
+        let rust = compylr_registry::backends::lookup("rust")
+            .unwrap()
+            .behavior();
+
+        assert_eq!(Behavior::of(python).axes(), python);
+        assert_eq!(Behavior::of(rust).axes(), rust);
+    }
+}
+
 /// The Python frontend declares Python's meanings on every operator it lowers.
 ///
 /// Asserted on the *declaration*, not on the variant name. A test that checked for a variant
@@ -155,11 +264,11 @@ fn the_python_frontend_declares_what_it_requires() {
 /// mode the change exists to remove.
 mod declared_meanings {
     use super::*;
-    use compylr_ir::{BinOp, DivMode, Expr, RemSign, Rounding, Stmt};
+    use compylr_ir::{BinOp, Checked, DivMode, Expr, RemSign, Rounding, Stmt};
 
     fn operator_of(source: &str) -> BinOp {
         let frontend = frontend::lookup("python").unwrap();
-        let unit = frontend.lower(&[source.to_string()]).expect("must lower");
+        let unit = frontend.lower(&[py_source(source)]).expect("must lower");
         match &unit.get("op").expect("the fixture defines op").body[0] {
             Stmt::Return(Expr::Binary { op, .. }) => *op,
             other => panic!("unexpected body: {other:?}"),
@@ -172,6 +281,7 @@ mod declared_meanings {
             operator_of("def op(a: int, b: int) -> int:\n    return a // b\n"),
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             }
         );
     }
@@ -182,6 +292,7 @@ mod declared_meanings {
             operator_of("def op(a: int, b: int) -> int:\n    return a % b\n"),
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             }
         );
     }
@@ -192,6 +303,7 @@ mod declared_meanings {
             operator_of("def op(a: int, b: int) -> float:\n    return a / b\n"),
             BinOp::Div {
                 mode: DivMode::Exact,
+                checked: Checked::Reported,
             }
         );
     }
@@ -206,7 +318,9 @@ mod declared_meanings {
         use compylr_ir::IndexOrigin;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
-            .lower(&["def op(xs: list[int], i: int) -> int:\n    return xs[i]\n".to_string()])
+            .lower(&[py_source(
+                "def op(xs: list[int], i: int) -> int:\n    return xs[i]\n",
+            )])
             .expect("must lower");
         match &unit.get("op").unwrap().body[0] {
             Stmt::Return(Expr::Subscript { origin, .. }) => {
@@ -221,7 +335,7 @@ mod declared_meanings {
         use compylr_ir::TextUnits;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
-            .lower(&["def op(s: str) -> int:\n    return len(s)\n".to_string()])
+            .lower(&[py_source("def op(s: str) -> int:\n    return len(s)\n")])
             .expect("must lower");
         match &unit.get("op").unwrap().body[0] {
             Stmt::Return(Expr::Len { units, .. }) => assert_eq!(*units, TextUnits::CodePoints),
@@ -239,7 +353,9 @@ mod declared_meanings {
         use compylr_ir::IndexOrigin;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
-            .lower(&["def op(d: dict[str, int], k: str) -> int:\n    return d[k]\n".to_string()])
+            .lower(&[py_source(
+                "def op(d: dict[str, int], k: str) -> int:\n    return d[k]\n",
+            )])
             .expect("must lower");
         match &unit.get("op").unwrap().body[0] {
             Stmt::Return(Expr::Subscript { origin, .. }) => {
@@ -255,7 +371,9 @@ mod declared_meanings {
         use compylr_ir::Guarantee;
         let frontend = frontend::lookup("python").unwrap();
         let unit = frontend
-            .lower(&["def op(a: int, b: int) -> int:\n    return a + b\n".to_string()])
+            .lower(&[py_source(
+                "def op(a: int, b: int) -> int:\n    return a + b\n",
+            )])
             .unwrap();
 
         let origin = unit.origin().expect("a lowered unit is claimed");

@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "fingerprint": "2d2770a00bae29ab",
+  "version": 4,
+  "fingerprint": "76f552cf3ba9bdc2",
   "functions": [
     {
       "name": "average_of_counts",
@@ -71,7 +71,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "total"
                       },
@@ -90,7 +94,8 @@
             "Binary": {
               "op": {
                 "Div": {
-                  "mode": "Exact"
+                  "mode": "Exact",
+                  "checked": "Reported"
                 }
               },
               "left": {
@@ -223,7 +228,11 @@
                             "op": "NotEq",
                             "left": {
                               "Binary": {
-                                "op": "Add",
+                                "op": {
+                                  "Add": {
+                                    "checked": "Reported"
+                                  }
+                                },
                                 "left": {
                                   "MethodCall": {
                                     "receiver": {
@@ -407,7 +416,8 @@
                       "index": {
                         "Name": "head"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -418,7 +428,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "head"
                       },
@@ -463,7 +477,8 @@
                       "index": {
                         "Name": "node"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   },
                   "body": [
@@ -495,7 +510,11 @@
                         },
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Subscript": {
                                 "base": {
@@ -504,7 +523,8 @@
                                 "index": {
                                   "Name": "node"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -573,7 +593,11 @@
             "ty": "Int",
             "value": {
               "Binary": {
-                "op": "Sub",
+                "op": {
+                  "Sub": {
+                    "checked": "Reported"
+                  }
+                },
                 "left": {
                   "Len": {
                     "value": {
@@ -626,12 +650,17 @@
                         "Div": {
                           "mode": {
                             "Integer": "TowardNegInf"
-                          }
+                          },
+                          "checked": "Reported"
                         }
                       },
                       "left": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "low"
                           },
@@ -662,7 +691,8 @@
                           "index": {
                             "Name": "middle"
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       },
                       "right": {
@@ -698,7 +728,8 @@
                           "index": {
                             "Name": "middle"
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       },
                       "right": {
@@ -713,7 +744,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "middle"
                             },
@@ -734,7 +769,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Sub",
+                            "op": {
+                              "Sub": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "middle"
                             },
@@ -810,7 +849,11 @@
             "ty": "Int",
             "value": {
               "Binary": {
-                "op": "Add",
+                "op": {
+                  "Add": {
+                    "checked": "Reported"
+                  }
+                },
                 "left": {
                   "Name": "amount"
                 },
@@ -847,7 +890,11 @@
                 },
                 "stop": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "amount"
                     },
@@ -909,7 +956,11 @@
                 },
                 "stop": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "amount"
                     },
@@ -961,7 +1012,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Subscript": {
                                 "base": {
@@ -969,7 +1024,11 @@
                                 },
                                 "index": {
                                   "Binary": {
-                                    "op": "Sub",
+                                    "op": {
+                                      "Sub": {
+                                        "checked": "Reported"
+                                      }
+                                    },
                                     "left": {
                                       "Name": "target"
                                     },
@@ -978,7 +1037,8 @@
                                     }
                                   }
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -1006,7 +1066,8 @@
                                 "index": {
                                   "Name": "target"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             }
                           }
@@ -1048,7 +1109,8 @@
                     "index": {
                       "Name": "amount"
                     },
-                    "origin": "FromEitherEnd"
+                    "origin": "FromEitherEnd",
+                    "checked": "Reported"
                   }
                 },
                 "right": {
@@ -1077,7 +1139,8 @@
               "index": {
                 "Name": "amount"
               },
-              "origin": "FromEitherEnd"
+              "origin": "FromEitherEnd",
+              "checked": "Reported"
             }
           }
         }
@@ -1166,7 +1229,8 @@
                         "Binary": {
                           "op": {
                             "Rem": {
-                              "sign": "Divisor"
+                              "sign": "Divisor",
+                              "checked": "Reported"
                             }
                           },
                           "left": {
@@ -1197,7 +1261,8 @@
                               "Div": {
                                 "mode": {
                                   "Integer": "TowardNegInf"
-                                }
+                                },
+                                "checked": "Reported"
                               }
                             },
                             "left": {
@@ -1220,10 +1285,18 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Binary": {
-                                "op": "Mul",
+                                "op": {
+                                  "Mul": {
+                                    "checked": "Reported"
+                                  }
+                                },
                                 "left": {
                                   "Literal": {
                                     "Int": 3
@@ -1252,7 +1325,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "steps"
                       },
@@ -1275,6 +1352,212 @@
         }
       ],
       "doc": "How many steps `n` takes to reach 1 under the Collatz rule. Zero for `n` below one.\n\n    Nobody has proved this terminates for every `n`. It is in the demo because it is the shortest\n    honest example of a loop whose trip count is not a function of its input's size.\n    "
+    },
+    {
+      "name": "collatz_length_rust",
+      "params": [
+        {
+          "name": "n",
+          "ty": "Int"
+        }
+      ],
+      "ret": "Int",
+      "body": [
+        {
+          "If": {
+            "test": {
+              "Binary": {
+                "op": "Lt",
+                "left": {
+                  "Name": "n"
+                },
+                "right": {
+                  "Literal": {
+                    "Int": 1
+                  }
+                }
+              }
+            },
+            "then": [
+              {
+                "Return": {
+                  "Literal": {
+                    "Int": 0
+                  }
+                }
+              }
+            ],
+            "otherwise": []
+          }
+        },
+        {
+          "Bind": {
+            "name": "steps",
+            "ty": "Int",
+            "value": {
+              "Literal": {
+                "Int": 0
+              }
+            }
+          }
+        },
+        {
+          "Bind": {
+            "name": "current",
+            "ty": "Int",
+            "value": {
+              "Name": "n"
+            }
+          }
+        },
+        {
+          "While": {
+            "test": {
+              "Binary": {
+                "op": "NotEq",
+                "left": {
+                  "Name": "current"
+                },
+                "right": {
+                  "Literal": {
+                    "Int": 1
+                  }
+                }
+              }
+            },
+            "body": [
+              {
+                "If": {
+                  "test": {
+                    "Binary": {
+                      "op": "Eq",
+                      "left": {
+                        "Binary": {
+                          "op": {
+                            "Rem": {
+                              "sign": "Dividend",
+                              "checked": "Unchecked"
+                            }
+                          },
+                          "left": {
+                            "Name": "current"
+                          },
+                          "right": {
+                            "Literal": {
+                              "Int": 2
+                            }
+                          }
+                        }
+                      },
+                      "right": {
+                        "Literal": {
+                          "Int": 0
+                        }
+                      }
+                    }
+                  },
+                  "then": [
+                    {
+                      "Assign": {
+                        "name": "current",
+                        "ty": "Int",
+                        "value": {
+                          "Binary": {
+                            "op": {
+                              "Div": {
+                                "mode": {
+                                  "Integer": "TowardZero"
+                                },
+                                "checked": "Unchecked"
+                              }
+                            },
+                            "left": {
+                              "Name": "current"
+                            },
+                            "right": {
+                              "Literal": {
+                                "Int": 2
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "otherwise": [
+                    {
+                      "Assign": {
+                        "name": "current",
+                        "ty": "Int",
+                        "value": {
+                          "Binary": {
+                            "op": {
+                              "Add": {
+                                "checked": "Unchecked"
+                              }
+                            },
+                            "left": {
+                              "Binary": {
+                                "op": {
+                                  "Mul": {
+                                    "checked": "Unchecked"
+                                  }
+                                },
+                                "left": {
+                                  "Literal": {
+                                    "Int": 3
+                                  }
+                                },
+                                "right": {
+                                  "Name": "current"
+                                }
+                              }
+                            },
+                            "right": {
+                              "Literal": {
+                                "Int": 1
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "Assign": {
+                  "name": "steps",
+                  "ty": "Int",
+                  "value": {
+                    "Binary": {
+                      "op": {
+                        "Add": {
+                          "checked": "Unchecked"
+                        }
+                      },
+                      "left": {
+                        "Name": "steps"
+                      },
+                      "right": {
+                        "Literal": {
+                          "Int": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "Return": {
+            "Name": "steps"
+          }
+        }
+      ],
+      "doc": "`collatz_length` again, byte for byte, compiled under Rust's meanings instead.\n\n    The duplication is the experiment. Two functions with identical bodies and different\n    `behavior` settings differ in exactly one thing — what `%`, `//`, `*` and `+` are allowed to\n    do — so the benchmark's comparison between them is a comparison of behaviors and not of\n    programs. What the Rust stance gives up here is written down in the demo's README.\n    "
     },
     {
       "name": "component_count",
@@ -1485,7 +1768,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "total"
                             },
@@ -1615,7 +1902,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Sub",
+                      "op": {
+                        "Sub": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "top"
                       },
@@ -1640,7 +1931,8 @@
                       "index": {
                         "Name": "top"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -1722,7 +2014,8 @@
                       "index": {
                         "Name": "node"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -1733,7 +2026,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Sub",
+                      "op": {
+                        "Sub": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Len": {
                           "value": {
@@ -1802,7 +2099,8 @@
                                   "index": {
                                     "Name": "index"
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               }
                             }
@@ -1822,7 +2120,8 @@
                                   "index": {
                                     "Name": "index"
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               }
                             }
@@ -1836,7 +2135,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "top"
                             },
@@ -1855,7 +2158,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Sub",
+                            "op": {
+                              "Sub": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "index"
                             },
@@ -1923,7 +2230,10 @@
                   "ty": "Int",
                   "value": {
                     "Neg": {
-                      "Name": "current"
+                      "value": {
+                        "Name": "current"
+                      },
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -1965,7 +2275,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "total"
                       },
@@ -1973,7 +2287,8 @@
                         "Binary": {
                           "op": {
                             "Rem": {
-                              "sign": "Divisor"
+                              "sign": "Divisor",
+                              "checked": "Reported"
                             }
                           },
                           "left": {
@@ -2000,7 +2315,8 @@
                         "Div": {
                           "mode": {
                             "Integer": "TowardNegInf"
-                          }
+                          },
+                          "checked": "Reported"
                         }
                       },
                       "left": {
@@ -2054,7 +2370,8 @@
                     "Div": {
                       "mode": {
                         "Integer": "TowardNegInf"
-                      }
+                      },
+                      "checked": "Reported"
                     }
                   },
                   "left": {
@@ -2069,7 +2386,8 @@
                 "Binary": {
                   "op": {
                     "Rem": {
-                      "sign": "Divisor"
+                      "sign": "Divisor",
+                      "checked": "Reported"
                     }
                   },
                   "left": {
@@ -2146,7 +2464,11 @@
                 "args": [
                   {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "rows"
                       },
@@ -2159,7 +2481,11 @@
                   },
                   {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "columns"
                       },
@@ -2188,7 +2514,11 @@
                 },
                 "stop": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "rows"
                     },
@@ -2217,7 +2547,8 @@
                       "index": {
                         "Name": "i"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   },
                   "index": {
@@ -2246,7 +2577,11 @@
                 },
                 "stop": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "columns"
                     },
@@ -2277,7 +2612,8 @@
                           "Int": 0
                         }
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   },
                   "index": {
@@ -2304,7 +2640,11 @@
                 },
                 "stop": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "rows"
                     },
@@ -2336,7 +2676,11 @@
                       },
                       "stop": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "columns"
                           },
@@ -2367,7 +2711,11 @@
                                 },
                                 "index": {
                                   "Binary": {
-                                    "op": "Sub",
+                                    "op": {
+                                      "Sub": {
+                                        "checked": "Reported"
+                                      }
+                                    },
                                     "left": {
                                       "Name": "i"
                                     },
@@ -2378,7 +2726,8 @@
                                     }
                                   }
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -2388,7 +2737,11 @@
                                 },
                                 "index": {
                                   "Binary": {
-                                    "op": "Sub",
+                                    "op": {
+                                      "Sub": {
+                                        "checked": "Reported"
+                                      }
+                                    },
                                     "left": {
                                       "Name": "j"
                                     },
@@ -2399,7 +2752,8 @@
                                     }
                                   }
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             }
                           }
@@ -2415,7 +2769,8 @@
                                   "index": {
                                     "Name": "i"
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               },
                               "index": {
@@ -2430,7 +2785,11 @@
                                       },
                                       "index": {
                                         "Binary": {
-                                          "op": "Sub",
+                                          "op": {
+                                            "Sub": {
+                                              "checked": "Reported"
+                                            }
+                                          },
                                           "left": {
                                             "Name": "i"
                                           },
@@ -2441,12 +2800,17 @@
                                           }
                                         }
                                       },
-                                      "origin": "FromEitherEnd"
+                                      "origin": "FromEitherEnd",
+                                      "checked": "Reported"
                                     }
                                   },
                                   "index": {
                                     "Binary": {
-                                      "op": "Sub",
+                                      "op": {
+                                        "Sub": {
+                                          "checked": "Reported"
+                                        }
+                                      },
                                       "left": {
                                         "Name": "j"
                                       },
@@ -2457,7 +2821,8 @@
                                       }
                                     }
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               }
                             }
@@ -2481,7 +2846,11 @@
                                             },
                                             "index": {
                                               "Binary": {
-                                                "op": "Sub",
+                                                "op": {
+                                                  "Sub": {
+                                                    "checked": "Reported"
+                                                  }
+                                                },
                                                 "left": {
                                                   "Name": "i"
                                                 },
@@ -2492,13 +2861,15 @@
                                                 }
                                               }
                                             },
-                                            "origin": "FromEitherEnd"
+                                            "origin": "FromEitherEnd",
+                                            "checked": "Reported"
                                           }
                                         },
                                         "index": {
                                           "Name": "j"
                                         },
-                                        "origin": "FromEitherEnd"
+                                        "origin": "FromEitherEnd",
+                                        "checked": "Reported"
                                       }
                                     },
                                     {
@@ -2511,12 +2882,17 @@
                                             "index": {
                                               "Name": "i"
                                             },
-                                            "origin": "FromEitherEnd"
+                                            "origin": "FromEitherEnd",
+                                            "checked": "Reported"
                                           }
                                         },
                                         "index": {
                                           "Binary": {
-                                            "op": "Sub",
+                                            "op": {
+                                              "Sub": {
+                                                "checked": "Reported"
+                                              }
+                                            },
                                             "left": {
                                               "Name": "j"
                                             },
@@ -2527,7 +2903,8 @@
                                             }
                                           }
                                         },
-                                        "origin": "FromEitherEnd"
+                                        "origin": "FromEitherEnd",
+                                        "checked": "Reported"
                                       }
                                     }
                                   ]
@@ -2545,7 +2922,8 @@
                                   "index": {
                                     "Name": "i"
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               },
                               "index": {
@@ -2553,7 +2931,11 @@
                               },
                               "value": {
                                 "Binary": {
-                                  "op": "Add",
+                                  "op": {
+                                    "Add": {
+                                      "checked": "Reported"
+                                    }
+                                  },
                                   "left": {
                                     "Call": {
                                       "callee": "smaller",
@@ -2570,7 +2952,11 @@
                                                 },
                                                 "index": {
                                                   "Binary": {
-                                                    "op": "Sub",
+                                                    "op": {
+                                                      "Sub": {
+                                                        "checked": "Reported"
+                                                      }
+                                                    },
                                                     "left": {
                                                       "Name": "i"
                                                     },
@@ -2581,12 +2967,17 @@
                                                     }
                                                   }
                                                 },
-                                                "origin": "FromEitherEnd"
+                                                "origin": "FromEitherEnd",
+                                                "checked": "Reported"
                                               }
                                             },
                                             "index": {
                                               "Binary": {
-                                                "op": "Sub",
+                                                "op": {
+                                                  "Sub": {
+                                                    "checked": "Reported"
+                                                  }
+                                                },
                                                 "left": {
                                                   "Name": "j"
                                                 },
@@ -2597,7 +2988,8 @@
                                                 }
                                               }
                                             },
-                                            "origin": "FromEitherEnd"
+                                            "origin": "FromEitherEnd",
+                                            "checked": "Reported"
                                           }
                                         }
                                       ]
@@ -2632,13 +3024,15 @@
                   "index": {
                     "Name": "rows"
                   },
-                  "origin": "FromEitherEnd"
+                  "origin": "FromEitherEnd",
+                  "checked": "Reported"
                 }
               },
               "index": {
                 "Name": "columns"
               },
-              "origin": "FromEitherEnd"
+              "origin": "FromEitherEnd",
+              "checked": "Reported"
             }
           }
         }
@@ -2717,7 +3111,8 @@
                     "Int": 0
                   }
                 },
-                "origin": "FromEitherEnd"
+                "origin": "FromEitherEnd",
+                "checked": "Reported"
               }
             }
           }
@@ -2736,7 +3131,8 @@
                     "Int": 0
                   }
                 },
-                "origin": "FromEitherEnd"
+                "origin": "FromEitherEnd",
+                "checked": "Reported"
               }
             }
           }
@@ -2920,7 +3316,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "previous"
                       },
@@ -2946,7 +3346,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "step"
                       },
@@ -2991,7 +3395,8 @@
                 "Div": {
                   "mode": {
                     "Integer": "TowardNegInf"
-                  }
+                  },
+                  "checked": "Reported"
                 }
               },
               "left": {
@@ -3060,7 +3465,10 @@
                   "ty": "Int",
                   "value": {
                     "Neg": {
-                      "Name": "x"
+                      "value": {
+                        "Name": "x"
+                      },
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -3091,7 +3499,10 @@
                   "ty": "Int",
                   "value": {
                     "Neg": {
-                      "Name": "y"
+                      "value": {
+                        "Name": "y"
+                      },
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -3133,7 +3544,8 @@
                     "Binary": {
                       "op": {
                         "Rem": {
-                          "sign": "Divisor"
+                          "sign": "Divisor",
+                          "checked": "Reported"
                         }
                       },
                       "left": {
@@ -3292,7 +3704,8 @@
                       "index": {
                         "Name": "i"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   },
                   "index": {
@@ -3390,7 +3803,8 @@
                       "index": {
                         "Name": "i"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -3401,7 +3815,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Sub",
+                      "op": {
+                        "Sub": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "i"
                       },
@@ -3443,7 +3861,8 @@
                                 "index": {
                                   "Name": "j"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -3459,7 +3878,11 @@
                               },
                               "index": {
                                 "Binary": {
-                                  "op": "Add",
+                                  "op": {
+                                    "Add": {
+                                      "checked": "Reported"
+                                    }
+                                  },
                                   "left": {
                                     "Name": "j"
                                   },
@@ -3478,7 +3901,8 @@
                                   "index": {
                                     "Name": "j"
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               }
                             }
@@ -3489,7 +3913,11 @@
                               "ty": "Int",
                               "value": {
                                 "Binary": {
-                                  "op": "Sub",
+                                  "op": {
+                                    "Sub": {
+                                      "checked": "Reported"
+                                    }
+                                  },
                                   "left": {
                                     "Name": "j"
                                   },
@@ -3518,7 +3946,11 @@
                   },
                   "index": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "j"
                       },
@@ -3540,7 +3972,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "i"
                       },
@@ -3645,12 +4081,17 @@
                   "Div": {
                     "mode": {
                       "Integer": "TowardNegInf"
-                    }
+                    },
+                    "checked": "Reported"
                   }
                 },
                 "left": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "x"
                     },
@@ -3703,12 +4144,17 @@
                         "Div": {
                           "mode": {
                             "Integer": "TowardNegInf"
-                          }
+                          },
+                          "checked": "Reported"
                         }
                       },
                       "left": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "x"
                           },
@@ -3718,7 +4164,8 @@
                                 "Div": {
                                   "mode": {
                                     "Integer": "TowardNegInf"
-                                  }
+                                  },
+                                  "checked": "Reported"
                                 }
                               },
                               "left": {
@@ -3805,7 +4252,11 @@
                           },
                           "index": {
                             "Binary": {
-                              "op": "Sub",
+                              "op": {
+                                "Sub": {
+                                  "checked": "Reported"
+                                }
+                              },
                               "left": {
                                 "Name": "i"
                               },
@@ -3816,7 +4267,8 @@
                               }
                             }
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       },
                       "right": {
@@ -3827,7 +4279,8 @@
                           "index": {
                             "Name": "i"
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       }
                     }
@@ -3850,7 +4303,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "i"
                       },
@@ -3976,7 +4433,11 @@
               },
               "index": {
                 "Binary": {
-                  "op": "Sub",
+                  "op": {
+                    "Sub": {
+                      "checked": "Reported"
+                    }
+                  },
                   "left": {
                     "Name": "n"
                   },
@@ -3987,7 +4448,8 @@
                   }
                 }
               },
-              "origin": "FromEitherEnd"
+              "origin": "FromEitherEnd",
+              "checked": "Reported"
             }
           }
         }
@@ -4073,7 +4535,11 @@
                             "op": "Gt",
                             "left": {
                               "Binary": {
-                                "op": "Mul",
+                                "op": {
+                                  "Mul": {
+                                    "checked": "Reported"
+                                  }
+                                },
                                 "left": {
                                   "Name": "p"
                                 },
@@ -4102,7 +4568,8 @@
                               "Binary": {
                                 "op": {
                                   "Rem": {
-                                    "sign": "Divisor"
+                                    "sign": "Divisor",
+                                    "checked": "Reported"
                                   }
                                 },
                                 "left": {
@@ -4173,7 +4640,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "candidate"
                       },
@@ -4255,7 +4726,11 @@
                         "ty": "Str",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "out"
                             },
@@ -4285,10 +4760,18 @@
                         "ty": "Str",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Binary": {
-                                "op": "Add",
+                                "op": {
+                                  "Add": {
+                                    "checked": "Reported"
+                                  }
+                                },
                                 "left": {
                                   "Name": "out"
                                 },
@@ -4398,7 +4881,11 @@
                 "args": [
                   {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "items"
                       },
@@ -4411,7 +4898,11 @@
                   },
                   {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "capacity"
                       },
@@ -4440,7 +4931,11 @@
                 },
                 "stop": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "items"
                     },
@@ -4472,7 +4967,11 @@
                       },
                       "stop": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "capacity"
                           },
@@ -4501,7 +5000,8 @@
                             "index": {
                               "Name": "i"
                             },
-                            "origin": "FromEitherEnd"
+                            "origin": "FromEitherEnd",
+                            "checked": "Reported"
                           }
                         },
                         "index": {
@@ -4516,7 +5016,11 @@
                                 },
                                 "index": {
                                   "Binary": {
-                                    "op": "Sub",
+                                    "op": {
+                                      "Sub": {
+                                        "checked": "Reported"
+                                      }
+                                    },
                                     "left": {
                                       "Name": "i"
                                     },
@@ -4527,13 +5031,15 @@
                                     }
                                   }
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "index": {
                               "Name": "room"
                             },
-                            "origin": "FromEitherEnd"
+                            "origin": "FromEitherEnd",
+                            "checked": "Reported"
                           }
                         }
                       }
@@ -4550,7 +5056,11 @@
                                 },
                                 "index": {
                                   "Binary": {
-                                    "op": "Sub",
+                                    "op": {
+                                      "Sub": {
+                                        "checked": "Reported"
+                                      }
+                                    },
                                     "left": {
                                       "Name": "i"
                                     },
@@ -4561,7 +5071,8 @@
                                     }
                                   }
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -4581,7 +5092,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Subscript": {
                                 "base": {
@@ -4591,7 +5106,11 @@
                                     },
                                     "index": {
                                       "Binary": {
-                                        "op": "Sub",
+                                        "op": {
+                                          "Sub": {
+                                            "checked": "Reported"
+                                          }
+                                        },
                                         "left": {
                                           "Name": "i"
                                         },
@@ -4602,12 +5121,17 @@
                                         }
                                       }
                                     },
-                                    "origin": "FromEitherEnd"
+                                    "origin": "FromEitherEnd",
+                                    "checked": "Reported"
                                   }
                                 },
                                 "index": {
                                   "Binary": {
-                                    "op": "Sub",
+                                    "op": {
+                                      "Sub": {
+                                        "checked": "Reported"
+                                      }
+                                    },
                                     "left": {
                                       "Name": "room"
                                     },
@@ -4618,7 +5142,11 @@
                                         },
                                         "index": {
                                           "Binary": {
-                                            "op": "Sub",
+                                            "op": {
+                                              "Sub": {
+                                                "checked": "Reported"
+                                              }
+                                            },
                                             "left": {
                                               "Name": "i"
                                             },
@@ -4629,12 +5157,14 @@
                                             }
                                           }
                                         },
-                                        "origin": "FromEitherEnd"
+                                        "origin": "FromEitherEnd",
+                                        "checked": "Reported"
                                       }
                                     }
                                   }
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -4644,7 +5174,11 @@
                                 },
                                 "index": {
                                   "Binary": {
-                                    "op": "Sub",
+                                    "op": {
+                                      "Sub": {
+                                        "checked": "Reported"
+                                      }
+                                    },
                                     "left": {
                                       "Name": "i"
                                     },
@@ -4655,7 +5189,8 @@
                                     }
                                   }
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             }
                           }
@@ -4680,13 +5215,15 @@
                                     "index": {
                                       "Name": "i"
                                     },
-                                    "origin": "FromEitherEnd"
+                                    "origin": "FromEitherEnd",
+                                    "checked": "Reported"
                                   }
                                 },
                                 "index": {
                                   "Name": "room"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             }
                           }
@@ -4702,7 +5239,8 @@
                                   "index": {
                                     "Name": "i"
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               },
                               "index": {
@@ -4734,13 +5272,15 @@
                   "index": {
                     "Name": "items"
                   },
-                  "origin": "FromEitherEnd"
+                  "origin": "FromEitherEnd",
+                  "checked": "Reported"
                 }
               },
               "index": {
                 "Name": "capacity"
               },
-              "origin": "FromEitherEnd"
+              "origin": "FromEitherEnd",
+              "checked": "Reported"
             }
           }
         }
@@ -4866,7 +5406,11 @@
             "ty": "Int",
             "value": {
               "Binary": {
-                "op": "Mul",
+                "op": {
+                  "Mul": {
+                    "checked": "Reported"
+                  }
+                },
                 "left": {
                   "Name": "a"
                 },
@@ -4899,7 +5443,10 @@
                   "ty": "Int",
                   "value": {
                     "Neg": {
-                      "Name": "product"
+                      "value": {
+                        "Name": "product"
+                      },
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -4915,7 +5462,8 @@
                 "Div": {
                   "mode": {
                     "Integer": "TowardNegInf"
-                  }
+                  },
+                  "checked": "Reported"
                 }
               },
               "left": {
@@ -5099,7 +5647,11 @@
                 "args": [
                   {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "rows"
                       },
@@ -5112,7 +5664,11 @@
                   },
                   {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "columns"
                       },
@@ -5141,7 +5697,11 @@
                 },
                 "stop": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "rows"
                     },
@@ -5173,7 +5733,11 @@
                       },
                       "stop": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "columns"
                           },
@@ -5204,7 +5768,11 @@
                                 },
                                 "index": {
                                   "Binary": {
-                                    "op": "Sub",
+                                    "op": {
+                                      "Sub": {
+                                        "checked": "Reported"
+                                      }
+                                    },
                                     "left": {
                                       "Name": "i"
                                     },
@@ -5215,7 +5783,8 @@
                                     }
                                   }
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -5225,7 +5794,11 @@
                                 },
                                 "index": {
                                   "Binary": {
-                                    "op": "Sub",
+                                    "op": {
+                                      "Sub": {
+                                        "checked": "Reported"
+                                      }
+                                    },
                                     "left": {
                                       "Name": "j"
                                     },
@@ -5236,7 +5809,8 @@
                                     }
                                   }
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             }
                           }
@@ -5252,7 +5826,8 @@
                                   "index": {
                                     "Name": "i"
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               },
                               "index": {
@@ -5260,7 +5835,11 @@
                               },
                               "value": {
                                 "Binary": {
-                                  "op": "Add",
+                                  "op": {
+                                    "Add": {
+                                      "checked": "Reported"
+                                    }
+                                  },
                                   "left": {
                                     "Subscript": {
                                       "base": {
@@ -5270,7 +5849,11 @@
                                           },
                                           "index": {
                                             "Binary": {
-                                              "op": "Sub",
+                                              "op": {
+                                                "Sub": {
+                                                  "checked": "Reported"
+                                                }
+                                              },
                                               "left": {
                                                 "Name": "i"
                                               },
@@ -5281,12 +5864,17 @@
                                               }
                                             }
                                           },
-                                          "origin": "FromEitherEnd"
+                                          "origin": "FromEitherEnd",
+                                          "checked": "Reported"
                                         }
                                       },
                                       "index": {
                                         "Binary": {
-                                          "op": "Sub",
+                                          "op": {
+                                            "Sub": {
+                                              "checked": "Reported"
+                                            }
+                                          },
                                           "left": {
                                             "Name": "j"
                                           },
@@ -5297,7 +5885,8 @@
                                           }
                                         }
                                       },
-                                      "origin": "FromEitherEnd"
+                                      "origin": "FromEitherEnd",
+                                      "checked": "Reported"
                                     }
                                   },
                                   "right": {
@@ -5321,7 +5910,8 @@
                                   "index": {
                                     "Name": "i"
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               },
                               "index": {
@@ -5340,7 +5930,11 @@
                                             },
                                             "index": {
                                               "Binary": {
-                                                "op": "Sub",
+                                                "op": {
+                                                  "Sub": {
+                                                    "checked": "Reported"
+                                                  }
+                                                },
                                                 "left": {
                                                   "Name": "i"
                                                 },
@@ -5351,13 +5945,15 @@
                                                 }
                                               }
                                             },
-                                            "origin": "FromEitherEnd"
+                                            "origin": "FromEitherEnd",
+                                            "checked": "Reported"
                                           }
                                         },
                                         "index": {
                                           "Name": "j"
                                         },
-                                        "origin": "FromEitherEnd"
+                                        "origin": "FromEitherEnd",
+                                        "checked": "Reported"
                                       }
                                     },
                                     {
@@ -5370,12 +5966,17 @@
                                             "index": {
                                               "Name": "i"
                                             },
-                                            "origin": "FromEitherEnd"
+                                            "origin": "FromEitherEnd",
+                                            "checked": "Reported"
                                           }
                                         },
                                         "index": {
                                           "Binary": {
-                                            "op": "Sub",
+                                            "op": {
+                                              "Sub": {
+                                                "checked": "Reported"
+                                              }
+                                            },
                                             "left": {
                                               "Name": "j"
                                             },
@@ -5386,7 +5987,8 @@
                                             }
                                           }
                                         },
-                                        "origin": "FromEitherEnd"
+                                        "origin": "FromEitherEnd",
+                                        "checked": "Reported"
                                       }
                                     }
                                   ]
@@ -5414,13 +6016,15 @@
                   "index": {
                     "Name": "rows"
                   },
-                  "origin": "FromEitherEnd"
+                  "origin": "FromEitherEnd",
+                  "checked": "Reported"
                 }
               },
               "index": {
                 "Name": "columns"
               },
-              "origin": "FromEitherEnd"
+              "origin": "FromEitherEnd",
+              "checked": "Reported"
             }
           }
         }
@@ -5496,7 +6100,11 @@
                   "ty": "Float",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "total"
                       },
@@ -5515,7 +6123,8 @@
             "Binary": {
               "op": {
                 "Div": {
-                  "mode": "Exact"
+                  "mode": "Exact",
+                  "checked": "Reported"
                 }
               },
               "left": {
@@ -5599,7 +6208,8 @@
                   "Binary": {
                     "op": {
                       "Rem": {
-                        "sign": "Divisor"
+                        "sign": "Divisor",
+                        "checked": "Reported"
                       }
                     },
                     "left": {
@@ -5632,7 +6242,8 @@
                           "Div": {
                             "mode": {
                               "Integer": "TowardNegInf"
-                            }
+                            },
+                            "checked": "Reported"
                           }
                         },
                         "left": {
@@ -5645,7 +6256,8 @@
                         }
                       }
                     },
-                    "origin": "FromEitherEnd"
+                    "origin": "FromEitherEnd",
+                    "checked": "Reported"
                   }
                 }
               }
@@ -5658,12 +6270,17 @@
             "Binary": {
               "op": {
                 "Div": {
-                  "mode": "Exact"
+                  "mode": "Exact",
+                  "checked": "Reported"
                 }
               },
               "left": {
                 "Binary": {
-                  "op": "Add",
+                  "op": {
+                    "Add": {
+                      "checked": "Reported"
+                    }
+                  },
                   "left": {
                     "Subscript": {
                       "base": {
@@ -5671,14 +6288,19 @@
                       },
                       "index": {
                         "Binary": {
-                          "op": "Sub",
+                          "op": {
+                            "Sub": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Binary": {
                               "op": {
                                 "Div": {
                                   "mode": {
                                     "Integer": "TowardNegInf"
-                                  }
+                                  },
+                                  "checked": "Reported"
                                 }
                               },
                               "left": {
@@ -5698,7 +6320,8 @@
                           }
                         }
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   },
                   "right": {
@@ -5712,7 +6335,8 @@
                             "Div": {
                               "mode": {
                                 "Integer": "TowardNegInf"
-                              }
+                              },
+                              "checked": "Reported"
                             }
                           },
                           "left": {
@@ -5725,7 +6349,8 @@
                           }
                         }
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -5850,7 +6475,8 @@
                           "index": {
                             "Name": "i"
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       },
                       "right": {
@@ -5861,7 +6487,8 @@
                           "index": {
                             "Name": "j"
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       }
                     }
@@ -5880,7 +6507,8 @@
                             "index": {
                               "Name": "i"
                             },
-                            "origin": "FromEitherEnd"
+                            "origin": "FromEitherEnd",
+                            "checked": "Reported"
                           }
                         }
                       }
@@ -5891,7 +6519,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "i"
                             },
@@ -5919,7 +6551,8 @@
                             "index": {
                               "Name": "j"
                             },
-                            "origin": "FromEitherEnd"
+                            "origin": "FromEitherEnd",
+                            "checked": "Reported"
                           }
                         }
                       }
@@ -5930,7 +6563,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "j"
                             },
@@ -5981,7 +6618,8 @@
                       "index": {
                         "Name": "i"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -5992,7 +6630,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "i"
                       },
@@ -6040,7 +6682,8 @@
                       "index": {
                         "Name": "j"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -6051,7 +6694,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "j"
                       },
@@ -6136,7 +6783,8 @@
                   "Div": {
                     "mode": {
                       "Integer": "TowardNegInf"
-                    }
+                    },
+                    "checked": "Reported"
                   }
                 },
                 "left": {
@@ -6242,7 +6890,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "index"
                       },
@@ -6443,7 +7095,8 @@
                           "index": {
                             "Name": "word"
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       },
                       "right": {
@@ -6473,7 +7126,8 @@
                             "index": {
                               "Name": "word"
                             },
-                            "origin": "FromEitherEnd"
+                            "origin": "FromEitherEnd",
+                            "checked": "Reported"
                           }
                         }
                       }
@@ -6493,7 +7147,8 @@
                                 "index": {
                                   "Name": "word"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -6628,7 +7283,8 @@
                         "Int": 0
                       }
                     },
-                    "origin": "FromEitherEnd"
+                    "origin": "FromEitherEnd",
+                    "checked": "Reported"
                   }
                 },
                 "units": "CodePoints"
@@ -6705,7 +7361,8 @@
                         "Int": 0
                       }
                     },
-                    "origin": "FromEitherEnd"
+                    "origin": "FromEitherEnd",
+                    "checked": "Reported"
                   }
                 },
                 "units": "CodePoints"
@@ -6819,13 +7476,21 @@
                               "ty": "Int",
                               "value": {
                                 "Binary": {
-                                  "op": "Add",
+                                  "op": {
+                                    "Add": {
+                                      "checked": "Reported"
+                                    }
+                                  },
                                   "left": {
                                     "Name": "total"
                                   },
                                   "right": {
                                     "Binary": {
-                                      "op": "Mul",
+                                      "op": {
+                                        "Mul": {
+                                          "checked": "Reported"
+                                        }
+                                      },
                                       "left": {
                                         "Subscript": {
                                           "base": {
@@ -6836,13 +7501,15 @@
                                               "index": {
                                                 "Name": "i"
                                               },
-                                              "origin": "FromEitherEnd"
+                                              "origin": "FromEitherEnd",
+                                              "checked": "Reported"
                                             }
                                           },
                                           "index": {
                                             "Name": "k"
                                           },
-                                          "origin": "FromEitherEnd"
+                                          "origin": "FromEitherEnd",
+                                          "checked": "Reported"
                                         }
                                       },
                                       "right": {
@@ -6855,13 +7522,15 @@
                                               "index": {
                                                 "Name": "k"
                                               },
-                                              "origin": "FromEitherEnd"
+                                              "origin": "FromEitherEnd",
+                                              "checked": "Reported"
                                             }
                                           },
                                           "index": {
                                             "Name": "j"
                                           },
-                                          "origin": "FromEitherEnd"
+                                          "origin": "FromEitherEnd",
+                                          "checked": "Reported"
                                         }
                                       }
                                     }
@@ -6883,7 +7552,8 @@
                             "index": {
                               "Name": "i"
                             },
-                            "origin": "FromEitherEnd"
+                            "origin": "FromEitherEnd",
+                            "checked": "Reported"
                           }
                         },
                         "index": {
@@ -7016,7 +7686,8 @@
                       "index": {
                         "Name": "node"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   },
                   "body": [
@@ -7176,7 +7847,11 @@
                 "op": "Eq",
                 "left": {
                   "Binary": {
-                    "op": "Sub",
+                    "op": {
+                      "Sub": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "highest"
                     },
@@ -7242,12 +7917,17 @@
                     "Binary": {
                       "op": {
                         "Div": {
-                          "mode": "Exact"
+                          "mode": "Exact",
+                          "checked": "Reported"
                         }
                       },
                       "left": {
                         "Binary": {
-                          "op": "Sub",
+                          "op": {
+                            "Sub": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "x"
                           },
@@ -7258,7 +7938,11 @@
                       },
                       "right": {
                         "Binary": {
-                          "op": "Sub",
+                          "op": {
+                            "Sub": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "highest"
                           },
@@ -7336,7 +8020,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "total"
                             },
@@ -7459,7 +8147,8 @@
                         "Binary": {
                           "op": {
                             "Rem": {
-                              "sign": "Divisor"
+                              "sign": "Divisor",
+                              "checked": "Reported"
                             }
                           },
                           "left": {
@@ -7486,7 +8175,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Mul",
+                            "op": {
+                              "Mul": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "result"
                             },
@@ -7511,7 +8204,8 @@
                         "Div": {
                           "mode": {
                             "Integer": "TowardNegInf"
-                          }
+                          },
+                          "checked": "Reported"
                         }
                       },
                       "left": {
@@ -7548,7 +8242,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Mul",
+                            "op": {
+                              "Mul": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "factor"
                             },
@@ -7629,7 +8327,11 @@
                 "op": "LtE",
                 "left": {
                   "Binary": {
-                    "op": "Mul",
+                    "op": {
+                      "Mul": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "d"
                     },
@@ -7653,7 +8355,8 @@
                         "Binary": {
                           "op": {
                             "Rem": {
-                              "sign": "Divisor"
+                              "sign": "Divisor",
+                              "checked": "Reported"
                             }
                           },
                           "left": {
@@ -7689,7 +8392,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "d"
                       },
@@ -7731,7 +8438,11 @@
             "ty": "Int",
             "value": {
               "Binary": {
-                "op": "Add",
+                "op": {
+                  "Add": {
+                    "checked": "Reported"
+                  }
+                },
                 "left": {
                   "Name": "after"
                 },
@@ -7803,7 +8514,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "candidate"
                       },
@@ -7930,7 +8645,11 @@
               "args": [
                 {
                   "Binary": {
-                    "op": "Sub",
+                    "op": {
+                      "Sub": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "remaining"
                     },
@@ -7977,7 +8696,8 @@
             "Binary": {
               "op": {
                 "Rem": {
-                  "sign": "Divisor"
+                  "sign": "Divisor",
+                  "checked": "Reported"
                 }
               },
               "left": {
@@ -8054,7 +8774,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "total"
                             },
@@ -8160,7 +8884,11 @@
                         },
                         "value": {
                           "Binary": {
-                            "op": "Mul",
+                            "op": {
+                              "Mul": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "value"
                             },
@@ -8272,7 +9000,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "i"
                       },
@@ -8317,7 +9049,8 @@
                                 "index": {
                                   "Name": "j"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -8328,7 +9061,8 @@
                                 "index": {
                                   "Name": "smallest"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             }
                           }
@@ -8353,7 +9087,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "j"
                             },
@@ -8381,7 +9119,8 @@
                       "index": {
                         "Name": "i"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -8402,7 +9141,8 @@
                       "index": {
                         "Name": "smallest"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -8426,7 +9166,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "i"
                       },
@@ -8553,7 +9297,11 @@
                 "op": "Lt",
                 "left": {
                   "Binary": {
-                    "op": "Mul",
+                    "op": {
+                      "Mul": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "candidate"
                     },
@@ -8578,7 +9326,8 @@
                       "index": {
                         "Name": "candidate"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   },
                   "then": [
@@ -8588,7 +9337,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "candidate"
                             },
@@ -8612,7 +9365,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Mul",
+                      "op": {
+                        "Mul": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "candidate"
                       },
@@ -8658,7 +9415,11 @@
                         "ty": "Int",
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "multiple"
                             },
@@ -8678,7 +9439,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "candidate"
                       },
@@ -8737,7 +9502,8 @@
                       "index": {
                         "Name": "n"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   },
                   "then": [
@@ -8893,12 +9659,17 @@
                     "Binary": {
                       "op": {
                         "Div": {
-                          "mode": "Exact"
+                          "mode": "Exact",
+                          "checked": "Reported"
                         }
                       },
                       "left": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "guess"
                           },
@@ -8906,7 +9677,8 @@
                             "Binary": {
                               "op": {
                                 "Div": {
-                                  "mode": "Exact"
+                                  "mode": "Exact",
+                                  "checked": "Reported"
                                 }
                               },
                               "left": {
@@ -8934,7 +9706,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "step"
                       },
@@ -9161,7 +9937,10 @@
                   "ty": "Int",
                   "value": {
                     "Neg": {
-                      "Name": "current"
+                      "value": {
+                        "Name": "current"
+                      },
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -9302,7 +10081,11 @@
             "ty": "Int",
             "value": {
               "Binary": {
-                "op": "Sub",
+                "op": {
+                  "Sub": {
+                    "checked": "Reported"
+                  }
+                },
                 "left": {
                   "Len": {
                     "value": {
@@ -9349,7 +10132,8 @@
                       "index": {
                         "Name": "index"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   }
                 }
@@ -9360,7 +10144,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Sub",
+                      "op": {
+                        "Sub": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "index"
                       },
@@ -9501,7 +10289,8 @@
                       "index": {
                         "Name": "node"
                       },
-                      "origin": "FromEitherEnd"
+                      "origin": "FromEitherEnd",
+                      "checked": "Reported"
                     }
                   },
                   "body": [
@@ -9515,7 +10304,11 @@
                         },
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Subscript": {
                                 "base": {
@@ -9524,7 +10317,8 @@
                                 "index": {
                                   "Name": "neighbour"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -9652,7 +10446,8 @@
                                 "index": {
                                   "Name": "node"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -9747,7 +10542,8 @@
                                   "index": {
                                     "Name": "chosen"
                                   },
-                                  "origin": "FromEitherEnd"
+                                  "origin": "FromEitherEnd",
+                                  "checked": "Reported"
                                 }
                               },
                               "body": [
@@ -9761,7 +10557,11 @@
                                     },
                                     "value": {
                                       "Binary": {
-                                        "op": "Sub",
+                                        "op": {
+                                          "Sub": {
+                                            "checked": "Reported"
+                                          }
+                                        },
                                         "left": {
                                           "Subscript": {
                                             "base": {
@@ -9770,7 +10570,8 @@
                                             "index": {
                                               "Name": "neighbour"
                                             },
-                                            "origin": "FromEitherEnd"
+                                            "origin": "FromEitherEnd",
+                                            "checked": "Reported"
                                           }
                                         },
                                         "right": {
@@ -9847,7 +10648,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "total"
                       },
@@ -9945,7 +10750,8 @@
                         "Int": 0
                       }
                     },
-                    "origin": "FromEitherEnd"
+                    "origin": "FromEitherEnd",
+                    "checked": "Reported"
                   }
                 },
                 "units": "CodePoints"
@@ -10028,7 +10834,11 @@
                   "ty": "Int",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "total"
                       },
@@ -10042,13 +10852,15 @@
                               "index": {
                                 "Name": "i"
                               },
-                              "origin": "FromEitherEnd"
+                              "origin": "FromEitherEnd",
+                              "checked": "Reported"
                             }
                           },
                           "index": {
                             "Name": "i"
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       }
                     }
@@ -10139,7 +10951,8 @@
                         "Int": 0
                       }
                     },
-                    "origin": "FromEitherEnd"
+                    "origin": "FromEitherEnd",
+                    "checked": "Reported"
                   }
                 },
                 "units": "CodePoints"
@@ -10224,7 +11037,8 @@
                             "index": {
                               "Name": "j"
                             },
-                            "origin": "FromEitherEnd"
+                            "origin": "FromEitherEnd",
+                            "checked": "Reported"
                           }
                         },
                         "index": {
@@ -10240,13 +11054,15 @@
                                 "index": {
                                   "Name": "i"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "index": {
                               "Name": "j"
                             },
-                            "origin": "FromEitherEnd"
+                            "origin": "FromEitherEnd",
+                            "checked": "Reported"
                           }
                         }
                       }
@@ -10451,7 +11267,11 @@
                   "ty": "Float",
                   "value": {
                     "Binary": {
-                      "op": "Sub",
+                      "op": {
+                        "Sub": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "x"
                       },
@@ -10468,13 +11288,21 @@
                   "ty": "Float",
                   "value": {
                     "Binary": {
-                      "op": "Add",
+                      "op": {
+                        "Add": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Name": "total"
                       },
                       "right": {
                         "Binary": {
-                          "op": "Mul",
+                          "op": {
+                            "Mul": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "deviation"
                           },
@@ -10495,7 +11323,8 @@
             "Binary": {
               "op": {
                 "Div": {
-                  "mode": "Exact"
+                  "mode": "Exact",
+                  "checked": "Reported"
                 }
               },
               "left": {
@@ -10620,7 +11449,11 @@
                         },
                         "value": {
                           "Binary": {
-                            "op": "Add",
+                            "op": {
+                              "Add": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Subscript": {
                                 "base": {
@@ -10629,7 +11462,8 @@
                                 "index": {
                                   "Name": "word"
                                 },
-                                "origin": "FromEitherEnd"
+                                "origin": "FromEitherEnd",
+                                "checked": "Reported"
                               }
                             },
                             "right": {
@@ -10792,7 +11626,11 @@
                   },
                   "index": {
                     "Binary": {
-                      "op": "Sub",
+                      "op": {
+                        "Sub": {
+                          "checked": "Reported"
+                        }
+                      },
                       "left": {
                         "Attribute": {
                           "object": {
@@ -10808,7 +11646,8 @@
                       }
                     }
                   },
-                  "origin": "FromEitherEnd"
+                  "origin": "FromEitherEnd",
+                  "checked": "Reported"
                 }
               }
             }
@@ -10861,7 +11700,11 @@
                 "ty": "Int",
                 "value": {
                   "Binary": {
-                    "op": "Sub",
+                    "op": {
+                      "Sub": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Attribute": {
                         "object": {
@@ -10898,7 +11741,8 @@
                       "name": "height"
                     }
                   },
-                  "origin": "FromEitherEnd"
+                  "origin": "FromEitherEnd",
+                  "checked": "Reported"
                 }
               }
             }
@@ -10996,7 +11840,11 @@
                 "ty": "Int",
                 "value": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Attribute": {
                         "object": {
@@ -11149,7 +11997,11 @@
                     "op": "LtE",
                     "left": {
                       "Binary": {
-                        "op": "Mul",
+                        "op": {
+                          "Mul": {
+                            "checked": "Reported"
+                          }
+                        },
                         "left": {
                           "Name": "d"
                         },
@@ -11173,7 +12025,8 @@
                             "Binary": {
                               "op": {
                                 "Rem": {
-                                  "sign": "Divisor"
+                                  "sign": "Divisor",
+                                  "checked": "Reported"
                                 }
                               },
                               "left": {
@@ -11209,7 +12062,11 @@
                       "ty": "Int",
                       "value": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "d"
                           },
@@ -11321,7 +12178,11 @@
                       "ty": "Int",
                       "value": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Attribute": {
                               "object": {
@@ -11353,7 +12214,8 @@
                         "index": {
                           "Name": "n"
                         },
-                        "origin": "FromEitherEnd"
+                        "origin": "FromEitherEnd",
+                        "checked": "Reported"
                       }
                     }
                   }
@@ -11403,7 +12265,11 @@
                       "ty": "Int",
                       "value": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Name": "candidate"
                           },
@@ -11439,7 +12305,11 @@
                             "ty": "Int",
                             "value": {
                               "Binary": {
-                                "op": "Add",
+                                "op": {
+                                  "Add": {
+                                    "checked": "Reported"
+                                  }
+                                },
                                 "left": {
                                   "Name": "found"
                                 },
@@ -11573,7 +12443,11 @@
                 "ty": "Int",
                 "value": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Attribute": {
                         "object": {
@@ -11597,7 +12471,11 @@
                 "ty": "Float",
                 "value": {
                   "Binary": {
-                    "op": "Sub",
+                    "op": {
+                      "Sub": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Name": "value"
                     },
@@ -11622,7 +12500,11 @@
                 "ty": "Float",
                 "value": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Attribute": {
                         "object": {
@@ -11635,7 +12517,8 @@
                       "Binary": {
                         "op": {
                           "Div": {
-                            "mode": "Exact"
+                            "mode": "Exact",
+                            "checked": "Reported"
                           }
                         },
                         "left": {
@@ -11666,7 +12549,11 @@
                 "ty": "Float",
                 "value": {
                   "Binary": {
-                    "op": "Add",
+                    "op": {
+                      "Add": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Attribute": {
                         "object": {
@@ -11677,13 +12564,21 @@
                     },
                     "right": {
                       "Binary": {
-                        "op": "Mul",
+                        "op": {
+                          "Mul": {
+                            "checked": "Reported"
+                          }
+                        },
                         "left": {
                           "Name": "delta"
                         },
                         "right": {
                           "Binary": {
-                            "op": "Sub",
+                            "op": {
+                              "Sub": {
+                                "checked": "Reported"
+                              }
+                            },
                             "left": {
                               "Name": "value"
                             },
@@ -11784,7 +12679,8 @@
                 "Binary": {
                   "op": {
                     "Div": {
-                      "mode": "Exact"
+                      "mode": "Exact",
+                      "checked": "Reported"
                     }
                   },
                   "left": {
@@ -12033,7 +12929,8 @@
                         "index": {
                           "Name": "root"
                         },
-                        "origin": "FromEitherEnd"
+                        "origin": "FromEitherEnd",
+                        "checked": "Reported"
                       }
                     },
                     "right": {
@@ -12059,7 +12956,8 @@
                           "index": {
                             "Name": "root"
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       }
                     }
@@ -12094,7 +12992,8 @@
                         "index": {
                           "Name": "current"
                         },
-                        "origin": "FromEitherEnd"
+                        "origin": "FromEitherEnd",
+                        "checked": "Reported"
                       }
                     },
                     "right": {
@@ -12120,7 +13019,8 @@
                           "index": {
                             "Name": "current"
                           },
-                          "origin": "FromEitherEnd"
+                          "origin": "FromEitherEnd",
+                          "checked": "Reported"
                         }
                       }
                     }
@@ -12272,7 +13172,8 @@
                         "index": {
                           "Name": "left"
                         },
-                        "origin": "FromEitherEnd"
+                        "origin": "FromEitherEnd",
+                        "checked": "Reported"
                       }
                     },
                     "right": {
@@ -12288,7 +13189,8 @@
                         "index": {
                           "Name": "right"
                         },
-                        "origin": "FromEitherEnd"
+                        "origin": "FromEitherEnd",
+                        "checked": "Reported"
                       }
                     }
                   }
@@ -12361,7 +13263,8 @@
                         "index": {
                           "Name": "left"
                         },
-                        "origin": "FromEitherEnd"
+                        "origin": "FromEitherEnd",
+                        "checked": "Reported"
                       }
                     },
                     "right": {
@@ -12377,7 +13280,8 @@
                         "index": {
                           "Name": "right"
                         },
-                        "origin": "FromEitherEnd"
+                        "origin": "FromEitherEnd",
+                        "checked": "Reported"
                       }
                     }
                   }
@@ -12398,7 +13302,11 @@
                       },
                       "value": {
                         "Binary": {
-                          "op": "Add",
+                          "op": {
+                            "Add": {
+                              "checked": "Reported"
+                            }
+                          },
                           "left": {
                             "Subscript": {
                               "base": {
@@ -12412,7 +13320,8 @@
                               "index": {
                                 "Name": "left"
                               },
-                              "origin": "FromEitherEnd"
+                              "origin": "FromEitherEnd",
+                              "checked": "Reported"
                             }
                           },
                           "right": {
@@ -12437,7 +13346,11 @@
                 "ty": "Int",
                 "value": {
                   "Binary": {
-                    "op": "Sub",
+                    "op": {
+                      "Sub": {
+                        "checked": "Reported"
+                      }
+                    },
                     "left": {
                       "Attribute": {
                         "object": {

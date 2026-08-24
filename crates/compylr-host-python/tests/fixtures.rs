@@ -5,6 +5,7 @@
 //! snapshot the lowered IR so that an unintended change in shape shows up as a diff rather than
 //! as a silently different tree.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use compylr_diagnostics::error::LowerErrorKind;
@@ -30,7 +31,7 @@ fn fixtures_dir() -> PathBuf {
 
 fn lower_fixture(path: &Path) -> Result<Vec<Function>, compylr_diagnostics::error::LowerError> {
     let parsed = parse_file(path).expect("fixture must parse as valid Python");
-    lower_source_members(&parsed).map(|(functions, _)| functions)
+    lower_source_members(&parsed, python_stance()).map(|(functions, _)| functions)
 }
 
 fn accepted(name: &str) -> Vec<Function> {
@@ -63,6 +64,41 @@ fn accepted_fixtures_lower_to_stable_ir() {
         let functions = accepted(&name);
         insta::assert_debug_snapshot!(name, functions);
     }
+}
+
+#[test]
+fn default_behavior_fixture_fingerprints_are_stable() {
+    // This is the permanent form of the one-time before/after comparison. The structural fixture
+    // snapshots did not move when behavior selection replaced the frontend constants, and these
+    // fingerprints make that equivalence a compact baseline that future changes must review.
+    let mut names: Vec<String> = std::fs::read_dir(fixtures_dir().join("accepted"))
+        .expect("accepted fixtures directory must exist")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".py"))
+        .collect();
+    names.sort();
+
+    let fingerprints: BTreeMap<String, u64> = names
+        .into_iter()
+        .map(|name| {
+            let path = fixtures_dir().join("accepted").join(&name);
+            let parsed = parse_file(&path).expect("fixture must parse as valid Python");
+            let (functions, classes) = lower_source_members(&parsed, python_stance())
+                .unwrap_or_else(|error| panic!("{name} should lower, but failed: {error}"));
+            let mut unit = Unit::new();
+            for class in classes {
+                unit.add_class(class).expect("fixture names are unique");
+            }
+            for function in functions {
+                unit.add_function(function)
+                    .expect("fixture names are unique");
+            }
+            (name, unit.fingerprint())
+        })
+        .collect();
+
+    insta::assert_debug_snapshot!(fingerprints);
 }
 
 #[test]
@@ -202,7 +238,7 @@ fn formatting_differences_do_not_change_fingerprints() {
 
     let lower_text = |source: &str| {
         let parsed = compylr_frontend_python::frontend::parse_source(source).unwrap();
-        lower_source_members(&parsed).unwrap().0
+        lower_source_members(&parsed, python_stance()).unwrap().0
     };
 
     let a = lower_text(plain);
@@ -232,4 +268,12 @@ fn unit_fingerprint_is_stable_across_addition_order() {
         unit
     };
     assert_eq!(build(false).fingerprint(), build(true).fingerprint());
+}
+
+/// Python's own stance, which is what an unconfigured compilation resolves to.
+///
+/// Read from the frontend's declaration rather than rebuilt here, so these tests lower under the
+/// same bundle the pipeline uses.
+fn python_stance() -> compylr_ir::Behavior {
+    compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
 }

@@ -15,14 +15,25 @@ use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
 use compylr_core::negotiation::{negotiate, resolve_options, withheld_by_default};
 use compylr_diagnostics::span::Span;
 use compylr_ir::Guarantee;
-use compylr_ir::{Expr, Function, Literal, Stmt, Ty, Unit};
+use compylr_ir::{
+    Checked, Expr, Function, IndexOrigin, IntegerDivision, LanguageBehavior, Literal, RemSign,
+    Remainder, Rounding, SequenceIndex, Stmt, TextUnits, Ty, Unit,
+};
+
+/// A source lowered under Python's own stance, which is what an unconfigured project resolves to.
+fn py_source(text: &str) -> compylr_core::Source {
+    compylr_core::Source::new(
+        text,
+        compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR),
+    )
+}
 
 const DOUBLE: &str = "def double(n: int) -> int:\n    return n * 2\n";
 
 fn python_unit() -> Unit {
     compylr_registry::frontends::lookup("python")
         .unwrap()
-        .lower(&[DOUBLE.to_string()])
+        .lower(&[py_source(DOUBLE)])
         .expect("must lower")
 }
 
@@ -47,12 +58,31 @@ fn the_rust_backend_covers_everything_the_python_frontend_requires() {
 
 #[test]
 fn a_covered_combination_compiles() {
-    assert!(compile(&[DOUBLE.to_string()], "rust").is_ok());
+    assert!(compile(&[py_source(DOUBLE)], "rust").is_ok());
 }
 
 /// A backend that drops a guarantee is refused before anything is emitted.
 #[derive(Debug)]
 struct WrappingBackend;
+
+/// What this invented target means. Wrapping arithmetic is the whole point of it.
+const WRAPPING_BEHAVIOR: LanguageBehavior = LanguageBehavior {
+    integer_overflow: Checked::Unchecked,
+    integer_division: IntegerDivision {
+        rounding: Rounding::TowardZero,
+        checked: Checked::Reported,
+    },
+    exact_division: Checked::Reported,
+    remainder: Remainder {
+        sign: RemSign::Dividend,
+        checked: Checked::Reported,
+    },
+    sequence_index: SequenceIndex {
+        origin: IndexOrigin::FromStart,
+        checked: Checked::Reported,
+    },
+    text_length: TextUnits::Utf8Bytes,
+};
 
 impl Backend for WrappingBackend {
     fn name(&self) -> &'static str {
@@ -65,6 +95,14 @@ impl Backend for WrappingBackend {
             Guarantee::DivisionByZeroReported,
             Guarantee::FloatOrderPreserved,
         ]
+    }
+
+    /// A stance is required of every backend, so this invented one has to answer too.
+    ///
+    /// Deliberately not Rust's. A test backend borrowing the real declaration would make the
+    /// negotiation tests pass for a reason unrelated to what they check.
+    fn behavior(&self) -> &'static LanguageBehavior {
+        &WRAPPING_BEHAVIOR
     }
 
     fn emit(&self, _unit: &Unit) -> Result<GeneratedFiles, BackendError> {

@@ -45,16 +45,25 @@ pub trait PythonOperator {
 }
 
 impl PythonOperator for BinOp {
+    /// The **checking mode is deliberately not spelled**, and this is the one place ignoring it is
+    /// right rather than an oversight.
+    ///
+    /// A spelling echoes what the programmer wrote, and a Python programmer writes `+` whether or
+    /// not the behavior they chose reports an overflow — there is no second syntax to give back.
+    /// Rendering the mode here would send a reader looking for an operator their language does not
+    /// have, which is the same mistake spelling truncating division `//` would be.
     fn python_symbol(self) -> String {
         match self {
-            Self::Add => "+".to_string(),
-            Self::Sub => "-".to_string(),
-            Self::Mul => "*".to_string(),
+            Self::Add { .. } => "+".to_string(),
+            Self::Sub { .. } => "-".to_string(),
+            Self::Mul { .. } => "*".to_string(),
             Self::Div {
                 mode: DivMode::Exact,
+                ..
             } => "/".to_string(),
             Self::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                ..
             } => "//".to_string(),
             Self::Eq => "==".to_string(),
             Self::NotEq => "!=".to_string(),
@@ -64,6 +73,7 @@ impl PythonOperator for BinOp {
             Self::GtE => ">=".to_string(),
             Self::Rem {
                 sign: RemSign::Divisor,
+                ..
             } => "%".to_string(),
             // Python has no syntax for these modes and this frontend never produces them, so
             // there is no spelling to give back. Falling through to the IR's own neutral
@@ -76,6 +86,8 @@ impl PythonOperator for BinOp {
 
 #[cfg(test)]
 mod tests {
+    use compylr_ir::Checked;
+
     use super::*;
 
     #[test]
@@ -97,6 +109,7 @@ mod tests {
         assert_eq!(
             BinOp::Div {
                 mode: DivMode::Exact,
+                checked: Checked::Reported,
             }
             .python_symbol(),
             "/"
@@ -104,6 +117,7 @@ mod tests {
         assert_eq!(
             BinOp::Div {
                 mode: DivMode::Integer(Rounding::TowardNegInf),
+                checked: Checked::Reported,
             }
             .python_symbol(),
             "//"
@@ -111,6 +125,7 @@ mod tests {
         assert_eq!(
             BinOp::Rem {
                 sign: RemSign::Divisor,
+                checked: Checked::Reported,
             }
             .python_symbol(),
             "%"
@@ -125,6 +140,7 @@ mod tests {
     fn a_mode_python_cannot_write_falls_back_to_the_neutral_name() {
         let truncating = BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardZero),
+            checked: Checked::Reported,
         };
         assert_ne!(truncating.python_symbol(), "//");
         assert_ne!(truncating.python_symbol(), "/");

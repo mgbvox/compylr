@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use compylr_frontend_python::{PythonOperator, PythonTypeName};
-use compylr_ir::{BinOp, DivMode, RemSign, Rounding, Ty};
+use compylr_ir::{Axis, BinOp, Checked, DivMode, RemSign, Rounding, Ty};
 
 fn repo_root() -> PathBuf {
     // `CARGO_MANIFEST_DIR` is this crate's directory, two levels down since the host binding
@@ -54,17 +54,26 @@ fn readme_documents_every_type() {
 fn readme_documents_every_operator() {
     let text = readme();
     let ops = [
-        BinOp::Add,
-        BinOp::Sub,
-        BinOp::Mul,
+        BinOp::Add {
+            checked: Checked::Reported,
+        },
+        BinOp::Sub {
+            checked: Checked::Reported,
+        },
+        BinOp::Mul {
+            checked: Checked::Reported,
+        },
         BinOp::Div {
             mode: DivMode::Exact,
+            checked: Checked::Reported,
         },
         BinOp::Div {
             mode: DivMode::Integer(Rounding::TowardNegInf),
+            checked: Checked::Reported,
         },
         BinOp::Rem {
             sign: RemSign::Divisor,
+            checked: Checked::Reported,
         },
         BinOp::Eq,
         BinOp::NotEq,
@@ -80,6 +89,31 @@ fn readme_documents_every_operator() {
             "README does not document the operator {token}; add it to the subset section"
         );
     }
+}
+
+#[test]
+fn readme_behavior_table_lists_exactly_the_compiler_axes() {
+    let text = readme();
+    let section = text
+        .split("### Behavior axes")
+        .nth(1)
+        .expect("README must contain a Behavior axes section")
+        .split("\n### ")
+        .next()
+        .expect("Behavior axes section must have a body");
+    let documented: BTreeSet<&str> = section
+        .lines()
+        .filter(|line| line.starts_with("| "))
+        .filter_map(|line| line.split('|').nth(2))
+        .map(|cell| cell.trim().trim_matches('`'))
+        .filter(|axis| !matches!(*axis, "IR axis" | "---"))
+        .collect();
+    let actual: BTreeSet<&str> = Axis::ALL.into_iter().map(Axis::code).collect();
+
+    assert_eq!(
+        documented, actual,
+        "README behavior table must list exactly the compiler's behavior axes"
+    );
 }
 
 /// Every capability with a main spec must be listed, so a new one cannot land unmentioned.

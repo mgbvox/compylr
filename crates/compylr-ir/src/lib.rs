@@ -8,9 +8,13 @@
 //! toolchain is among this crate's dependencies, so neither can be named from inside it.
 
 pub mod artifact;
+pub mod behavior;
 pub mod guarantee;
 pub mod ir;
 
 pub use artifact::ArtifactError;
+pub use behavior::{
+    Axis, Behavior, IntegerDivision, LanguageBehavior, Remainder, SequenceIndex, Stance,
+};
 pub use guarantee::Guarantee;
 pub use ir::*;

@@ -50,6 +50,7 @@ class TestOneArtifact:
         for name in (
             "merge_sort",  # sorting
             "sieve",  # arithmetic
+            "collatz_length_rust",  # arithmetic, Rust behavior
             "standard_deviation",  # stats
             "word_count",  # text
             "bfs_distances",  # graphs

@@ -329,6 +329,120 @@ pub fn div_exact(lhs: &f64, rhs: &f64) -> Result<f64, RuntimeError> {
     Ok(lhs / rhs)
 }
 
+/// Addition where the program declined to define an overflow, for operands whose type is unknown.
+///
+/// A **dispatch, not a check.** The backend does not annotate expressions with types and must not
+/// re-derive them; where the expected type is known it emits Rust's bare `+` and never reaches
+/// here. What it cannot do is emit a bare `+` where the type is unknown — inside a comparison,
+/// whose operands say nothing about the result type — because `a + b > c` must compile for
+/// integers *and* for strings, and Rust's `+` on two owned `String`s does not.
+///
+/// So this exists to let Rust's own trait resolution pick the implementation, exactly as
+/// [`PyAdd`] already does, minus the checking. It is infallible: it returns a value rather than a
+/// `Result`, so the emitted expression carries no `?` and the enclosing statement needs no error
+/// path. Every implementation is the operator itself, and inlines to it.
+pub trait NativeAdd: Sized {
+    /// Add or concatenate, without defining what an overflow does.
+    fn native_add(&self, rhs: &Self) -> Self;
+}
+
+/// The rest of the arithmetic, likewise infallible.
+///
+/// Only the operations Rust's own operators already mean are here. A flooring division has no
+/// entry, because Rust's `/` does not floor — a node declaring `Integer(TowardNegInf)` with an
+/// unchecked divisor is a real combination and still needs the correcting helper. Adding a
+/// `div_floor` here that silently truncated would be the single most plausible way to get this
+/// wrong.
+pub trait NativeNum: Sized {
+    /// Subtract, without defining what an overflow does.
+    fn native_sub(&self, rhs: &Self) -> Self;
+    /// Multiply, without defining what an overflow does.
+    fn native_mul(&self, rhs: &Self) -> Self;
+    /// Divide, rounding toward zero, without defining what a zero divisor does.
+    fn native_div_trunc(&self, rhs: &Self) -> Self;
+    /// Remainder taking the sign of the dividend, without defining what a zero divisor does.
+    fn native_rem_trunc(&self, rhs: &Self) -> Self;
+    /// Negate, without defining what an overflow does.
+    fn native_neg(&self) -> Self;
+}
+
+impl NativeAdd for i64 {
+    fn native_add(&self, rhs: &Self) -> Self {
+        self + rhs
+    }
+}
+
+impl NativeAdd for f64 {
+    fn native_add(&self, rhs: &Self) -> Self {
+        self + rhs
+    }
+}
+
+/// Concatenation, which is what `+` means for text in every language compylr accepts.
+///
+/// Present because the overflow axis governs *integer* arithmetic and says nothing about strings.
+/// A program that waived overflow reporting did not ask for its string concatenation to change,
+/// and without this implementation `a + b > c` on two strings would fail to compile under exactly
+/// that behavior — a program the user wrote correctly, refused for a setting about integers.
+impl NativeAdd for String {
+    fn native_add(&self, rhs: &Self) -> Self {
+        let mut joined = String::with_capacity(self.len() + rhs.len());
+        joined.push_str(self);
+        joined.push_str(rhs);
+        joined
+    }
+}
+
+impl NativeNum for i64 {
+    fn native_sub(&self, rhs: &Self) -> Self {
+        self - rhs
+    }
+
+    fn native_mul(&self, rhs: &Self) -> Self {
+        self * rhs
+    }
+
+    fn native_div_trunc(&self, rhs: &Self) -> Self {
+        self / rhs
+    }
+
+    fn native_rem_trunc(&self, rhs: &Self) -> Self {
+        self % rhs
+    }
+
+    fn native_neg(&self) -> Self {
+        -self
+    }
+}
+
+impl NativeNum for f64 {
+    fn native_sub(&self, rhs: &Self) -> Self {
+        self - rhs
+    }
+
+    fn native_mul(&self, rhs: &Self) -> Self {
+        self * rhs
+    }
+
+    /// Truncating, to match the integer implementation and the mode the node declares.
+    ///
+    /// Rust's `/` on floats does not truncate, so this is one of the two places where "Rust's own
+    /// operator" is not literally the operator. The node said rounding toward zero; the value it
+    /// produces has to round toward zero whatever its type, or the same declared mode would mean
+    /// two different things depending on an operand type the backend cannot see.
+    fn native_div_trunc(&self, rhs: &Self) -> Self {
+        (self / rhs).trunc()
+    }
+
+    fn native_rem_trunc(&self, rhs: &Self) -> Self {
+        self % rhs
+    }
+
+    fn native_neg(&self) -> Self {
+        -self
+    }
+}
+
 /// Read a sequence element, resolving a negative offset the way the node declared.
 ///
 /// Under [`IndexOrigin::FromEitherEnd`] a negative index counts from the end, which is Python's

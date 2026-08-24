@@ -45,7 +45,9 @@ expression: functions
                         name: "running",
                         ty: Int,
                         value: Binary {
-                            op: Add,
+                            op: Add {
+                                checked: Reported,
+                            },
                             left: Name(
                                 "running",
                             ),
@@ -99,20 +101,23 @@ expression: functions
                             0,
                         ),
                     ),
-                    step: Neg(
-                        Literal(
+                    step: Neg {
+                        value: Literal(
                             Int(
                                 1,
                             ),
                         ),
-                    ),
+                        checked: Reported,
+                    },
                 },
                 body: [
                     Assign {
                         name: "steps",
                         ty: Int,
                         value: Binary {
-                            op: Add,
+                            op: Add {
+                                checked: Reported,
+                            },
                             left: Name(
                                 "steps",
                             ),
@@ -179,7 +184,9 @@ expression: functions
                         name: "seen",
                         ty: Int,
                         value: Binary {
-                            op: Add,
+                            op: Add {
+                                checked: Reported,
+                            },
                             left: Name(
                                 "seen",
                             ),
@@ -247,13 +254,14 @@ expression: functions
                 ],
             },
             Return(
-                Neg(
-                    Literal(
+                Neg {
+                    value: Literal(
                         Int(
                             1,
                         ),
                     ),
-                ),
+                    checked: Reported,
+                },
             ),
         ],
         doc: None,
@@ -311,7 +319,9 @@ expression: functions
                         name: "kept",
                         ty: Int,
                         value: Binary {
-                            op: Add,
+                            op: Add {
+                                checked: Reported,
+                            },
                             left: Name(
                                 "kept",
                             ),
@@ -369,7 +379,9 @@ expression: functions
                         name: "total_length",
                         ty: Int,
                         value: Binary {
-                            op: Add,
+                            op: Add {
+                                checked: Reported,
+                            },
                             left: Name(
                                 "total_length",
                             ),
@@ -411,6 +423,7 @@ expression: functions
                     left: Binary {
                         op: Rem {
                             sign: Divisor,
+                            checked: Reported,
                         },
                         left: Name(
                             "n",
@@ -453,6 +466,7 @@ expression: functions
                                 mode: Integer(
                                     TowardNegInf,
                                 ),
+                                checked: Reported,
                             },
                             left: Name(
                                 "n",

@@ -38,8 +38,8 @@ fn unit_from_fixtures(names: &[impl AsRef<str> + std::fmt::Display]) -> Unit {
     for name in names {
         let path = fixtures_dir().join(name.as_ref());
         let parsed = parse_file(&path).expect("fixture must parse");
-        let (functions, classes) =
-            lower_source_members(&parsed).unwrap_or_else(|e| panic!("{name} should lower: {e}"));
+        let (functions, classes) = lower_source_members(&parsed, python_stance())
+            .unwrap_or_else(|e| panic!("{name} should lower: {e}"));
         for class in classes {
             unit.add_class(class).expect("unique names");
         }
@@ -204,4 +204,12 @@ fn emission_is_reproducible_for_every_fixture() {
         let second = backend.emit(&unit_from_fixtures(&names)).unwrap();
         assert_eq!(first, second, "emission for `{label}` is not reproducible");
     }
+}
+
+/// Python's own stance, which is what an unconfigured compilation resolves to.
+///
+/// Read from the frontend's declaration rather than rebuilt here, so these tests lower under the
+/// same bundle the pipeline uses.
+fn python_stance() -> compylr_ir::Behavior {
+    compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
 }

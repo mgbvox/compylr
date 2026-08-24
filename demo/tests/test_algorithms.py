@@ -164,6 +164,10 @@ class TestArithmetic:
     def test_collatz_below_one_is_defined(self) -> None:
         assert arithmetic.collatz_length(0) == 0
 
+    def test_both_behaviors_produce_the_documented_collatz_answer(self) -> None:
+        assert arithmetic.collatz_length(97) == 118
+        assert arithmetic.collatz_length_rust(97) == 118
+
     @pytest.mark.parametrize("n", [0, 7, 10, 99, -99, 123456789])
     def test_digit_sum_agrees_with_summing_the_string(self, n: int) -> None:
         assert arithmetic.digit_sum(n) == sum(int(d) for d in str(abs(n)))

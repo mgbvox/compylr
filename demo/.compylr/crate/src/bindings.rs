@@ -249,350 +249,356 @@ fn __compylr_export_5(n: i64) -> PyResult<i64> {
 }
 
 #[pyfunction]
+#[pyo3(name = "collatz_length_rust")]
+fn __compylr_export_6(n: i64) -> PyResult<i64> {
+    generated::collatz_length_rust(n).map_err(__compylr_to_py_err)
+}
+
+#[pyfunction]
 #[pyo3(name = "component_count")]
-fn __compylr_export_6(size: i64, edges: Vec<(i64, i64)>) -> PyResult<i64> {
+fn __compylr_export_7(size: i64, edges: Vec<(i64, i64)>) -> PyResult<i64> {
     generated::component_count(size, edges).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "copy_of")]
-fn __compylr_export_7(xs: Vec<i64>) -> PyResult<Vec<i64>> {
+fn __compylr_export_8(xs: Vec<i64>) -> PyResult<Vec<i64>> {
     generated::copy_of(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "count_present")]
-fn __compylr_export_8(words: Vec<String>, wanted: FastSet<String>) -> PyResult<i64> {
+fn __compylr_export_9(words: Vec<String>, wanted: FastSet<String>) -> PyResult<i64> {
     generated::count_present(words, wanted).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "depth_first_order")]
-fn __compylr_export_9(graph: FastMap<i64, Vec<i64>>, start: i64) -> PyResult<Vec<i64>> {
+fn __compylr_export_10(graph: FastMap<i64, Vec<i64>>, start: i64) -> PyResult<Vec<i64>> {
     generated::depth_first_order(graph, start).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "digit_sum")]
-fn __compylr_export_10(n: i64) -> PyResult<i64> {
+fn __compylr_export_11(n: i64) -> PyResult<i64> {
     generated::digit_sum(n).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "divide")]
-fn __compylr_export_11(a: i64, b: i64) -> PyResult<(i64, i64)> {
+fn __compylr_export_12(a: i64, b: i64) -> PyResult<(i64, i64)> {
     generated::divide(a, b).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "edit_distance")]
-fn __compylr_export_12(left: Vec<String>, right: Vec<String>) -> PyResult<i64> {
+fn __compylr_export_13(left: Vec<String>, right: Vec<String>) -> PyResult<i64> {
     generated::edit_distance(left, right).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "extremes")]
-fn __compylr_export_13(xs: Vec<f64>) -> PyResult<(f64, f64)> {
+fn __compylr_export_14(xs: Vec<f64>) -> PyResult<(f64, f64)> {
     generated::extremes(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "fibonacci")]
-fn __compylr_export_14(n: i64) -> PyResult<i64> {
+fn __compylr_export_15(n: i64) -> PyResult<i64> {
     generated::fibonacci(n).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "floor_divide")]
-fn __compylr_export_15(a: i64, b: i64) -> PyResult<i64> {
+fn __compylr_export_16(a: i64, b: i64) -> PyResult<i64> {
     generated::floor_divide(a, b).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "gcd")]
-fn __compylr_export_16(a: i64, b: i64) -> PyResult<i64> {
+fn __compylr_export_17(a: i64, b: i64) -> PyResult<i64> {
     generated::gcd(a, b).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "has_cycle")]
-fn __compylr_export_17(graph: FastMap<i64, Vec<i64>>) -> PyResult<bool> {
+fn __compylr_export_18(graph: FastMap<i64, Vec<i64>>) -> PyResult<bool> {
     generated::has_cycle(graph).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "identity")]
-fn __compylr_export_18(size: i64) -> PyResult<Vec<Vec<i64>>> {
+fn __compylr_export_19(size: i64) -> PyResult<Vec<Vec<i64>>> {
     generated::identity(size).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "insertion_sort")]
-fn __compylr_export_19(xs: Vec<i64>) -> PyResult<Vec<i64>> {
+fn __compylr_export_20(xs: Vec<i64>) -> PyResult<Vec<i64>> {
     generated::insertion_sort(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "integer_sqrt")]
-fn __compylr_export_20(n: i64) -> PyResult<i64> {
+fn __compylr_export_21(n: i64) -> PyResult<i64> {
     generated::integer_sqrt(n).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "is_sorted")]
-fn __compylr_export_21(xs: Vec<i64>) -> PyResult<bool> {
+fn __compylr_export_22(xs: Vec<i64>) -> PyResult<bool> {
     generated::is_sorted(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "iterative_not_divisible")]
-fn __compylr_export_22(divisible: bool) -> PyResult<bool> {
+fn __compylr_export_23(divisible: bool) -> PyResult<bool> {
     generated::iterative_not_divisible(divisible).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "iterative_nth_prime")]
-fn __compylr_export_23(n: i64) -> PyResult<i64> {
+fn __compylr_export_24(n: i64) -> PyResult<i64> {
     generated::iterative_nth_prime(n).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "iterative_primes_up_to_count")]
-fn __compylr_export_24(n: i64) -> PyResult<Vec<i64>> {
+fn __compylr_export_25(n: i64) -> PyResult<Vec<i64>> {
     generated::iterative_primes_up_to_count(n).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "joined")]
-fn __compylr_export_25(words: Vec<String>, separator: String) -> PyResult<String> {
+fn __compylr_export_26(words: Vec<String>, separator: String) -> PyResult<String> {
     generated::joined(words, separator).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "knapsack")]
-fn __compylr_export_26(weights: Vec<i64>, values: Vec<i64>, capacity: i64) -> PyResult<i64> {
+fn __compylr_export_27(weights: Vec<i64>, values: Vec<i64>, capacity: i64) -> PyResult<i64> {
     generated::knapsack(weights, values, capacity).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "larger")]
-fn __compylr_export_27(a: i64, b: i64) -> PyResult<i64> {
+fn __compylr_export_28(a: i64, b: i64) -> PyResult<i64> {
     generated::larger(a, b).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "lcm")]
-fn __compylr_export_28(a: i64, b: i64) -> PyResult<i64> {
+fn __compylr_export_29(a: i64, b: i64) -> PyResult<i64> {
     generated::lcm(a, b).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "longest")]
-fn __compylr_export_29(words: Vec<String>) -> PyResult<String> {
+fn __compylr_export_30(words: Vec<String>) -> PyResult<String> {
     generated::longest(words).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "longest_common_subsequence")]
-fn __compylr_export_30(left: Vec<i64>, right: Vec<i64>) -> PyResult<i64> {
+fn __compylr_export_31(left: Vec<i64>, right: Vec<i64>) -> PyResult<i64> {
     generated::longest_common_subsequence(left, right).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "mean")]
-fn __compylr_export_31(xs: Vec<f64>) -> PyResult<f64> {
+fn __compylr_export_32(xs: Vec<f64>) -> PyResult<f64> {
     generated::mean(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "median_of_sorted")]
-fn __compylr_export_32(xs: Vec<f64>) -> PyResult<f64> {
+fn __compylr_export_33(xs: Vec<f64>) -> PyResult<f64> {
     generated::median_of_sorted(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "merge")]
-fn __compylr_export_33(left: Vec<i64>, right: Vec<i64>) -> PyResult<Vec<i64>> {
+fn __compylr_export_34(left: Vec<i64>, right: Vec<i64>) -> PyResult<Vec<i64>> {
     generated::merge(left, right).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "merge_sort")]
-fn __compylr_export_34(xs: Vec<i64>) -> PyResult<Vec<i64>> {
+fn __compylr_export_35(xs: Vec<i64>) -> PyResult<Vec<i64>> {
     generated::merge_sort(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "missing")]
-fn __compylr_export_35(haystack: String, needles: Vec<String>) -> PyResult<Vec<String>> {
+fn __compylr_export_36(haystack: String, needles: Vec<String>) -> PyResult<Vec<String>> {
     generated::missing(haystack, needles).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "most_common")]
-fn __compylr_export_36(words: Vec<String>) -> PyResult<String> {
+fn __compylr_export_37(words: Vec<String>) -> PyResult<String> {
     generated::most_common(words).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "multiply")]
-fn __compylr_export_37(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> PyResult<Vec<Vec<i64>>> {
+fn __compylr_export_38(left: Vec<Vec<i64>>, right: Vec<Vec<i64>>) -> PyResult<Vec<Vec<i64>>> {
     generated::multiply(left, right).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "node_list")]
-fn __compylr_export_38(graph: FastMap<i64, Vec<i64>>) -> PyResult<Vec<i64>> {
+fn __compylr_export_39(graph: FastMap<i64, Vec<i64>>) -> PyResult<Vec<i64>> {
     generated::node_list(graph).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "normalize")]
-fn __compylr_export_39(xs: Vec<f64>) -> PyResult<Vec<f64>> {
+fn __compylr_export_40(xs: Vec<f64>) -> PyResult<Vec<f64>> {
     generated::normalize(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "occurrences")]
-fn __compylr_export_40(haystack: String, needles: Vec<String>) -> PyResult<i64> {
+fn __compylr_export_41(haystack: String, needles: Vec<String>) -> PyResult<i64> {
     generated::occurrences(haystack, needles).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "power")]
-fn __compylr_export_41(base: i64, exponent: i64) -> PyResult<i64> {
+fn __compylr_export_42(base: i64, exponent: i64) -> PyResult<i64> {
     generated::power(base, exponent).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "recursive_is_prime")]
-fn __compylr_export_42(n: i64) -> PyResult<bool> {
+fn __compylr_export_43(n: i64) -> PyResult<bool> {
     generated::recursive_is_prime(n).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "recursive_next_prime")]
-fn __compylr_export_43(after: i64) -> PyResult<i64> {
+fn __compylr_export_44(after: i64) -> PyResult<i64> {
     generated::recursive_next_prime(after).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "recursive_nth_prime")]
-fn __compylr_export_44(n: i64) -> PyResult<i64> {
+fn __compylr_export_45(n: i64) -> PyResult<i64> {
     generated::recursive_nth_prime(n).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "recursive_nth_prime_from")]
-fn __compylr_export_45(remaining: i64, current: i64) -> PyResult<i64> {
+fn __compylr_export_46(remaining: i64, current: i64) -> PyResult<i64> {
     generated::recursive_nth_prime_from(remaining, current).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "remainder")]
-fn __compylr_export_46(a: i64, b: i64) -> PyResult<i64> {
+fn __compylr_export_47(a: i64, b: i64) -> PyResult<i64> {
     generated::remainder(a, b).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "row_sums")]
-fn __compylr_export_47(matrix: Vec<Vec<i64>>) -> PyResult<Vec<i64>> {
+fn __compylr_export_48(matrix: Vec<Vec<i64>>) -> PyResult<Vec<i64>> {
     generated::row_sums(matrix).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "scale")]
-fn __compylr_export_48(matrix: Vec<Vec<i64>>, factor: i64) -> PyResult<Vec<Vec<i64>>> {
+fn __compylr_export_49(matrix: Vec<Vec<i64>>, factor: i64) -> PyResult<Vec<Vec<i64>>> {
     generated::scale(matrix, factor).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "selection_sort")]
-fn __compylr_export_49(xs: Vec<i64>) -> PyResult<Vec<i64>> {
+fn __compylr_export_50(xs: Vec<i64>) -> PyResult<Vec<i64>> {
     generated::selection_sort(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "sieve")]
-fn __compylr_export_50(limit: i64) -> PyResult<Vec<i64>> {
+fn __compylr_export_51(limit: i64) -> PyResult<Vec<i64>> {
     generated::sieve(limit).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "smaller")]
-fn __compylr_export_51(a: i64, b: i64) -> PyResult<i64> {
+fn __compylr_export_52(a: i64, b: i64) -> PyResult<i64> {
     generated::smaller(a, b).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "square_root")]
-fn __compylr_export_52(value: f64) -> PyResult<f64> {
+fn __compylr_export_53(value: f64) -> PyResult<f64> {
     generated::square_root(value).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "standard_deviation")]
-fn __compylr_export_53(xs: Vec<f64>) -> PyResult<f64> {
+fn __compylr_export_54(xs: Vec<f64>) -> PyResult<f64> {
     generated::standard_deviation(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "table_of_zeros")]
-fn __compylr_export_54(rows: i64, columns: i64) -> PyResult<Vec<Vec<i64>>> {
+fn __compylr_export_55(rows: i64, columns: i64) -> PyResult<Vec<Vec<i64>>> {
     generated::table_of_zeros(rows, columns).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "to_base")]
-fn __compylr_export_55(n: i64, base: i64) -> PyResult<Vec<i64>> {
+fn __compylr_export_56(n: i64, base: i64) -> PyResult<Vec<i64>> {
     generated::to_base(n, base).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "topological_order")]
-fn __compylr_export_56(graph: FastMap<i64, Vec<i64>>) -> PyResult<Vec<i64>> {
+fn __compylr_export_57(graph: FastMap<i64, Vec<i64>>) -> PyResult<Vec<i64>> {
     generated::topological_order(graph).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "total_length")]
-fn __compylr_export_57(words: Vec<String>) -> PyResult<i64> {
+fn __compylr_export_58(words: Vec<String>) -> PyResult<i64> {
     generated::total_length(words).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "trace")]
-fn __compylr_export_58(matrix: Vec<Vec<i64>>) -> PyResult<i64> {
+fn __compylr_export_59(matrix: Vec<Vec<i64>>) -> PyResult<i64> {
     generated::trace(matrix).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "transpose")]
-fn __compylr_export_59(matrix: Vec<Vec<i64>>) -> PyResult<Vec<Vec<i64>>> {
+fn __compylr_export_60(matrix: Vec<Vec<i64>>) -> PyResult<Vec<Vec<i64>>> {
     generated::transpose(matrix).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "unique_words")]
-fn __compylr_export_60(words: Vec<String>) -> PyResult<Vec<String>> {
+fn __compylr_export_61(words: Vec<String>) -> PyResult<Vec<String>> {
     generated::unique_words(words).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "variance")]
-fn __compylr_export_61(xs: Vec<f64>) -> PyResult<f64> {
+fn __compylr_export_62(xs: Vec<f64>) -> PyResult<f64> {
     generated::variance(xs).map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "vowel_letters")]
-fn __compylr_export_62() -> PyResult<FastSet<String>> {
+fn __compylr_export_63() -> PyResult<FastSet<String>> {
     generated::vowel_letters().map_err(__compylr_to_py_err)
 }
 
 #[pyfunction]
 #[pyo3(name = "word_count")]
-fn __compylr_export_63(words: Vec<String>) -> PyResult<FastMap<String, i64>> {
+fn __compylr_export_64(words: Vec<String>) -> PyResult<FastMap<String, i64>> {
     generated::word_count(words).map_err(__compylr_to_py_err)
 }
 
@@ -669,5 +675,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(__compylr_export_61, m)?)?;
     m.add_function(wrap_pyfunction!(__compylr_export_62, m)?)?;
     m.add_function(wrap_pyfunction!(__compylr_export_63, m)?)?;
+    m.add_function(wrap_pyfunction!(__compylr_export_64, m)?)?;
     Ok(())
 }

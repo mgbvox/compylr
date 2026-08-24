@@ -1,6 +1,5 @@
 ---
 source: tests/fixtures.rs
-assertion_line: 52
 expression: functions
 ---
 [
@@ -18,7 +17,9 @@ expression: functions
                 name: "n",
                 ty: Int,
                 value: Binary {
-                    op: Add,
+                    op: Add {
+                        checked: Reported,
+                    },
                     left: Name(
                         "n",
                     ),
@@ -84,7 +85,9 @@ expression: functions
                         name: "total",
                         ty: Int,
                         value: Binary {
-                            op: Add,
+                            op: Add {
+                                checked: Reported,
+                            },
                             left: Name(
                                 "total",
                             ),
@@ -97,7 +100,9 @@ expression: functions
                         name: "i",
                         ty: Int,
                         value: Binary {
-                            op: Add,
+                            op: Add {
+                                checked: Reported,
+                            },
                             left: Name(
                                 "i",
                             ),

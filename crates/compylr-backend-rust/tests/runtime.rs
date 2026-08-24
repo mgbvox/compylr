@@ -12,7 +12,116 @@
 //! tests are written from the outside for a reason — a `#[cfg(test)]` module inside `runtime.rs`
 //! would be embedded into every user's `compat.rs` along with everything else.
 
-use compylr_backend_rust::runtime::{PyAdd, PyNum, RuntimeError, div_exact};
+use compylr_backend_rust::runtime::{NativeAdd, NativeNum, PyAdd, PyNum, RuntimeError, div_exact};
+
+/// The infallible shims, which exist to dispatch rather than to check.
+///
+/// Emitted only where the backend cannot see the operand type — inside a comparison, whose
+/// operands say nothing about the result type. Where the type *is* known the backend emits the
+/// bare operator and never reaches these, so what matters about them is that they agree with the
+/// operator exactly.
+mod native {
+    use super::*;
+
+    #[test]
+    fn they_agree_with_the_operator_they_stand_in_for() {
+        assert_eq!(NativeAdd::native_add(&2i64, &3i64), 5);
+        assert_eq!(NativeNum::native_sub(&2i64, &3i64), -1);
+        assert_eq!(NativeNum::native_mul(&2i64, &3i64), 6);
+        assert_eq!(NativeNum::native_neg(&7i64), -7);
+
+        assert_eq!(NativeAdd::native_add(&2.5f64, &0.25f64), 2.75);
+        assert_eq!(NativeNum::native_sub(&2.5f64, &0.25f64), 2.25);
+    }
+
+    /// Truncating division and remainder, which is what a node declaring Rust's stance means.
+    ///
+    /// The negative cases are the whole point: they are where truncation and flooring disagree,
+    /// and a shim that quietly floored would make `div_trunc` and `native_div_trunc` two
+    /// different operations wearing one name.
+    #[test]
+    fn division_and_remainder_truncate() {
+        assert_eq!(NativeNum::native_div_trunc(&-7i64, &2i64), -3);
+        assert_eq!(NativeNum::native_div_trunc(&7i64, &-2i64), -3);
+        assert_eq!(NativeNum::native_rem_trunc(&-7i64, &2i64), -1);
+        assert_eq!(NativeNum::native_rem_trunc(&7i64, &-2i64), 1);
+
+        // Floats declare the same mode and must mean the same thing by it, even though Rust's
+        // `/` on floats does not truncate on its own.
+        assert_eq!(NativeNum::native_div_trunc(&-7.0f64, &2.0f64), -3.0);
+        assert_eq!(NativeNum::native_rem_trunc(&-7.0f64, &2.0f64), -1.0);
+    }
+
+    /// The shim agrees with the checked helper on every input the checked helper accepts.
+    ///
+    /// The two differ only in what happens on failure. Anywhere `PyNum` returns `Ok`, the
+    /// unchecked form must produce the same value — otherwise changing a behavior flag would move
+    /// answers on inputs that never fail, which is not a trade anyone agreed to.
+    #[test]
+    fn they_agree_with_the_checked_helpers_wherever_those_succeed() {
+        for a in [-9i64, -7, -1, 0, 1, 7, 9] {
+            for b in [-3i64, -2, -1, 1, 2, 3] {
+                assert_eq!(
+                    PyAdd::py_add(&a, &b).unwrap(),
+                    NativeAdd::native_add(&a, &b),
+                    "add {a} {b}"
+                );
+                assert_eq!(
+                    PyNum::py_sub(&a, &b).unwrap(),
+                    NativeNum::native_sub(&a, &b),
+                    "sub {a} {b}"
+                );
+                assert_eq!(
+                    PyNum::py_mul(&a, &b).unwrap(),
+                    NativeNum::native_mul(&a, &b),
+                    "mul {a} {b}"
+                );
+                assert_eq!(
+                    PyNum::div_trunc(&a, &b).unwrap(),
+                    NativeNum::native_div_trunc(&a, &b),
+                    "div_trunc {a} {b}"
+                );
+                assert_eq!(
+                    PyNum::rem_trunc(&a, &b).unwrap(),
+                    NativeNum::native_rem_trunc(&a, &b),
+                    "rem_trunc {a} {b}"
+                );
+            }
+        }
+    }
+
+    /// Concatenation is here because the overflow axis says nothing about strings.
+    ///
+    /// A user who waived overflow reporting did not ask for their string handling to change, and
+    /// without this implementation `a + b > c` on two strings would fail to compile under exactly
+    /// that behavior — a program they wrote correctly, refused for a setting about integers.
+    #[test]
+    fn strings_concatenate() {
+        assert_eq!(
+            NativeAdd::native_add(&"com".to_string(), &"pylr".to_string()),
+            "compylr"
+        );
+        assert_eq!(
+            PyAdd::py_add(&"com".to_string(), &"pylr".to_string()).unwrap(),
+            NativeAdd::native_add(&"com".to_string(), &"pylr".to_string())
+        );
+    }
+
+    /// Overflow is where the two part, and the shim is defined not to report it.
+    ///
+    /// Asserted through `checked_add` rather than by evaluating the shim on an overflowing input:
+    /// this suite runs in debug, where Rust's `+` panics, and that panic is precisely what
+    /// `Unchecked` declines to define. Pinning that the *checked* helper reports it is the half
+    /// that is a property of compylr; the other half is Rust's business.
+    #[test]
+    fn the_checked_helper_reports_what_the_shim_leaves_undefined() {
+        assert!(matches!(
+            PyAdd::py_add(&i64::MAX, &1),
+            Err(RuntimeError::Overflow)
+        ));
+        assert!(i64::MAX.checked_add(1).is_none());
+    }
+}
 
 // Called as `PyNum::div_floor(&a, &b)` rather than `a.div_floor(&b)`, which is the form the
 // backend emits and the form that stays correct: std is stabilising an inherent `i64::div_floor`,

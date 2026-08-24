@@ -49,6 +49,7 @@ expression: functions
                             left: Binary {
                                 op: Rem {
                                     sign: Divisor,
+                                    checked: Reported,
                                 },
                                 left: Name(
                                     "n",
@@ -203,7 +204,9 @@ expression: functions
                                     "word",
                                 ),
                                 value: Binary {
-                                    op: Add,
+                                    op: Add {
+                                        checked: Reported,
+                                    },
                                     left: Subscript {
                                         base: Name(
                                             "seen",
@@ -212,6 +215,7 @@ expression: functions
                                             "word",
                                         ),
                                         origin: FromEitherEnd,
+                                        checked: Reported,
                                     },
                                     right: Literal(
                                         Int(

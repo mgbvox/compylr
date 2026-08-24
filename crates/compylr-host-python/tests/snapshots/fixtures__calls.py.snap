@@ -15,7 +15,9 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: Mul,
+                    op: Mul {
+                        checked: Reported,
+                    },
                     left: Name(
                         "n",
                     ),
@@ -83,7 +85,9 @@ expression: functions
                 name: "total",
                 ty: Int,
                 value: Binary {
-                    op: Add,
+                    op: Add {
+                        checked: Reported,
+                    },
                     left: Call {
                         callee: "double",
                         args: [

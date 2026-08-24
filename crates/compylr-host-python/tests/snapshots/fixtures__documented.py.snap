@@ -19,7 +19,9 @@ expression: functions
         body: [
             Return(
                 Binary {
-                    op: Add,
+                    op: Add {
+                        checked: Reported,
+                    },
                     left: Name(
                         "a",
                     ),
@@ -51,7 +53,9 @@ expression: functions
                 name: "doubled",
                 ty: Int,
                 value: Binary {
-                    op: Mul,
+                    op: Mul {
+                        checked: Reported,
+                    },
                     left: Name(
                         "n",
                     ),

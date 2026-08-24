@@ -150,6 +150,35 @@ is not worth reading. `sorting.merge_sort` earns that mark on most runs, ranging
 277us across builds that were in some cases *byte-identical*. That spread is wider than most of
 the improvements anyone would want to measure, which is precisely why the column exists.
 
+### One algorithm, two behaviors
+
+`arithmetic.collatz_length` is compiled twice from the same loop: once with the default Python
+behavior and once with `behavior="rust"`. The benchmark reports those two builds beside the
+interpreted baseline. For the documented input, all three return
+`collatz_length(97) == 118`.
+
+The Rust-behavior build gives up Python's reported integer overflow and division-by-zero failures,
+and its integer division and remainder follow Rust for negative operands. The benchmark uses a
+positive input whose intermediate values fit in 64 bits, so those differences change nothing
+about this answer. That is the trade: less checking on a domain where the caller already promises
+the checks cannot fire, not a claim that the two behaviors are interchangeable for every input.
+
+On the recorded `make demo` run, the interpreted baseline was **6.10 µs** (0% spread), the
+Python-behavior build was **0.27 µs** (1% spread), and the Rust-behavior build was **0.25 µs**
+(2% spread). The control established a **6% noise floor**, which that gap clears, so the run
+reported **1.1x** rather than declining to.
+
+Do not quote the 1.1x without the sentence after it. Across eight runs against the same build on
+an idle machine the compiled timings hardly moved — 0.27-0.28 µs against 0.25 µs every time — but
+the floor moved between 2% and 12%, and one run in eight reported `not resolvable` rather than a
+figure. An earlier recording on a loaded machine put the floor at 72% and said the same thing.
+Every one of those runs is right about itself; the comparison simply lives close to what this
+harness can see, and you should expect to see it decline to answer sometimes.
+
+The claim that survives every floor the harness has produced is the other one: better than twenty
+times against interpretation, on every run. Whether dropping Python's checks is worth a further
+tenth of the compiled time is a judgement about your own inputs.
+
 ### Every algorithm
 
 ```bash

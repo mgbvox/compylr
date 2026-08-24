@@ -15,9 +15,14 @@ from compylr import _core
 ADD = "def add(a: int, b: int) -> int:\n    return a + b\n"
 
 
+def compile_unit(sources: list[str], backend: str = "rust") -> _core.CompiledUnit:
+    """Compile sources under the default, inherited behavior."""
+    return _core.compile_unit([(source, {}) for source in sources], backend)
+
+
 class TestCompileUnit:
     def test_compiles_a_single_source(self) -> None:
-        compiled = _core.compile_unit([ADD])
+        compiled = compile_unit([ADD])
 
         assert compiled.function_names == ["add"]
         assert set(compiled.target_sources) == {
@@ -35,58 +40,55 @@ class TestCompileUnit:
         assert "pyo3" in compiled.manifest
 
     def test_defaults_to_the_rust_backend(self) -> None:
-        assert (
-            _core.compile_unit([ADD]).target_sources
-            == _core.compile_unit([ADD], "rust").target_sources
-        )
+        assert compile_unit([ADD]).target_sources == compile_unit([ADD], "rust").target_sources
 
     def test_an_empty_project_is_not_an_error(self) -> None:
         # A project can legitimately have nothing marked yet.
-        compiled = _core.compile_unit([])
+        compiled = compile_unit([])
         assert compiled.function_names == []
 
     def test_source_needs_no_file_behind_it(self) -> None:
         # This is what inspect.getsource hands back: text, with no path.
         source = "def double(n: int) -> int:\n    return n * 2\n"
-        assert _core.compile_unit([source]).function_names == ["double"]
+        assert compile_unit([source]).function_names == ["double"]
 
     def test_sources_are_assembled_into_one_unit(self) -> None:
         caller = "def caller(a: int) -> int:\n    return callee(a)\n"
         callee = "def callee(a: int) -> int:\n    return a * 2\n"
 
-        forward = _core.compile_unit([caller, callee])
-        backward = _core.compile_unit([callee, caller])
+        forward = compile_unit([caller, callee])
+        backward = compile_unit([callee, caller])
 
         assert forward.function_names == ["callee", "caller"]
         assert forward.fingerprint == backward.fingerprint
 
     def test_duplicate_names_are_rejected(self) -> None:
         with pytest.raises(_core.UnsupportedProgramError, match="add"):
-            _core.compile_unit([ADD, ADD])
+            compile_unit([ADD, ADD])
 
     def test_an_unresolved_call_is_rejected(self) -> None:
         with pytest.raises(_core.UnsupportedProgramError, match="missing"):
-            _core.compile_unit(["def caller(a: int) -> int:\n    return missing(a)\n"])
+            compile_unit(["def caller(a: int) -> int:\n    return missing(a)\n"])
 
 
 class TestIrArtifact:
     def test_the_ir_is_returned_as_readable_json(self) -> None:
-        artifact = json.loads(_core.compile_unit([ADD]).ir_artifact)
+        artifact = json.loads(compile_unit([ADD]).ir_artifact)
 
-        # Bumped whenever the IR's shape changes: 2 when arithmetic operators started carrying
-        # their declared semantics, 3 when subscripting and length did.
-        assert artifact["version"] == 3
+        # Bumped whenever the IR's shape changes: 2 for declared arithmetic semantics, 3 for
+        # container modes, and 4 for checking modes on fallible operations.
+        assert artifact["version"] == 4
         assert [f["name"] for f in artifact["functions"]] == ["add"]
 
     def test_the_artifact_names_no_rust_types(self) -> None:
         # The IR is the stage every backend consumes; a Rust spelling in it would mean the
         # abstraction had already leaked.
-        artifact = _core.compile_unit([ADD]).ir_artifact
+        artifact = compile_unit([ADD]).ir_artifact
         for spelling in ("i64", "f64", "String"):
             assert spelling not in artifact
 
     def test_the_artifact_records_the_fingerprint(self) -> None:
-        compiled = _core.compile_unit([ADD])
+        compiled = compile_unit([ADD])
         assert json.loads(compiled.ir_artifact)["fingerprint"] == compiled.fingerprint
 
 
@@ -99,45 +101,43 @@ class TestFingerprint:
             "        # an indented comment\n"
             "        return a + b\n"
         )
-        assert _core.compile_unit([ADD]).fingerprint == _core.compile_unit([noisy]).fingerprint
+        assert compile_unit([ADD]).fingerprint == compile_unit([noisy]).fingerprint
 
     def test_a_changed_body_changes_it(self) -> None:
         changed = "def add(a: int, b: int) -> int:\n    return a - b\n"
-        assert _core.compile_unit([ADD]).fingerprint != _core.compile_unit([changed]).fingerprint
+        assert compile_unit([ADD]).fingerprint != compile_unit([changed]).fingerprint
 
     def test_the_module_name_follows_the_fingerprint(self) -> None:
-        compiled = _core.compile_unit([ADD])
+        compiled = compile_unit([ADD])
         assert compiled.fingerprint in compiled.module_name
 
 
 class TestDiagnostics:
     def test_invalid_python_raises_a_syntax_error(self) -> None:
         with pytest.raises(_core.SourceSyntaxError):
-            _core.compile_unit(["def broken(:\n"])
+            compile_unit(["def broken(:\n"])
 
     def test_valid_python_outside_the_subset_raises_a_different_error(self) -> None:
         with pytest.raises(_core.UnsupportedProgramError):
-            _core.compile_unit(
-                ["def loops(a: int) -> int:\n    while a:\n        pass\n    return a\n"]
-            )
+            compile_unit(["def loops(a: int) -> int:\n    while a:\n        pass\n    return a\n"])
 
     def test_the_two_are_distinguishable(self) -> None:
         # Catching one must not catch the other: a typo and an unsupported feature need different
         # responses from a caller.
         with pytest.raises(_core.SourceSyntaxError):
-            _core.compile_unit(["def broken(:\n"])
+            compile_unit(["def broken(:\n"])
         assert not issubclass(_core.SourceSyntaxError, _core.UnsupportedProgramError)
         assert not issubclass(_core.UnsupportedProgramError, _core.SourceSyntaxError)
 
     def test_both_share_one_catchable_base(self) -> None:
         for source in ("def broken(:\n", "def f(a) -> int:\n    return a\n"):
             with pytest.raises(_core.CompilationError):
-                _core.compile_unit([source])
+                compile_unit([source])
 
     def test_a_compilation_error_carries_line_and_column(self) -> None:
         source = 'def f(a: int) -> int:\n    b = a + 1\n    return "x"\n'
         with pytest.raises(_core.CompilationError) as caught:
-            _core.compile_unit([source])
+            compile_unit([source])
 
         assert caught.value.line == 3
         assert caught.value.column > 1
@@ -155,7 +155,7 @@ class TestDiagnostics:
     )
     def test_the_diagnostic_names_the_offending_thing(self, source: str, expected: str) -> None:
         with pytest.raises(_core.CompilationError, match=expected):
-            _core.compile_unit([source])
+            compile_unit([source])
 
 
 class TestValidateSource:
@@ -195,10 +195,10 @@ class TestBackendRegistry:
     def test_a_backend_failure_is_not_a_compilation_error(self) -> None:
         # Handling a bad program should not accidentally swallow a bad configuration.
         with pytest.raises(_core.CompylrError):
-            _core.compile_unit([ADD], "typescript")
+            compile_unit([ADD], "typescript")
         assert not issubclass(_core.BackendNotAvailableError, _core.CompilationError)
 
     def test_the_backend_is_checked_before_the_source_is_parsed(self) -> None:
         # The source below is not valid Python; the backend is still the thing to report.
         with pytest.raises(_core.BackendNotAvailableError):
-            _core.compile_unit(["def broken(:\n"], "nonesuch")
+            compile_unit(["def broken(:\n"], "nonesuch")

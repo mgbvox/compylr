@@ -19,6 +19,11 @@ from compylr._build import BuildPipeline, discover_root
 from compylr._errors import BuildError, ToolchainMissingError
 
 
+def compile_unit(source: str) -> _core.CompiledUnit:
+    """Compile one source under the inherited behavior."""
+    return _core.compile_unit([(source, {})])
+
+
 @pytest.fixture
 def pipeline(build_root: Path) -> BuildPipeline:
     return BuildPipeline(build_root)
@@ -227,7 +232,7 @@ class TestPassConfiguration:
 
     def test_state_records_the_passes_that_ran(self, tmp_path: Path) -> None:
         pipeline = BuildPipeline(tmp_path)
-        compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])
+        compiled = compile_unit("def double(n: int) -> int:\n    return n * 2\n")
         pipeline._record_success(compiled)
 
         state = json.loads((tmp_path / "state.json").read_text())
@@ -236,7 +241,7 @@ class TestPassConfiguration:
 
     def test_a_build_by_a_different_pass_set_is_not_reused(self, tmp_path: Path) -> None:
         pipeline = BuildPipeline(tmp_path)
-        compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])
+        compiled = compile_unit("def double(n: int) -> int:\n    return n * 2\n")
         pipeline._record_success(compiled)
 
         assert pipeline.cached_module_name(list(compiled.passes)) == compiled.module_name
@@ -245,7 +250,7 @@ class TestPassConfiguration:
     def test_asking_without_a_pass_set_still_reads_the_name(self, tmp_path: Path) -> None:
         # The narrower question is for reuse decisions; the broader one is for reporting.
         pipeline = BuildPipeline(tmp_path)
-        compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])
+        compiled = compile_unit("def double(n: int) -> int:\n    return n * 2\n")
         pipeline._record_success(compiled)
         assert pipeline.cached_module_name() == compiled.module_name
 
@@ -271,7 +276,7 @@ class TestTheArtifactStaysPortable:
         return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
     def _written(self, pipeline: BuildPipeline) -> tuple[str, str]:
-        compiled = _core.compile_unit(["def double(n: int) -> int:\n    return n * 2\n"])
+        compiled = compile_unit("def double(n: int) -> int:\n    return n * 2\n")
         pipeline.write_artifacts(compiled)
         config = pipeline.paths.crate / ".cargo" / "config.toml"
         return pipeline.paths.manifest.read_text(), config.read_text()

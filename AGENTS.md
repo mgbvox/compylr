@@ -157,6 +157,23 @@ Known gaps worth knowing before you trip on them:
   what reversing it costs. Iteration is where a user meets this: `for k in d` yields keys, in
   whatever order the map gives, so **never assert on mapping or set iteration order** — the suite
   would become flaky rather than the compiler being wrong.
+* **Generated mappings and sets use `FastHasher`, not Rust's default randomized hasher.** This is
+  not a behavior axis: the accepted subset promises neither mapping nor set iteration order, and
+  equality, membership, indexing, and mutation are unchanged. A test that distinguishes hashers
+  by iteration order is asserting behavior the language deliberately does not provide.
+* **The Python boundary has a measurable per-element price on every call.** On this machine an
+  integer argument costs about 4 ns per element to convert, text about 42 ns, and returning an
+  element about 10 ns. Every argument crosses by value, text and collections alike; a body doing
+  O(log n) work over an O(n) argument can therefore lose compiled.
+* **A parameter may not be borrowed just because it is never mutated.** Passing text as `&str` was
+  built and reverted: not mutating a value is not the same as tolerating a borrow of it, because a
+  parameter can also be *stored*. Four ordinary shapes need an owned `String` and emitted Rust that
+  did not compile — `xs.append(who)`, `d[k] = who`, `who < "m"` (`==` works only because std
+  happens to provide that cross-impl and `PartialOrd` does not), and `who in xs`. Deciding this
+  correctly needs the backend to know an expression's type, which it deliberately does not. The
+  whole suite passed while it was broken, so `a_text_parameter_is_usable_in_every_position` in
+  `tests/execution.rs` now compiles a text parameter in every position; check there before trying
+  again.
 * **Mutating a collection while iterating it is not rejected.** Rust's borrow checker will refuse
   it, so the failure is a rustc error rather than a located diagnostic. The honest fix is a
   lowering rule, and it belongs with whatever change first makes it reachable.
@@ -169,9 +186,10 @@ Known gaps worth knowing before you trip on them:
   build.** The state file now records the installed compylr version, which covers a user upgrading
   the package — but during development here the version does not move, so after changing emission
   you must `rm -rf .compylr` (and `demo/.compylr`) or you will benchmark last build's code. This
-  cost real time once already.
-* **The IR changed shape twice, so every existing cache is invalid once.** The artifact format is
-  at version 3 — 2 for the arithmetic operators, 3 for subscripting and length. `_state_is_current`
+  cost real time once already. Every emission performance measurement starts with that removal.
+* **The IR changed shape again, so every existing cache is invalid once.** The artifact format is
+  at version 4 — 2 for the arithmetic operators, 3 for subscripting and length, 4 for operation
+  checking modes. `_state_is_current`
   compares the recorded compylr version, so a user upgrading rebuilds automatically; there is
   nothing to do beyond knowing why the first run after upgrading is slow.
 * **A statement's emission depends on where it is, not only on what it is.** The backend renders a
@@ -228,13 +246,18 @@ silently was the first.
   backend; how a construct is spelled *back to the programmer* belongs to the frontend that read
   it, which is why `Ty::python_name` and `BinOp::python_symbol` live in
   `compylr-frontend-python::spelling` as extension traits and not on the IR.
-* IR operations carry the semantics **a frontend declared**, not one language's by default.
-  `BinOp::Div` carries a rounding mode, `BinOp::Rem` a sign convention, `Expr::Subscript` an index
-  origin, and `Expr::Len` the units a string is counted in. The Python frontend sets all five in
-  named constants at the top of `lower.rs`; the backend matches on the mode and never on the
-  operation's name. A backend that read the name would be silently wrong for any frontend meaning
-  the other thing, and there is no way for a test written in Python to catch that — which is why
-  `tests/conformance.rs` and the hand-built entries in `tests/execution.rs` exist.
+* IR operations carry the semantics **the resolved behavior declared**, not one language's by
+  default. The six axes are integer overflow, integer division, exact division, remainder,
+  sequence indexing, and text length. `BinOp::Div` carries rounding and checking modes,
+  `BinOp::Rem` a sign convention and checking mode, `Expr::Subscript` an index origin and checking
+  mode, and `Expr::Len` the units a string is counted in. The backend matches on those modes and
+  never on the operation's name. A backend that read the name would be silently wrong for the
+  other stance, which is why `tests/conformance.rs` and the hand-built entries in
+  `tests/execution.rs` exist.
+* **`Checked::Unchecked` is a statement about the program, not a promised machine result.** It
+  says the program declines to define the failure. Rust's native integer overflow wraps in the
+  generated release profile and panics in a debug build; both satisfy that statement. Do not
+  rename the mode to `Wrapping` or make a pass infer it from build settings.
 * **Three container behaviours deliberately have no mode**, and the reason is recorded in the IR's
   module doc, the runtime's, and the spec: a missing mapping key always reports, mapping iteration
   yields keys, and string membership tests substrings. The last two are universal across the

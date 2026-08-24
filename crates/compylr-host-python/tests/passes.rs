@@ -12,13 +12,21 @@ use compylr_core::verify::verify;
 use compylr_diagnostics::span::Span;
 use compylr_ir::{Expr, Function, Param, Stmt, Ty, Unit};
 
+/// A source lowered under Python's own stance, which is what an unconfigured project resolves to.
+fn py_source(text: &str) -> compylr_core::Source {
+    compylr_core::Source::new(
+        text,
+        compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR),
+    )
+}
+
 const DOUBLE: &str = "def double(n: int) -> int:\n    return n * 2\n";
 
 #[test]
 fn an_accepted_program_verifies() {
     let unit = compylr_registry::frontends::lookup("python")
         .unwrap()
-        .lower(&[DOUBLE.to_string()])
+        .lower(&[py_source(DOUBLE)])
         .unwrap();
     assert!(verify(&unit).is_ok());
 }
@@ -52,7 +60,7 @@ fn a_unit_no_backend_could_render_is_rejected_before_emission() {
 
 #[test]
 fn the_default_pipeline_reports_what_ran() {
-    let compiled = compile(&[DOUBLE.to_string()], "rust").expect("must compile");
+    let compiled = compile(&[py_source(DOUBLE)], "rust").expect("must compile");
     assert_eq!(compiled.passes, ["constant-folding"]);
 }
 
@@ -66,14 +74,14 @@ fn the_default_pipeline_reports_what_ran() {
 #[test]
 fn optimization_off_produces_the_same_program() {
     let optimized = compile_with(
-        &[DOUBLE.to_string()],
+        &[py_source(DOUBLE)],
         "python",
         "rust",
         &PassConfig::default(),
     )
     .unwrap();
     let plain = compile_with(
-        &[DOUBLE.to_string()],
+        &[py_source(DOUBLE)],
         "python",
         "rust",
         &PassConfig {
@@ -94,14 +102,14 @@ fn optimization_off_produces_the_same_program() {
 #[test]
 fn builds_under_different_configurations_load_under_different_names() {
     let optimized = compile_with(
-        &[DOUBLE.to_string()],
+        &[py_source(DOUBLE)],
         "python",
         "rust",
         &PassConfig::default(),
     )
     .unwrap();
     let plain = compile_with(
-        &[DOUBLE.to_string()],
+        &[py_source(DOUBLE)],
         "python",
         "rust",
         &PassConfig {
@@ -122,14 +130,14 @@ fn builds_under_different_configurations_load_under_different_names() {
 fn a_folded_constant_appears_in_the_ir_artifact() {
     let folding = "def answer() -> int:\n    return 6 * 7\n";
     let optimized = compile_with(
-        &[folding.to_string()],
+        &[py_source(folding)],
         "python",
         "rust",
         &PassConfig::default(),
     )
     .unwrap();
     let plain = compile_with(
-        &[folding.to_string()],
+        &[py_source(folding)],
         "python",
         "rust",
         &PassConfig {
@@ -158,14 +166,14 @@ fn a_folded_constant_appears_in_the_ir_artifact() {
 #[test]
 fn the_fingerprint_does_not_move_with_the_pass_configuration() {
     let optimized = compile_with(
-        &[DOUBLE.to_string()],
+        &[py_source(DOUBLE)],
         "python",
         "rust",
         &PassConfig::default(),
     )
     .unwrap();
     let plain = compile_with(
-        &[DOUBLE.to_string()],
+        &[py_source(DOUBLE)],
         "python",
         "rust",
         &PassConfig {
@@ -190,7 +198,7 @@ fn each_configuration_has_its_own_key() {
 #[test]
 fn a_pair_with_no_directed_passes_still_compiles() {
     assert!(compylr_registry::passes::for_pair("python", "rust").is_empty());
-    assert!(compile(&[DOUBLE.to_string()], "rust").is_ok());
+    assert!(compile(&[py_source(DOUBLE)], "rust").is_ok());
 }
 
 /// Verification failures reach the caller as a rejection, not as a backend complaint.
@@ -199,7 +207,9 @@ fn a_verification_failure_is_reported_as_an_unsupported_program() {
     // A call to a function that exists nowhere: accepted by lowering, which defers cross-source
     // resolution, and caught when the whole unit is in hand.
     let failure = compile(
-        &["def f(n: int) -> int:\n    return elsewhere(n)\n".to_string()],
+        &[py_source(
+            "def f(n: int) -> int:\n    return elsewhere(n)\n",
+        )],
         "rust",
     )
     .expect_err("the callee is in no source");

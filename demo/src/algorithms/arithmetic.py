@@ -134,6 +134,28 @@ def collatz_length(n: int) -> int:
     return steps
 
 
+@c.compyle(behavior="rust")
+def collatz_length_rust(n: int) -> int:
+    """`collatz_length` again, byte for byte, compiled under Rust's meanings instead.
+
+    The duplication is the experiment. Two functions with identical bodies and different
+    `behavior` settings differ in exactly one thing — what `%`, `//`, `*` and `+` are allowed to
+    do — so the benchmark's comparison between them is a comparison of behaviors and not of
+    programs. What the Rust stance gives up here is written down in the demo's README.
+    """
+    if n < 1:
+        return 0
+    steps = 0
+    current = n
+    while current != 1:
+        if current % 2 == 0:
+            current = current // 2
+        else:
+            current = 3 * current + 1
+        steps = steps + 1
+    return steps
+
+
 @c.compyle
 def digit_sum(n: int) -> int:
     """The sum of the decimal digits of `n`, ignoring its sign."""
