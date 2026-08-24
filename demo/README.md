@@ -143,26 +143,35 @@ make demo                                   # from the repository root
 uv run python -m algorithms.benchmark       # or directly, from here
 ```
 
+<!-- benchmark:algorithms -->
 ```
+every algorithm, scale=1, per call, best of 5 batches
+
 workload                           compiled    interpreted   speedup
 --------------------------------------------------------------------
-arithmetic.collatz_length            0.22us         4.71us     21.5x
-dynamic.knapsack                    16.42us       184.12us     11.2x
-structures.component_count           4.83us        45.87us      9.5x
-matrices.multiply                    7.37us        60.66us      8.2x
-arithmetic.sieve                     0.93us         6.64us      7.1x
-stats.standard_deviation             4.11us        14.52us      3.5x
-sorting.insertion_sort               3.82us         9.43us      2.5x
-dynamic.edit_distance               35.96us        83.47us      2.3x
-stats.normalize                      8.66us        17.89us      2.1x
-sorting.merge_sort                  66.34us       132.75us      2.0x
-graphs.topological_order           109.25us       160.03us      1.5x
-matrices.transpose                   4.34us         4.31us      1.0x
-reference (never compiled)          30.47us        29.99us      1.0x
-text.joined                         57.11us        46.08us      0.8x
-graphs.bfs_distances                37.91us        20.39us      0.5x
-text.word_count                     55.25us        14.82us      0.3x
+arithmetic.collatz_length            0.28us         6.11us     22.0x
+dynamic.knapsack                    21.54us       246.76us     11.5x
+structures.component_count           6.51us        60.01us      9.2x
+matrices.multiply                    9.76us        80.84us      8.3x
+arithmetic.sieve                     1.20us         8.82us      7.3x
+stats.standard_deviation             5.49us        19.35us      3.5x
+sorting.merge_sort                  64.23us       177.35us      2.8x
+sorting.insertion_sort               4.71us        12.59us      2.7x
+dynamic.edit_distance               47.35us       111.83us      2.4x
+stats.normalize                     11.00us        23.42us      2.1x
+graphs.topological_order           144.35us       209.18us      1.4x
+reference (never compiled)          38.80us        40.17us      1.0x
+matrices.transpose                   5.76us         5.96us      1.0x
+text.joined                         77.27us        61.71us      0.8x
+graphs.bfs_distances                49.62us        27.17us      0.5x
+text.word_count                     74.16us        18.69us      0.3x
+
+The reference is never compiled, so its 1.04x is this run's noise floor — read every other row against that, not against 1.0.
+Both modes returned the same answer for every workload.
 ```
+
+_scale 1 — measured on Darwin arm64, Python 3.14.0, 2026-08-24._
+<!-- /benchmark:algorithms -->
 
 **The spread is the point.** A demo reporting one speedup would be hiding what is worth knowing.
 
@@ -187,15 +196,24 @@ on the machine you ran this on. Read every other row against that, not against 1
 uv run python -m algorithms.nth_prime.benchmark --n 500
 ```
 
+<!-- benchmark:nth-prime -->
 ```
+nth prime, n=500, per call, best of 5 batches
+
 variant                          compiled    interpreted   speedup
 ------------------------------------------------------------------
-reference (never compiled)      1058.15us      1049.28us      1.0x
-recursive                         38.13us      1243.62us     32.6x
-iterative                         19.25us       613.14us     31.8x
-memoized (cold cache)             36.21us      1058.52us     29.2x
+reference (never compiled)      1066.72us      1054.66us      1.0x
+recursive                         37.76us      1207.53us     32.0x
+iterative                         18.94us       628.95us     33.2x
+memoized (cold cache)             35.87us      1045.49us     29.1x
 memoized (warm cache)              0.10us         0.08us      0.8x
+
+The reference is never compiled, so its 0.99x is this run's noise floor — read every other row against that, not against 1.0.
+Both modes returned the same answer for every variant.
 ```
+
+_n = 500 — measured on Darwin arm64, Python 3.14.0, 2026-08-24._
+<!-- /benchmark:nth-prime -->
 
 **A warm cache hit is *slower* compiled** — 0.10 µs against 0.08 µs. Crossing the boundary costs
 more than a dictionary lookup saves. That is not a defect; it is the shape of the tradeoff, and
@@ -304,7 +322,8 @@ make demo-check        # from the repository root: sync, precompile, test, lint,
 
 uv run pytest          # or piecemeal, from here
 uv run ruff check .
-uv run mypy src
+uv run ruff format --check .
+uv run ty check src
 ```
 
 The repository's own suite also builds this project, runs every algorithm, and asserts the

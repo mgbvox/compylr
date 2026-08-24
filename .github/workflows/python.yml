@@ -1,0 +1,131 @@
+name: Python
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: python-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    name: ruff and ty
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Nothing here builds the extension: ruff and ty both read source. `compylr._core` is
+      # compiled and has no source to read, which is what `python/compylr/_core.pyi` is for.
+      - name: Install the tools
+        run: uv pip install --system ruff ty
+
+      # `python/fixtures/` is never linted. It is compiler *input* and `rejected/` is deliberately
+      # invalid; `ruff check --fix` once deleted the `import os` from a fixture that existed to
+      # test it. The exclusion lives in `pyproject.toml`, and the paths named here are the second
+      # half of that: no invocation is ever handed the fixtures directory.
+      - run: ruff check python/ scripts/
+      - run: ruff format --check python/ scripts/
+      - run: ty check python/compylr
+
+      # Cheap, and it fails the moment someone edits a README in a way that would make the
+      # benchmark job silently write nothing.
+      - run: python scripts/update_benchmarks.py --check
+
+  test:
+    name: pytest (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    # The suite includes tests that generate a crate and build it with cargo. They are the ones
+    # that catch emission that does not compile, so they run here rather than being skipped.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor from `requires-python` through the version this repository is developed on.
+        # The extension is `abi3-py311`, so one build serves all of them -- what varies is the
+        # interpreter running against it, and that is where a difference like PEP 649's lazy
+        # annotations shows up. `_manager.py` already carries a workaround for that one.
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Build compylr into a virtual environment
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install -e ".[dev]"
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # The tests that build a crate look for `cargo` and `maturin` on PATH and skip when either
+      # is missing. A skipped suite that reports success is the failure mode worth preventing, so
+      # their presence is asserted rather than assumed.
+      - name: The toolchain the slow tests need
+        run: |
+          command -v cargo
+          command -v maturin
+
+      # Coverage and its 80% floor are configured in `pyproject.toml`, so this is the whole suite
+      # including the slow tests, measured.
+      - run: pytest
+
+  demo:
+    name: demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # The demo consumes compylr from this checkout rather than from an index, so this builds
+      # the working tree.
+      - name: Sync the demo
+        working-directory: demo
+        run: uv sync --extra dev
+
+      # Precompiling imports the project, so it is also the check that every module of it still
+      # imports -- which reported failures for as long as the command existed before anything was
+      # watching.
+      - name: Precompile
+        working-directory: demo
+        run: uv run compylr compyle src
+
+      # Running it prints the IR coverage table, and the demo asserts its own claim: every
+      # statement form, expression form, type and operator the IR can hold appears in this build.
+      - name: Run every algorithm, and check the coverage claim
+        working-directory: demo
+        run: uv run python -m algorithms
+
+      - name: The nth prime, three ways
+        working-directory: demo
+        run: uv run python -m algorithms.nth_prime 25
+
+      # `ty check src` and not `src tests`: a marked class is a value rather than a class, so
+      # it cannot be used as a type annotation, and the demo's tests annotate a fixture with one.
+      # Widening this means deciding what a marked class looks like to a type checker.
+      - name: Test, lint, type-check
+        working-directory: demo
+        run: |
+          uv run pytest
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run ty check src

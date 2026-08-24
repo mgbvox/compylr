@@ -1,0 +1,111 @@
+# Pre-commit runs the same checks CI does, on the half of the tree you touched.
+#
+# Two rules shape every hook here.
+#
+# **No hook is handed filenames.** `pass_filenames: false` everywhere, and each hook names the
+# paths it checks. `python/fixtures/` is compiler *input* -- `rejected/` is deliberately invalid --
+# and a fixture arriving on a linter's command line is exactly how `ruff check --fix` once deleted
+# the `import os` a fixture existed to test. A hook that cannot be given a path cannot be given
+# that one. `files:` still decides *whether* a hook runs, so editing only a fixture runs nothing.
+#
+# **Nothing rewrites a file.** Every hook reports; none fixes. Formatting is `ruff format`, which
+# you run yourself (`make py-fmt`), because a commit hook that silently reformats staged content
+# means the thing you reviewed is not the thing you committed. The generated crate under
+# `demo/.compylr/` is committed to be *read*, so a whitespace fixer reaching it would make the
+# artifact stop reflecting what the bridge emits.
+#
+#     make hooks        # install
+#     make precommit    # run everything, over the whole tree
+minimum_pre_commit_version: "3.7.0"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # The workflows and the manifests are the files where a syntax error is discovered by CI
+      # rather than by the editor.
+      - id: check-yaml
+        files: ^\.github/.*\.ya?ml$|^\.pre-commit-config\.yaml$
+      - id: check-toml
+        files: ^(pyproject\.toml|demo/pyproject\.toml|Cargo\.toml|crates/.*/Cargo\.toml)$
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      # -- Python ------------------------------------------------------------------------
+      - id: ruff-check
+        name: ruff check (python/, scripts/)
+        entry: ruff check python/ scripts/
+        language: python
+        additional_dependencies: ["ruff>=0.6"]
+        pass_filenames: false
+        files: ^(python|scripts)/.*\.py$
+        exclude: ^python/fixtures/
+
+      - id: ruff-format
+        name: ruff format --check (python/, scripts/)
+        entry: ruff format --check python/ scripts/
+        language: python
+        additional_dependencies: ["ruff>=0.6"]
+        pass_filenames: false
+        files: ^(python|scripts)/.*\.py$
+        exclude: ^python/fixtures/
+
+      - id: ty
+        name: ty check (python/compylr)
+        entry: ty check python/compylr
+        language: python
+        additional_dependencies: ["ty>=0.0.74"]
+        pass_filenames: false
+        files: ^python/compylr/.*\.pyi?$|^pyproject\.toml$
+
+      # The demo is a separate project with its own environment. Its lint rules are the same, so
+      # ruff runs here; `ty check` needs compylr installed and importable, which is a build rather
+      # than a hook -- CI does that one.
+      - id: ruff-check-demo
+        name: ruff check (demo/)
+        entry: ruff check demo/src demo/tests
+        language: python
+        additional_dependencies: ["ruff>=0.6"]
+        pass_filenames: false
+        files: ^demo/(src|tests)/.*\.py$
+
+      - id: ruff-format-demo
+        name: ruff format --check (demo/)
+        entry: ruff format --check demo/src demo/tests
+        language: python
+        additional_dependencies: ["ruff>=0.6"]
+        pass_filenames: false
+        files: ^demo/(src|tests)/.*\.py$
+
+      # -- Rust --------------------------------------------------------------------------
+      #
+      # `language: system`: these need the toolchain this repository is built with, and a hook
+      # that installed its own would be checking a different compiler from the one you use.
+      # Gated on `.rs` and the manifests, because clippy over the workspace is not free.
+      - id: cargo-fmt
+        name: cargo fmt --all --check
+        entry: cargo fmt --all --check
+        language: system
+        pass_filenames: false
+        files: \.rs$
+        exclude: ^(vendored|inspiration|worktrees)/
+
+      - id: cargo-clippy
+        name: cargo clippy (warnings denied)
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        pass_filenames: false
+        files: \.rs$|(^|/)Cargo\.(toml|lock)$
+        exclude: ^(vendored|inspiration|worktrees)/
+
+      # -- The README's benchmark blocks -------------------------------------------------
+      #
+      # Marker-presence only: the tables themselves are measured, and measuring on a commit hook
+      # would be minutes of CPU and a number taken from whatever else the machine was doing.
+      - id: benchmark-markers
+        name: benchmark blocks are still addressable
+        entry: python3 scripts/update_benchmarks.py --check
+        language: system
+        pass_filenames: false
+        files: ^(README\.md|demo/README\.md|scripts/update_benchmarks\.py)$
