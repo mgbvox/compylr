@@ -405,7 +405,9 @@ fn resolve_index(index: i64, length: usize, origin: IndexOrigin) -> Result<usize
 /// generated crate and must compile with no dependency but `std`.
 const FAST_HASH_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
 
-/// A fast, non-cryptographic hasher. See [`FAST_HASH_SEED`] for the trade being made.
+/// A fast, non-cryptographic hasher. The trade being made is written out on `FAST_HASH_SEED`,
+/// which is private -- named here as code rather than linked, because a link to it resolves
+/// only under `--document-private-items` and rustdoc refuses it otherwise.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct FastHasher {
     hash: u64,
