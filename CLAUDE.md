@@ -157,6 +157,23 @@ Known gaps worth knowing before you trip on them:
   what reversing it costs. Iteration is where a user meets this: `for k in d` yields keys, in
   whatever order the map gives, so **never assert on mapping or set iteration order** — the suite
   would become flaky rather than the compiler being wrong.
+* **Generated mappings and sets use `FastHasher`, not Rust's default randomized hasher.** This is
+  not a behavior axis: the accepted subset promises neither mapping nor set iteration order, and
+  equality, membership, indexing, and mutation are unchanged. A test that distinguishes hashers
+  by iteration order is asserting behavior the language deliberately does not provide.
+* **The Python boundary has a measurable per-element price on every call.** On this machine an
+  integer argument costs about 4 ns per element to convert, text about 42 ns, and returning an
+  element about 10 ns. Every argument crosses by value, text and collections alike; a body doing
+  O(log n) work over an O(n) argument can therefore lose compiled.
+* **A parameter may not be borrowed just because it is never mutated.** Passing text as `&str` was
+  built and reverted: not mutating a value is not the same as tolerating a borrow of it, because a
+  parameter can also be *stored*. Four ordinary shapes need an owned `String` and emitted Rust that
+  did not compile — `xs.append(who)`, `d[k] = who`, `who < "m"` (`==` works only because std
+  happens to provide that cross-impl and `PartialOrd` does not), and `who in xs`. Deciding this
+  correctly needs the backend to know an expression's type, which it deliberately does not. The
+  whole suite passed while it was broken, so `a_text_parameter_is_usable_in_every_position` in
+  `tests/execution.rs` now compiles a text parameter in every position; check there before trying
+  again.
 * **Mutating a collection while iterating it is not rejected.** Rust's borrow checker will refuse
   it, so the failure is a rustc error rather than a located diagnostic. The honest fix is a
   lowering rule, and it belongs with whatever change first makes it reachable.
@@ -169,7 +186,7 @@ Known gaps worth knowing before you trip on them:
   build.** The state file now records the installed compylr version, which covers a user upgrading
   the package — but during development here the version does not move, so after changing emission
   you must `rm -rf .compylr` (and `demo/.compylr`) or you will benchmark last build's code. This
-  cost real time once already.
+  cost real time once already. Every emission performance measurement starts with that removal.
 * **The IR changed shape twice, so every existing cache is invalid once.** The artifact format is
   at version 3 — 2 for the arithmetic operators, 3 for subscripting and length. `_state_is_current`
   compares the recorded compylr version, so a user upgrading rebuilds automatically; there is

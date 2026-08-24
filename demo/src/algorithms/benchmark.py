@@ -4,15 +4,22 @@
     python -m algorithms.benchmark --scale 4    # bigger inputs
 
 The method is `_timing`'s and is shared with `nth_prime.benchmark`: two processes, batches rather
-than single calls, and the best batch rather than the mean. Read that module before trusting a
-number from this one.
+than single calls, the best batch rather than the mean, and every batch kept so a figure can be
+read with its uncertainty. Read that module before trusting a number from this one.
+
+**Read the speedup column against the noise floor, not against 1.0.** The floor comes from the
+never-compiled `reference` row, whose true ratio is exactly 1.0 by construction, so whatever it
+reports instead is this machine's noise. A row that does not clear the floor prints "not
+resolvable" rather than a ratio — several workloads here move by more between identical runs than
+the improvements anyone would want to measure, and a bare number would invite reading one as the
+other.
 
 What this table is for is the **spread**. A demo that reported one speedup would be hiding the
 thing worth knowing: compiling is not uniformly good. Arithmetic in a tight loop wins by a lot,
 because there is nothing for the interpreter to do but dispatch. Work that is mostly moving a
-large collection across the boundary wins by much less, because the conversion is real and the
-interpreted version was already calling into C. And `joined` **loses**, because it is quadratic
-string concatenation either way and Python's `str` is very good at it.
+large collection across the boundary can lose even when its generated body is faster, because
+conversion is real and happens on every call. `binary_search` makes that shape explicit: all n
+integers cross so its body can inspect only about log2(n) of them.
 
 `reference` is the control: it is never compiled, so its ratio is what "no difference" looks like
 on the machine you ran this on. Read every other row against that rather than against 1.0.
@@ -28,7 +35,21 @@ from dataclasses import dataclass
 from random import Random
 from typing import Any, TypedDict, cast
 
-from ._timing import DISABLE_ENV, REPETITIONS, compylr_enabled, measure_in_child, per_call
+from ._timing import (
+    DISABLE_ENV,
+    NOT_RESOLVABLE,
+    REPETITIONS,
+    UNSTABLE_MARK,
+    UNSTABLE_SPREAD,
+    Timing,
+    compylr_enabled,
+    format_ratio,
+    measure_call,
+    measure_in_child,
+    noise_floor,
+    uncertainty,
+    unstable,
+)
 
 #: Fixed, so the two processes measure the same work and two runs are comparable.
 SEED = 20260821
@@ -40,7 +61,9 @@ class Measurement(TypedDict):
     compiled: bool
     scale: int
     repetitions: int
-    seconds: dict[str, float]
+    #: Every batch's seconds-per-call, not just the best. The spread between them is the only
+    #: evidence a reader has about whether the best means anything.
+    samples: dict[str, list[float]]
     answers: dict[str, str]
 
 
@@ -51,6 +74,26 @@ class Workload:
     key: str
     label: str
     call: Callable[[], Any]
+
+
+@dataclass(frozen=True)
+class PerformanceProperty:
+    """A measured speedup whose conservative lower bound is repository policy."""
+
+    key: str
+    label: str
+    measured_speedup: float
+    minimum_speedup: float
+
+
+# Recorded on the clean scale-four run documented in the OpenSpec task. The minimums are
+# deliberately much lower than the measurements: they catch the algorithmic regressions these
+# workloads exposed without pretending this machine's exact microseconds are portable.
+PERFORMANCE_PROPERTIES = (
+    PerformanceProperty("multiply", "matrices.multiply", 32.0, 15.0),
+    PerformanceProperty("collatz", "arithmetic.collatz_length", 22.3, 10.0),
+    PerformanceProperty("joined", "text.joined", 5.6, 3.0),
+)
 
 
 def _signature(value: Any) -> str:
@@ -95,6 +138,7 @@ def workloads(scale: int) -> list[Workload]:
     graph = {node: [(node * 7 + step) % nodes for step in range(1, 4)] for node in range(nodes)}
     edges = [(source.randrange(nodes), source.randrange(nodes)) for _ in range(nodes)]
     ordered = sorted(numbers)
+    search_values = list(range(500 * scale))
 
     return [
         # The control. Never compiled, so its ratio is this run's noise floor.
@@ -103,6 +147,14 @@ def workloads(scale: int) -> list[Workload]:
         Workload(
             "insertion_sort", "sorting.insertion_sort", lambda: sorting.insertion_sort(ordered)
         ),
+        # Converting this whole list is O(n); the binary-search body reads only O(log n) elements.
+        # At scale four that is 2,000 converted integers for about eleven comparisons, making the
+        # boundary rather than the generated body the measured work.
+        Workload(
+            "binary_search",
+            "sorting.binary_search",
+            lambda: sorting.binary_search(search_values, len(search_values) - 1),
+        ),
         Workload("sieve", "arithmetic.sieve", lambda: arithmetic.sieve(200 * scale)),
         Workload(
             "collatz", "arithmetic.collatz_length", lambda: arithmetic.collatz_length(97 * scale)
@@ -110,6 +162,10 @@ def workloads(scale: int) -> list[Workload]:
         Workload("deviation", "stats.standard_deviation", lambda: stats.standard_deviation(reals)),
         Workload("normalize", "stats.normalize", lambda: stats.normalize(reals)),
         Workload("word_count", "text.word_count", lambda: text.word_count(words)),
+        # A single length read per element, so what it mostly measures is what iterating a
+        # collection of owned values costs. That makes it the row where borrowing the loop
+        # variable rather than copying it is visible.
+        Workload("total_length", "text.total_length", lambda: text.total_length(words)),
         Workload("joined", "text.joined", lambda: text.joined(words, "-")),
         Workload("bfs", "graphs.bfs_distances", lambda: graphs.bfs_distances(graph, 0)),
         Workload(
@@ -141,17 +197,17 @@ def workloads(scale: int) -> list[Workload]:
 
 def measure(scale: int, repetitions: int = REPETITIONS) -> Measurement:
     """Time every workload in *this* process's mode."""
-    seconds: dict[str, float] = {}
+    samples: dict[str, list[float]] = {}
     answers: dict[str, str] = {}
     for workload in workloads(scale):
         # Called once first, so the first call's module resolution is not timed with the work.
         answers[workload.key] = _signature(workload.call())
-        seconds[workload.key] = per_call(workload.call, repetitions)
+        samples[workload.key] = list(measure_call(workload.call, repetitions).samples)
     return Measurement(
         compiled=compylr_enabled(),
         scale=scale,
         repetitions=repetitions,
-        seconds=seconds,
+        samples=samples,
         answers=answers,
     )
 
@@ -171,34 +227,90 @@ def _run_child(scale: int, repetitions: int, *, disabled: bool) -> Measurement:
     )
 
 
-def format_comparison(compiled: Measurement, interpreted: Measurement) -> str:
-    """The comparison, as a table sorted by how much compiling helped."""
-    fast, slow = compiled["seconds"], interpreted["seconds"]
-    labels = {workload.key: workload.label for workload in workloads(compiled["scale"])}
+def _timings(measured: Measurement) -> dict[str, Timing]:
+    """Every workload's batches, as timings that know their own spread."""
+    return {key: Timing(tuple(batches)) for key, batches in measured["samples"].items()}
 
-    ranked = sorted(fast, key=lambda key: -(slow[key] / fast[key]) if fast[key] else 0.0)
+
+def performance_regressions(compiled: Measurement, interpreted: Measurement) -> list[str]:
+    """Guarded properties that fell beyond what this run's uncertainty can explain."""
+    fast, slow = _timings(compiled), _timings(interpreted)
+    floor = noise_floor(fast["reference"], slow["reference"])
+    failures: list[str] = []
+    for prop in PERFORMANCE_PROPERTIES:
+        speedup = slow[prop.key].best / fast[prop.key].best
+        tolerance = uncertainty(floor, fast[prop.key], slow[prop.key])
+        # Give the current result the whole measured uncertainty in its favour. A failure is
+        # therefore a regression beyond the control row and the workload's own spread, not a busy
+        # machine being mistaken for a code change.
+        if speedup * (1.0 + tolerance) < prop.minimum_speedup:
+            failures.append(
+                f"{prop.label} measured {speedup:.1f}x (uncertainty {tolerance:.0%}); "
+                f"the recorded property is at least {prop.minimum_speedup:.1f}x "
+                f"from a {prop.measured_speedup:.1f}x clean measurement"
+            )
+    return failures
+
+
+def format_comparison(compiled: Measurement, interpreted: Measurement) -> str:
+    """The comparison, as a table sorted by how much compiling helped.
+
+    Every ratio is read against a floor rather than against 1.0, and a ratio that does not clear
+    its floor is named rather than printed. A table of bare numbers invites exactly the mistake
+    this benchmark exists to prevent: reading a 1.1x off a harness that moves by 30%.
+    """
+    fast, slow = _timings(compiled), _timings(interpreted)
+    labels = {workload.key: workload.label for workload in workloads(compiled["scale"])}
+    floor = noise_floor(fast["reference"], slow["reference"])
+
+    ranked = sorted(
+        fast, key=lambda key: -(slow[key].best / fast[key].best) if fast[key].best else 0.0
+    )
     lines = [
         (
             f"every algorithm, scale={compiled['scale']}, per call, "
             f"best of {compiled['repetitions']} batches"
         ),
         "",
-        f"{'workload':<30}{'compiled':>13}{'interpreted':>15}{'speedup':>10}",
-        f"{'-' * 30}{'-' * 13}{'-' * 15}{'-' * 10}",
+        f"{'workload':<32}{'compiled':>13}{'interpreted':>15}{'spread':>9}{'speedup':>17}",
+        f"{'-' * 32}{'-' * 13}{'-' * 15}{'-' * 9}{'-' * 17}",
     ]
+    shaky = []
     for key in ranked:
-        quick, slowly = fast[key] * 1e6, slow[key] * 1e6
-        ratio = f"{slowly / quick:.1f}x" if quick > 0 else "n/a"
-        lines.append(f"{labels[key]:<30}{quick:>11.2f}us{slowly:>13.2f}us{ratio:>10}")
+        quick, slowly = fast[key], slow[key]
+        mark = UNSTABLE_MARK if unstable(quick, slowly) else ""
+        if mark:
+            shaky.append(labels[key])
+        # The wider of the two modes: it is what limits what this row can support.
+        widest = max(quick.spread, slowly.spread)
+        ratio = (
+            format_ratio(slowly.best / quick.best, uncertainty(floor, quick, slowly))
+            if quick.best > 0
+            else "n/a"
+        )
+        lines.append(
+            f"{labels[key] + mark:<32}{quick.best * 1e6:>11.2f}us"
+            f"{slowly.best * 1e6:>13.2f}us{widest:>8.0%}{ratio:>17}"
+        )
 
-    floor = slow["reference"] / fast["reference"] if fast["reference"] else 0.0
     lines += [
         "",
         (
-            f"The reference is never compiled, so its {floor:.2f}x is this run's noise floor — "
-            "read every other row against that, not against 1.0."
+            f"The reference is never compiled, so its true ratio is exactly 1.0 and everything it "
+            f"reports instead is this run's noise floor: {floor:.0%}. A row closer to 1.0 "
+            f'than that reads "{NOT_RESOLVABLE}" rather than a figure, because it would be one.'
+        ),
+        (
+            "`spread` is how far the slowest batch ran from the fastest, in the mode that varied "
+            "more. A row must clear its own spread as well as the floor to report a figure."
         ),
     ]
+    if shaky:
+        lines.append(
+            f"{UNSTABLE_MARK} marks a workload whose batches varied by more than "
+            f"{UNSTABLE_SPREAD:.0%}: unstable enough that its own figure is not worth reading. "
+            f"({', '.join(shaky)})"
+        )
 
     disagreed = [key for key in fast if compiled["answers"][key] != interpreted["answers"][key]]
     if disagreed:
@@ -232,6 +344,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="measure this process only and print JSON (used by the driver)",
     )
+    parser.add_argument(
+        "--check-performance",
+        action="store_true",
+        help="fail if a recorded scale-four performance property regresses beyond measured noise",
+    )
     args = parser.parse_args(argv)
 
     if args.emit_json:
@@ -253,6 +370,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(format_comparison(compiled, interpreted))
+    if args.check_performance:
+        if args.scale != 4:
+            print("the recorded performance properties require --scale 4", file=sys.stderr)
+            return 2
+        failures = performance_regressions(compiled, interpreted)
+        if failures:
+            print("performance regression:\n- " + "\n- ".join(failures), file=sys.stderr)
+            return 1
+        print("Every recorded performance property passed within this run's measured noise.")
     return 0
 
 

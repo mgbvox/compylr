@@ -644,3 +644,362 @@ mod the_two_copies_agree {
         }
     }
 }
+
+/// The hashed containers, and the hasher they are built with.
+///
+/// Until these compiled, the hasher was not a *choice*: every implementation was written against
+/// the two-parameter form of `HashMap`/`HashSet`, which silently pins the standard library's
+/// `RandomState` across all ten of them. That is a defect independent of which hasher anyone
+/// prefers — it means the decision could not be expressed, let alone made.
+///
+/// A hasher changes no answer. Mapping and set iteration order is already unguaranteed and
+/// already varies between runs, so a program these could break was already broken.
+mod containers_are_generic_over_their_hasher {
+    use super::*;
+    use compylr_backend_rust::runtime::{
+        FastMap, FastSet, IndexOrigin, PyBorrow, PyContains, PyIndexable, PyIterate, PyLen,
+        PyPlace, PySetItem, TextUnits, py_key,
+    };
+
+    fn map() -> FastMap<String, i64> {
+        let mut m = FastMap::default();
+        m.insert(String::from("a"), 1);
+        m.insert(String::from("b"), 2);
+        m
+    }
+
+    fn set() -> FastSet<i64> {
+        let mut s = FastSet::default();
+        s.insert(7);
+        s
+    }
+
+    #[test]
+    fn a_mapping_with_the_selected_hasher_reads_a_key() {
+        assert_eq!(py_key(&map(), &String::from("a")), Ok(1));
+    }
+
+    #[test]
+    fn a_missing_key_is_still_reported_and_not_created() {
+        let m = map();
+        let missing = py_key(&m, &String::from("zz"));
+        assert!(matches!(missing, Err(RuntimeError::MissingKey(_))));
+        assert_eq!(m.len(), 2, "reading a missing key must not insert it");
+    }
+
+    #[test]
+    fn a_mapping_with_the_selected_hasher_is_indexable() {
+        assert_eq!(
+            PyIndexable::py_get(&map(), &String::from("b"), IndexOrigin::FromStart),
+            Ok(2)
+        );
+    }
+
+    #[test]
+    fn a_mapping_with_the_selected_hasher_accepts_a_write() {
+        let mut m = map();
+        PySetItem::py_set(&mut m, &String::from("c"), 3).unwrap();
+        assert_eq!(py_key(&m, &String::from("c")), Ok(3));
+    }
+
+    #[test]
+    fn a_mapping_with_the_selected_hasher_borrows_and_places() {
+        let mut m = map();
+        assert_eq!(
+            PyBorrow::py_borrow(&m, &String::from("a"), IndexOrigin::FromStart).copied(),
+            Ok(1)
+        );
+        if let Ok(slot) = PyPlace::py_place(&mut m, &String::from("a"), IndexOrigin::FromStart) {
+            *slot = 42;
+        }
+        assert_eq!(py_key(&m, &String::from("a")), Ok(42));
+    }
+
+    #[test]
+    fn membership_works_for_both_containers() {
+        assert!(PyContains::py_contains(&map(), &String::from("a")));
+        assert!(!PyContains::py_contains(&map(), &String::from("q")));
+        assert!(PyContains::py_contains(&set(), &7));
+        assert!(!PyContains::py_contains(&set(), &8));
+    }
+
+    #[test]
+    fn length_works_for_both_containers() {
+        assert_eq!(PyLen::py_len(&map(), TextUnits::CodePoints), 2);
+        assert_eq!(PyLen::py_len(&set(), TextUnits::CodePoints), 1);
+    }
+
+    #[test]
+    fn iteration_works_for_both_containers() {
+        // Sorted before comparing: iteration order over a mapping or a set is not guaranteed and
+        // varies between runs. Asserting on it would make this test flaky rather than make the
+        // runtime wrong, which is exactly the trap changing the hasher would spring.
+        let mut keys: Vec<String> = PyIterate::py_iter(&map()).collect();
+        keys.sort();
+        assert_eq!(keys, vec![String::from("a"), String::from("b")]);
+
+        let members: Vec<i64> = PyIterate::py_iter(&set()).collect();
+        assert_eq!(members, vec![7]);
+    }
+
+    #[test]
+    fn the_helpers_still_accept_the_standard_hasher() {
+        // Generic over the hasher means *any* hasher, including the default. A user's own code,
+        // and every existing generated crate, may still hand these a std `HashMap`.
+        let mut m = std::collections::HashMap::new();
+        m.insert(String::from("a"), 1i64);
+        assert_eq!(py_key(&m, &String::from("a")), Ok(1));
+        assert_eq!(PyLen::py_len(&m, TextUnits::CodePoints), 1);
+    }
+
+    #[test]
+    fn the_selected_hasher_distributes_small_integers() {
+        // Not a claim about cryptographic quality — it is not a cryptographic hasher and must not
+        // be used as one. This only checks that consecutive small integers, which is what keys in
+        // generated code overwhelmingly are, do not all land in one bucket.
+        let mut s: FastSet<i64> = FastSet::default();
+        for n in 0..1_000i64 {
+            s.insert(n);
+        }
+        assert_eq!(s.len(), 1_000);
+        for n in 0..1_000i64 {
+            assert!(PyContains::py_contains(&s, &n), "{n} went missing");
+        }
+    }
+}
+
+/// The reading traits accept a borrowed value wherever they accept an owned one.
+///
+/// This is what makes borrowing a loop variable legal rather than aspirational: the traits are
+/// implemented on the owned types, so without these a borrowed loop variable does not satisfy
+/// them and the emitter change simply does not compile. Design D5 records that this was
+/// discovered by the compile error rather than by reading.
+mod borrowed_values_satisfy_the_reading_traits {
+    use super::*;
+    use compylr_backend_rust::runtime::{
+        FastMap, IndexOrigin, PyBorrow, PyContains, PyIndexable, PyIterate, PyLen, TextUnits,
+    };
+
+    #[test]
+    fn a_borrowed_text_value_reports_its_length() {
+        let owned = String::from("héllo");
+        let borrowed: &String = &owned;
+        assert_eq!(
+            PyLen::py_len(&borrowed, TextUnits::CodePoints),
+            PyLen::py_len(&owned, TextUnits::CodePoints)
+        );
+    }
+
+    #[test]
+    fn a_borrowed_sequence_reports_its_length_and_indexes() {
+        let owned = vec![10i64, 20, 30];
+        let borrowed: &Vec<i64> = &owned;
+        assert_eq!(PyLen::py_len(&borrowed, TextUnits::CodePoints), 3);
+        assert_eq!(
+            PyIndexable::py_get(&borrowed, &1i64, IndexOrigin::FromEitherEnd),
+            Ok(20)
+        );
+        assert_eq!(
+            PyBorrow::py_borrow(&borrowed, &0i64, IndexOrigin::FromEitherEnd).copied(),
+            Ok(10)
+        );
+    }
+
+    #[test]
+    fn a_borrowed_container_answers_membership() {
+        let owned = vec![1i64, 2];
+        let borrowed: &Vec<i64> = &owned;
+        assert!(PyContains::py_contains(&borrowed, &2));
+        assert!(!PyContains::py_contains(&borrowed, &9));
+    }
+
+    #[test]
+    fn a_borrowed_container_iterates() {
+        let owned = vec![1i64, 2, 3];
+        let borrowed: &Vec<i64> = &owned;
+        let collected: Vec<i64> = PyIterate::py_iter(&borrowed).collect();
+        assert_eq!(collected, owned);
+    }
+
+    #[test]
+    fn a_borrowed_mapping_still_reports_a_missing_key() {
+        // Delegation must not change what a failure is. An error that arrived only for owned
+        // receivers would be a semantic difference hiding inside an optimization.
+        let mut owned: FastMap<String, i64> = FastMap::default();
+        owned.insert(String::from("a"), 1);
+        let borrowed: &FastMap<String, i64> = &owned;
+        assert_eq!(
+            PyIndexable::py_get(&borrowed, &String::from("a"), IndexOrigin::FromStart),
+            Ok(1)
+        );
+        assert!(matches!(
+            PyIndexable::py_get(&borrowed, &String::from("zz"), IndexOrigin::FromStart),
+            Err(RuntimeError::MissingKey(_))
+        ));
+    }
+
+    #[test]
+    fn borrowed_iteration_yields_the_same_values_as_copying_iteration() {
+        // The two forms exist so a read-only loop can skip the copy; if they ever disagreed, the
+        // choice between them would be a behaviour change rather than a cost one.
+        let owned = vec![String::from("a"), String::from("b")];
+        let copied: Vec<String> = PyIterate::py_iter(&owned).collect();
+        let borrowed: Vec<String> = PyIterate::py_iter_borrowed(&owned).cloned().collect();
+        assert_eq!(copied, borrowed);
+    }
+
+    #[test]
+    fn an_out_of_range_index_still_reports_through_a_borrow() {
+        let owned = vec![1i64];
+        let borrowed: &Vec<i64> = &owned;
+        assert_eq!(
+            PyIndexable::py_get(&borrowed, &5i64, IndexOrigin::FromEitherEnd),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+        assert_eq!(
+            PyIndexable::py_get(&borrowed, &(-2i64), IndexOrigin::FromEitherEnd),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+    }
+}
+
+/// Behaviour pinned before the runtime is made to stop repeating itself.
+///
+/// Every change in this section is supposed to be invisible: the same answers, the same failures,
+/// fewer instructions. These tests are what makes "invisible" checkable rather than asserted —
+/// they are written against the behaviour as it is *now*, so a sweep that changes an answer fails
+/// here rather than in somebody's program.
+mod pinned_before_the_runtime_sweep {
+    use super::*;
+    use compylr_backend_rust::runtime::{
+        FastMap, IndexOrigin, PyBorrow, PyIndexable, PyPlace, PySetItem, TextUnits, py_index,
+        py_key, py_str_len,
+    };
+
+    #[test]
+    fn an_index_past_either_end_reports_rather_than_panicking() {
+        let items = vec![1i64, 2, 3];
+        for origin in [IndexOrigin::FromEitherEnd, IndexOrigin::FromStart] {
+            assert_eq!(
+                py_index(&items, 3, origin),
+                Err(RuntimeError::IndexOutOfRange),
+                "one past the end, {origin:?}"
+            );
+            assert_eq!(
+                py_index(&items, i64::MAX, origin),
+                Err(RuntimeError::IndexOutOfRange)
+            );
+            assert_eq!(
+                py_index(&items, i64::MIN, origin),
+                Err(RuntimeError::IndexOutOfRange),
+                "the extreme negative must not wrap into range"
+            );
+        }
+    }
+
+    #[test]
+    fn a_negative_index_means_what_the_origin_says() {
+        let items = vec![10i64, 20, 30];
+        // Counting back from the end.
+        assert_eq!(py_index(&items, -1, IndexOrigin::FromEitherEnd), Ok(30));
+        assert_eq!(py_index(&items, -3, IndexOrigin::FromEitherEnd), Ok(10));
+        assert_eq!(
+            py_index(&items, -4, IndexOrigin::FromEitherEnd),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+        // ...and not counting back at all.
+        assert_eq!(
+            py_index(&items, -1, IndexOrigin::FromStart),
+            Err(RuntimeError::IndexOutOfRange)
+        );
+    }
+
+    #[test]
+    fn an_empty_sequence_is_out_of_range_at_every_index() {
+        let empty: Vec<i64> = vec![];
+        for index in [0i64, -1, 1] {
+            assert_eq!(
+                py_index(&empty, index, IndexOrigin::FromEitherEnd),
+                Err(RuntimeError::IndexOutOfRange)
+            );
+        }
+    }
+
+    #[test]
+    fn borrowing_and_placing_agree_with_reading_on_range() {
+        let mut items = vec![1i64, 2];
+        for index in [2i64, -3, i64::MIN, i64::MAX] {
+            assert!(PyBorrow::py_borrow(&items, &index, IndexOrigin::FromEitherEnd).is_err());
+            assert!(PyPlace::py_place(&mut items, &index, IndexOrigin::FromEitherEnd).is_err());
+            assert!(PySetItem::py_set(&mut items, &index, 9).is_err());
+        }
+        // ...and still succeed where reading does.
+        assert_eq!(
+            PyBorrow::py_borrow(&items, &(-1i64), IndexOrigin::FromEitherEnd).copied(),
+            Ok(2)
+        );
+        PySetItem::py_set(&mut items, &(-1i64), 9).unwrap();
+        assert_eq!(items, vec![1, 9]);
+    }
+
+    #[test]
+    fn text_length_is_unchanged_for_non_ascii_under_every_reading() {
+        // The shortcut added below applies only to ASCII, so these are the inputs that prove it
+        // did not change the answer for anything else.
+        let cases: [(&str, i64, i64, i64); 5] = [
+            // (text, code points, utf-8 bytes, utf-16 units)
+            ("", 0, 0, 0),
+            ("abc", 3, 3, 3),
+            ("héllo", 5, 6, 5),
+            ("日本語", 3, 9, 3),
+            // Outside the basic plane: one code point, four bytes, two UTF-16 units.
+            ("😀", 1, 4, 2),
+        ];
+        for (text, points, bytes, utf16) in cases {
+            assert_eq!(py_str_len(text, TextUnits::CodePoints), points, "{text:?}");
+            assert_eq!(py_str_len(text, TextUnits::Utf8Bytes), bytes, "{text:?}");
+            assert_eq!(py_str_len(text, TextUnits::Utf16Units), utf16, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_mixed_string_is_measured_as_a_whole() {
+        // An ASCII prefix must not let a shortcut answer for the rest of the string.
+        let mixed = "abc日本語def";
+        assert_eq!(py_str_len(mixed, TextUnits::CodePoints), 9);
+        assert_eq!(py_str_len(mixed, TextUnits::Utf8Bytes), 15);
+        assert_eq!(py_str_len(mixed, TextUnits::Utf16Units), 9);
+    }
+
+    #[test]
+    fn a_missing_mapping_key_reports_and_is_not_created() {
+        let mut counts: FastMap<String, i64> = FastMap::default();
+        counts.insert(String::from("a"), 1);
+
+        assert!(matches!(
+            py_key(&counts, &String::from("b")),
+            Err(RuntimeError::MissingKey(_))
+        ));
+        assert!(matches!(
+            PyIndexable::py_get(&counts, &String::from("b"), IndexOrigin::FromStart),
+            Err(RuntimeError::MissingKey(_))
+        ));
+        assert!(matches!(
+            PyPlace::py_place(&mut counts, &String::from("b"), IndexOrigin::FromStart),
+            Err(RuntimeError::MissingKey(_))
+        ));
+        assert_eq!(counts.len(), 1, "no read may insert a key");
+        assert!(!counts.contains_key("b"));
+    }
+
+    #[test]
+    fn the_reported_key_names_itself() {
+        // The message carries the key, because "missing key" without saying which one is a worse
+        // diagnostic than Python's.
+        let counts: FastMap<String, i64> = FastMap::default();
+        match py_key(&counts, &String::from("absent")) {
+            Err(RuntimeError::MissingKey(named)) => assert!(named.contains("absent"), "{named}"),
+            other => panic!("expected a missing key, got {other:?}"),
+        }
+    }
+}

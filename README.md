@@ -155,7 +155,8 @@ The benchmark reports the spread rather than a headline, and this table is **gen
 back by [`scripts/update_benchmarks.py`](scripts/update_benchmarks.py) from a real run, never
 edited by hand. Its ends are the finding: the top is arithmetic in a tight loop, where there is
 nothing for the interpreter to do but dispatch, and the bottom is work dominated by **crossing the
-boundary**, where converting the argument costs more than compiling the computation saves.
+boundary** — collections are converted element by element on every call, so compiling pays
+only when the generated body saves more than that conversion costs.
 
 <!-- benchmark:summary -->
 | workload | compiled | interpreted | speedup |
@@ -174,8 +175,9 @@ _scale 1 — measured on Darwin arm64, Python 3.14.0, 2026-08-24._
 
 The `reference` row is never compiled, so its ratio is what "no difference" looks like on the
 machine that produced the table — read every other row against that rather than against 1.0. The
-demo's own README carries the whole table, what the subset costs as it shows up in real code, and
-the two defects the demo found — both of which produced plausible answers and no error.
+demo's own README carries the whole table, the before/after this change measured, what the subset
+costs as it shows up in real code, and the defects the benchmark found despite every answer being
+correct.
 
 ## Turning it off
 

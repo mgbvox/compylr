@@ -148,6 +148,11 @@ const SOURCE: &str = concat!(
     "def ratio(a: int, b: int) -> float:\n    return a / b\n\n",
     "def is_big(n: int) -> bool:\n    return n > 100\n\n",
     "def shout(s: str) -> str:\n    return s + \"!\"\n\n",
+    "def text_size(s: str) -> int:\n    return len(s)\n\n",
+    "def same_text(a: str, b: str) -> bool:\n    return a == b\n\n",
+    "def has_text(haystack: str, needle: str) -> bool:\n    return needle in haystack\n\n",
+    "def inner_text(s: str) -> int:\n    return len(s)\n\n",
+    "def outer_text(s: str) -> int:\n    return inner_text(s)\n\n",
     "def nothing(n: int) -> None:\n    pass\n\n",
     "def half(n: int) -> int:\n    return n // 0\n\n",
     "def outer(n: int) -> int:\n    return half(n) + 1\n\n",
@@ -182,8 +187,38 @@ print(",".join(names))
     );
     assert_eq!(
         out.trim(),
-        "add,grow,half,is_big,nothing,outer,ratio,shout",
+        "add,grow,half,has_text,inner_text,is_big,nothing,outer,outer_text,ratio,same_text,shout,text_size",
         "the module must expose exactly the unit's functions, with no backend helpers leaking"
+    );
+}
+
+/// Text crosses the boundary intact, whatever the parameter's Rust spelling is.
+///
+/// Measurement, comparison, membership, and a nested call, all over non-ASCII input — the four
+/// operations a text parameter reaches, exercised through the built extension rather than against
+/// emitted source. An attempt to pass text by reference rather than by value has to keep every one
+/// of these answering the same way, and a byte-oriented shortcut would show up here first: `café☕`
+/// is five code points and seven bytes.
+#[test]
+fn non_ascii_text_parameters_work_across_operations_and_nested_calls() {
+    let (dir, name) = built();
+    let out = python(
+        &dir,
+        &format!(
+            r#"
+import {name} as m
+print(m.text_size("café☕"))
+print(m.same_text("猫", "猫"))
+print(m.same_text("猫", "犬"))
+print(m.has_text("東京で猫", "京で"))
+print(m.has_text("東京で猫", "大阪"))
+print(m.outer_text("🦀é"))
+"#
+        ),
+    );
+    assert_eq!(
+        out.lines().collect::<Vec<_>>(),
+        ["5", "True", "False", "True", "False", "2"]
     );
 }
 

@@ -324,7 +324,7 @@ class BuildPipeline:
         """
         if _in_virtual_environment():
             installer = (
-                ["uv", "pip", "install"]
+                ["uv", "pip", "install", "--python", sys.executable]
                 if shutil.which("uv")
                 else [sys.executable, "-m", "pip", "install"]
             )

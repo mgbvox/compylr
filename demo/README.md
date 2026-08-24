@@ -120,7 +120,7 @@ mutation, which is how it survived; one does now.
 **`m[i][j]` cloned the whole row to read one element of it.** The read side of the same asymmetry.
 In the inner loop of a matrix multiply that is an allocation and an O(n) copy per element access —
 an O(n³) algorithm doing O(n⁴) work, with every answer correct. Only a benchmark could find it,
-and this one did: matrix multiply came out at **1.0×** against interpreted Python. It is 8.2× now.
+and this one did: matrix multiply came out at **1.0×** against interpreted Python. It is 11.3× now.
 
 A third came out of the same session and is not a compiler defect but a cost nobody had measured:
 `ensure_built` re-ran the whole compiler on every call to compute a fingerprint it already held.
@@ -135,6 +135,20 @@ land in compiled code. `COMPYLR_DISABLE=1` is what makes an interpreted run inte
 way down. Timings are the best of several batches, per call: noise only adds, so the minimum is
 the closest estimate of the work, and a warm cache hit takes hundreds of nanoseconds, which timing
 once would report as zero.
+
+**Read the speedup column against the noise floor, not against 1.0.** Every batch is kept, not
+only the best, and each row reports the `spread` between them. The floor comes from the
+never-compiled `reference` row: its true ratio is exactly 1.0 by construction, so whatever it
+reports instead is this machine's noise. On the runs recorded below that floor was **2–5%**.
+
+A row closer to 1.0 than the floor prints `not resolvable` instead of a ratio, because a ratio
+would be one. `matrices.transpose` is the example worth looking at: earlier versions of this table
+reported it as `1.0x`, which reads like a finding and is really the harness sitting still.
+
+A row is marked `!` when its own batches varied by more than 25% — unstable enough that its figure
+is not worth reading. `sorting.merge_sort` earns that mark on most runs, ranging from 160us to
+277us across builds that were in some cases *byte-identical*. That spread is wider than most of
+the improvements anyone would want to measure, which is precisely why the column exists.
 
 ### Every algorithm
 
@@ -177,18 +191,65 @@ _scale 1 — measured on Darwin arm64, Python 3.14.0, 2026-08-24._
 
 The rows at the top are arithmetic in a tight loop, where there is nothing for the interpreter to
 do but dispatch. The rows at the bottom are dominated by **crossing the boundary**: collections go
-by value, so `bfs_distances` converts a 200-node mapping of lists on the way in and a mapping of
-integers on the way out, and the traversal between them is not enough work to pay for that.
-`word_count` is worse — building a dictionary is most of what it does, and CPython's dictionary is
-C. `joined` loses because it is quadratic string concatenation either way and Python's `str` is
-very good at it.
+by value, and every element is converted on **every call**. Measured on this machine, an integer
+element costs roughly 4 ns to cross, a text element roughly 42 ns, and returning an element roughly
+10 ns. Text is therefore the most expensive supported collection element; `text.word_count`
+deliberately keeps `list[str]` represented in the table.
 
-The shape of the rule: **conversion is proportional to the size of the argument, and compiling
-speeds up the computation.** The ratio between those two is what a row measures. Nothing about
-being compiled makes a small function over a large collection faster.
+That conversion cost is proportional to the argument's length even when the function body is not.
+`sorting.binary_search` converts all 2,000 integers at scale four to perform only about eleven
+comparisons. Measured here it took 11.54 us compiled against 0.65 us interpreted — about 17.8x
+slower — because its O(n) boundary dominates its O(log n) body.
+`bfs_distances` similarly converts a mapping of lists on the way in and a mapping of integers on
+the way out. A faster generated body does not guarantee a faster call; the ratio between conversion
+and computation is what each row measures.
 
 `reference` is the control. It is never compiled, so its ratio is what "no difference" looks like
 on the machine you ran this on. Read every other row against that, not against 1.0.
+
+**What this change bought.** The block above is regenerated from a real run, so it reports whatever this revision measures. That is a different question from what the performance work moved, and this table answers the second one — it is written by hand and stays put.
+
+The final clean scale-one run had a 2% control-row floor and 1–5% row spreads, except
+`sorting.merge_sort`, which the harness marked unstable at 38% and whose figure is therefore not
+worth reading. The baseline is the table recorded before this change; `—` means the workload was
+added later or had no recorded baseline, not that it measured zero.
+
+| workload | before | after compiled | after interpreted | after |
+| --- | ---: | ---: | ---: | ---: |
+| `arithmetic.collatz_length` | 21.5x | 0.28us | 6.03us | 21.8x |
+| `dynamic.knapsack` | 11.2x | 13.27us | 242.34us | 18.3x |
+| `structures.component_count` | 9.5x | 4.91us | 59.58us | 12.1x |
+| `matrices.multiply` | 8.2x | 6.96us | 78.69us | 11.3x |
+| `arithmetic.sieve` | 7.1x | 0.95us | 8.85us | 9.4x |
+| `stats.standard_deviation` | 3.5x | 4.59us | 19.47us | 4.2x |
+| `sorting.merge_sort` (unstable) | 2.0x | 44.83us | 179.87us | 4.0x |
+| `text.joined` | 0.8x | 17.63us | 60.86us | 3.5x |
+| `sorting.insertion_sort` | 2.5x | 3.74us | 12.64us | 3.4x |
+| `graphs.topological_order` | 1.5x | 68.12us | 209.31us | 3.1x |
+| `dynamic.edit_distance` | 2.3x | 39.13us | 110.10us | 2.8x |
+| `stats.normalize` | 2.1x | 9.71us | 23.73us | 2.4x |
+| `matrices.transpose` | 1.0x | 3.48us | 5.79us | 1.7x |
+| `graphs.bfs_distances` | 0.5x | 24.50us | 27.18us | 1.1x |
+| `reference` | 1.0x | 40.17us | 39.45us | not resolvable |
+| `text.total_length` | — | 15.62us | 8.20us | 0.5x |
+| `text.word_count` | 0.3x | 36.49us | 17.03us | 0.5x |
+| `sorting.binary_search` | — | 2.95us | 0.56us | 0.2x |
+
+Two rows still lose, and they lose for the reason the bottom of the table exists: `text.word_count`
+and `text.total_length` convert a list of strings on every call, and text is the most expensive
+element the subset supports.
+
+**`text.word_count` has about 10us of known headroom left**, and where it lives is worth recording.
+Its loop variable is already borrowed, so each word is read without a copy — but using that word as
+a mapping key allocates an owned `String` per element. An attempt at borrowed text *parameters*
+incidentally removed that allocation, measuring 26.22us here, and was reverted for unrelated
+reasons; see the note in `CLAUDE.md` and section 8 of the OpenSpec change. Recovering it on its own
+means letting a mapping key be borrowed, which is a smaller and better-targeted change than the one
+that happened to include it.
+
+`-C target-cpu=native` was also measured and rejected: no workload moved outside the noise floor,
+while the resulting artifact could fault if `.compylr` were copied to a machine with a different
+instruction set. The generated manifest has a test preventing that flag from being reintroduced.
 
 ### The nth prime
 

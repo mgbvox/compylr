@@ -4,25 +4,24 @@ expression: functions.trim()
 ---
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
-    TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
+    PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
+    py_borrow, py_place, py_subscript,
 };
 
 pub fn accumulate(limit: i64) -> Result<i64, RuntimeError> {
     let mut i: i64 = 0i64;
     let mut total: i64 = 0i64;
     while ((&(i)) < (&(limit))) {
-        total = PyAdd::py_add(&(total), &(i))?;
-        i = PyAdd::py_add(&(i), &(1i64))?;
+        PyAddAssign::py_add_assign(&mut total, &(i))?;
+        PyAddAssign::py_add_assign(&mut i, &(1i64))?;
     }
     Ok(total)
 }
 
 pub fn increment(mut n: i64) -> Result<i64, RuntimeError> {
-    n = PyAdd::py_add(&(n), &(1i64))?;
+    PyAddAssign::py_add_assign(&mut n, &(1i64))?;
     Ok(n)
 }
 

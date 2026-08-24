@@ -375,3 +375,547 @@ fn a_function_that_cannot_return_is_reported_rather_than_emitted_broken() {
     let error = lookup("rust").unwrap().emit(&unit).unwrap_err();
     assert!(error.to_string().contains("broken"), "got: {error}");
 }
+
+/// An accumulator that reads itself updates in place rather than building a fresh value.
+///
+/// The shape `x = x + y` is what makes string accumulation quadratic: building a new value per
+/// iteration copies everything accumulated so far, while CPython resizes in place when the target
+/// holds the only reference. The previous emission was therefore asymptotically *worse* than the
+/// interpreter it replaces.
+///
+/// The choice stays type-directed. The backend does not know an expression's type and must not
+/// learn it here, so every accumulator emits the same call and the trait's implementations differ
+/// per type — exactly as the ordinary addition already does.
+mod in_place_accumulation {
+    use super::*;
+
+    #[test]
+    fn a_string_accumulator_appends_in_place() {
+        let emitted = emit(
+            "def concat(a: str, b: str) -> str:\n    out = a\n    out = out + b\n    return out\n",
+        );
+        assert!(
+            emitted.contains("py_add_assign"),
+            "a str accumulator must update in place:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_numeric_accumulator_uses_the_same_in_place_call() {
+        // Same emitted call, different implementation. The backend cannot see the type, so the
+        // alternative would be a second type checker in the emitter.
+        let emitted = emit(
+            "def total(a: int, b: int) -> int:\n    out = a\n    out = out + b\n    return out\n",
+        );
+        assert!(
+            emitted.contains("py_add_assign"),
+            "the choice must be type-directed, not made in the emitter:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn the_mirrored_form_is_left_alone() {
+        // `x = y + x` is the one that looks like it should work. Appending `x` onto `y` in place
+        // would produce `y + x` written into `x` only if the append target were `y` — for text it
+        // silently yields the wrong string, so the rule pins the name to the LEFT operand.
+        let emitted = emit(
+            "def prefixed(a: str, b: str) -> str:\n    out = a\n    out = b + out\n    return out\n",
+        );
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "the mirrored form must use the ordinary emission:\n{emitted}"
+        );
+        assert!(emitted.contains("py_add"), "{emitted}");
+    }
+
+    #[test]
+    fn a_name_read_on_both_sides_is_left_alone() {
+        // `x = x + x` reads the value it would be modifying. The ordinary emission builds the sum
+        // from two unmodified reads, which is what Python means.
+        let emitted =
+            emit("def doubled(a: str) -> str:\n    out = a\n    out = out + out\n    return out\n");
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "a name appearing on the right too must not update in place:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_name_read_deeper_in_the_right_operand_is_left_alone() {
+        // The name does not have to be the whole right operand to be read by it.
+        let emitted = emit(
+            "def grow(a: str, b: str) -> str:\n    out = a\n    out = out + (out + b)\n    return out\n",
+        );
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "a nested read of the name must not update in place:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn only_addition_updates_in_place() {
+        // Subtraction has no in-place form here; the rule is about the one operator whose
+        // rebuild-per-step is quadratic.
+        let emitted = emit(
+            "def less(a: int, b: int) -> int:\n    out = a\n    out = out - b\n    return out\n",
+        );
+        assert!(!emitted.contains("py_add_assign"), "{emitted}");
+        assert!(emitted.contains("py_sub"), "{emitted}");
+    }
+
+    #[test]
+    fn an_assignment_to_a_different_name_is_left_alone() {
+        let emitted = emit(
+            "def other(a: str, b: str) -> str:\n    out = a\n    tail = out + b\n    return tail\n",
+        );
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "only the assigned name may be accumulated into:\n{emitted}"
+        );
+    }
+}
+
+/// A chain of additions accumulates in place too.
+///
+/// `a + b + c` parses as `(a + b) + c`, so a three-operand accumulation presents its left operand
+/// as a `Binary` rather than as the name. Handling only the two-operand pair looked complete and
+/// left the demo's `joined` — whose hot line is `out = out + separator + word` — rebuilding the
+/// whole accumulated string on every iteration. The pair rule fired on that function exactly
+/// once, on the line that runs once.
+mod accumulation_over_a_chain {
+    use super::*;
+
+    #[test]
+    fn a_three_operand_chain_appends_twice() {
+        let emitted = emit(concat!(
+            "def joined(words: list[str], sep: str) -> str:\n",
+            "    out = \"\"\n",
+            "    for word in words:\n",
+            "        out = out + sep + word\n",
+            "    return out\n",
+        ));
+        assert_eq!(
+            emitted.matches("py_add_assign").count(),
+            2,
+            "each operand in the chain is one append:\n{emitted}"
+        );
+        assert!(
+            !emitted.contains("PyAdd::py_add"),
+            "nothing in this function should still rebuild:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_chain_that_does_not_start_at_the_name_is_left_alone() {
+        // `out = sep + out + word` has the name in the middle of the spine, so the leftmost
+        // operand is `sep`. Appending would silently reorder the text.
+        let emitted = emit(concat!(
+            "def wrapped(words: list[str], sep: str) -> str:\n",
+            "    out = \"\"\n",
+            "    for word in words:\n",
+            "        out = sep + out + word\n",
+            "    return out\n",
+        ));
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "the name must be the leftmost operand:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_chain_reading_the_name_again_is_left_alone() {
+        let emitted = emit(concat!(
+            "def twice(words: list[str]) -> str:\n",
+            "    out = \"\"\n",
+            "    for word in words:\n",
+            "        out = out + word + out\n",
+            "    return out\n",
+        ));
+        assert!(
+            !emitted.contains("py_add_assign"),
+            "an operand reading the target must decline the rewrite:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_chain_mixing_in_another_operator_is_left_alone() {
+        // `n = n + a - b` parses as `((n + a) - b)`, whose outermost operator is subtraction.
+        let emitted = emit(concat!(
+            "def drift(a: int, b: int) -> int:\n",
+            "    n = 0\n",
+            "    n = n + a - b\n",
+            "    return n\n",
+        ));
+        assert!(!emitted.contains("py_add_assign"), "{emitted}");
+    }
+
+    #[test]
+    fn a_long_chain_appends_once_per_operand() {
+        let emitted = emit(concat!(
+            "def four(a: str, b: str, c: str, d: str) -> str:\n",
+            "    out = a\n",
+            "    out = out + b + c + d\n",
+            "    return out\n",
+        ));
+        assert_eq!(emitted.matches("py_add_assign").count(), 3, "{emitted}");
+    }
+}
+
+/// A local returned in tail position is moved rather than deep-copied.
+///
+/// The function is ending and the original is about to be dropped, so the copy has no reader. The
+/// restriction to tail position is load-bearing rather than cautious: a `return` nested inside a
+/// loop over the same name would move out of a value the loop borrows. Tail position is the last
+/// statement at the top level of the body and therefore cannot sit inside any loop, which makes
+/// the move safe by construction rather than safe if an analysis is right.
+mod moved_returns {
+    use super::*;
+
+    #[test]
+    fn a_returned_collection_is_not_copied() {
+        let emitted = emit(concat!(
+            "def build(n: int) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    i = 0\n",
+            "    while i < n:\n",
+            "        out.append(i)\n",
+            "        i = i + 1\n",
+            "    return out\n",
+        ));
+        assert!(emitted.contains("Ok(out)"), "{emitted}");
+        assert!(
+            !emitted.contains("out.clone()"),
+            "the value is about to be dropped; the copy has no reader:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_returned_parameter_is_also_moved() {
+        let emitted = emit("def identity(xs: list[int]) -> list[int]:\n    return xs\n");
+        assert!(emitted.contains("Ok(xs)"), "{emitted}");
+        assert!(!emitted.contains("xs.clone()"), "{emitted}");
+    }
+
+    #[test]
+    fn a_return_outside_tail_position_is_unchanged() {
+        // `return early` sits inside an `if`, so it is not the last statement at the top level.
+        // Only the trailing `return rest` may move.
+        let emitted = emit(concat!(
+            "def pick(early: list[int], rest: list[int], flag: bool) -> list[int]:\n",
+            "    if flag:\n",
+            "        return early\n",
+            "    return rest\n",
+        ));
+        assert!(
+            emitted.contains("return Ok(early.clone())"),
+            "a non-tail return keeps the existing emission:\n{emitted}"
+        );
+        assert!(emitted.contains("Ok(rest)"), "{emitted}");
+        assert!(!emitted.contains("rest.clone()"), "{emitted}");
+    }
+
+    #[test]
+    fn a_returned_text_value_is_moved_too() {
+        let emitted = emit("def echo(s: str) -> str:\n    return s\n");
+        assert!(emitted.contains("Ok(s)"), "{emitted}");
+        assert!(!emitted.contains("s.clone()"), "{emitted}");
+    }
+
+    #[test]
+    fn a_returned_mapping_is_moved() {
+        let emitted =
+            emit("def pass_through(d: dict[str, int]) -> dict[str, int]:\n    return d\n");
+        assert!(emitted.contains("Ok(d)"), "{emitted}");
+        assert!(!emitted.contains("d.clone()"), "{emitted}");
+    }
+
+    #[test]
+    fn a_returned_expression_is_untouched() {
+        // Only a bare name is a move. An expression already builds a fresh value.
+        let emitted = emit("def total(a: int, b: int) -> int:\n    return a + b\n");
+        assert!(emitted.contains("PyAdd::py_add"), "{emitted}");
+    }
+}
+
+/// A loop variable the body only reads is bound by reference.
+///
+/// For a collection of owned values, copying each element is an allocation and a copy per element
+/// per loop. Whether the body assigns to the loop variable is already computed — it is what
+/// decides whether the binding is `mut` — so the same answer decides this and there is no second
+/// analysis to disagree with the first.
+mod borrowed_loop_variables {
+    use super::*;
+
+    #[test]
+    fn a_read_only_loop_variable_over_text_is_borrowed() {
+        let emitted = emit(concat!(
+            "def total_length(words: list[str]) -> int:\n",
+            "    total = 0\n",
+            "    for word in words:\n",
+            "        total = total + len(word)\n",
+            "    return total\n",
+        ));
+        assert!(
+            emitted.contains("py_iter_borrowed"),
+            "a read-only loop variable must not be copied:\n{emitted}"
+        );
+        assert!(emitted.contains("let word: &String"), "{emitted}");
+    }
+
+    #[test]
+    fn a_loop_variable_the_body_assigns_is_still_owned() {
+        // Assigning to the loop variable needs a value of its own, and must not affect what is
+        // being iterated.
+        let emitted = emit(concat!(
+            "def shout(words: list[str], suffix: str) -> int:\n",
+            "    n = 0\n",
+            "    for word in words:\n",
+            "        word = word + suffix\n",
+            "        n = n + len(word)\n",
+            "    return n\n",
+        ));
+        assert!(
+            emitted.contains("PyIterate::py_iter(") && !emitted.contains("py_iter_borrowed"),
+            "an assigned loop variable needs its own value:\n{emitted}"
+        );
+        assert!(emitted.contains("let mut word: String"), "{emitted}");
+    }
+
+    #[test]
+    fn a_scalar_loop_variable_is_still_owned() {
+        // An `i64` is consumed by value wherever it is read, so binding one behind a reference
+        // would be a type error in the body rather than a copy avoided — and there is no copy
+        // worth avoiding.
+        let emitted = emit(concat!(
+            "def total(values: list[int]) -> int:\n",
+            "    sum = 0\n",
+            "    for v in values:\n",
+            "        sum = sum + v\n",
+            "    return sum\n",
+        ));
+        assert!(!emitted.contains("py_iter_borrowed"), "{emitted}");
+        assert!(emitted.contains("let v: i64"), "{emitted}");
+    }
+
+    #[test]
+    fn a_read_only_loop_over_a_collection_of_collections_is_borrowed() {
+        let emitted = concat!(
+            "def widest(rows: list[list[int]]) -> int:\n",
+            "    best = 0\n",
+            "    for row in rows:\n",
+            "        if len(row) > best:\n",
+            "            best = len(row)\n",
+            "    return best\n",
+        );
+        let emitted = emit(emitted);
+        assert!(emitted.contains("py_iter_borrowed"), "{emitted}");
+        assert!(emitted.contains("let row: &Vec<i64>"), "{emitted}");
+    }
+
+    #[test]
+    fn a_mapping_key_loop_is_borrowed_when_only_read() {
+        let emitted = emit(concat!(
+            "def key_length(d: dict[str, int]) -> int:\n",
+            "    total = 0\n",
+            "    for k in d:\n",
+            "        total = total + len(k)\n",
+            "    return total\n",
+        ));
+        assert!(emitted.contains("py_iter_borrowed"), "{emitted}");
+        assert!(emitted.contains("let k: &String"), "{emitted}");
+    }
+}
+
+/// A compared loop variable keeps its copy.
+///
+/// Every other position a loop variable reaches is a function argument, which is a coercion site,
+/// so `&&String` becomes `&String` on its own. A comparison is not: `a < b` picks a `PartialOrd`
+/// implementation before any coercion is considered, and there is no reference depth that is
+/// right for both an owned local and a borrowed loop variable at once.
+///
+/// The demo found this, not the fixture suite — `text.most_common` breaks ties with `word < best`
+/// — which is why CLAUDE.md says to run `make demo` when emission changes.
+#[test]
+fn a_compared_loop_variable_is_not_borrowed() {
+    let emitted = emit(concat!(
+        "def smallest(words: list[str], start: str) -> str:\n",
+        "    best = start\n",
+        "    for word in words:\n",
+        "        if word < best:\n",
+        "            best = word\n",
+        "    return best\n",
+    ));
+    assert!(
+        !emitted.contains("py_iter_borrowed"),
+        "a compared loop variable must keep its own value:\n{emitted}"
+    );
+    assert!(emitted.contains("let word: String"), "{emitted}");
+}
+
+/// `d[k] = d[k] + v` looks up the key once.
+///
+/// It was a read followed by a write — two hashes on a statement whose whole purpose is to touch
+/// one slot. Counting occurrences is the most common thing anyone does with a mapping, and it
+/// paid for that once per element.
+///
+/// The fixtures build their container locally rather than taking one as a parameter: a collection
+/// parameter is a copy, so the subset rejects mutating it or an alias of it.
+mod fused_indexed_accumulation {
+    use super::*;
+
+    /// A function that fills a list, then does `body` to it.
+    fn over_a_list(body: &str) -> String {
+        emit(&format!(
+            "def run(n: int) -> list[int]:\n\
+             \x20   xs: list[int] = []\n\
+             \x20   i = 0\n\
+             \x20   while i < n:\n\
+             \x20       xs.append(i)\n\
+             \x20       i = i + 1\n\
+             {body}\
+             \x20   return xs\n"
+        ))
+    }
+
+    /// Whether the emitted source *calls* the separate read, rather than merely importing it.
+    fn reads_separately(emitted: &str) -> bool {
+        emitted.contains("py_subscript(")
+    }
+
+    #[test]
+    fn a_mapping_increment_is_one_lookup() {
+        let emitted = emit(concat!(
+            "def tally(words: list[str]) -> dict[str, int]:\n",
+            "    counts: dict[str, int] = {}\n",
+            "    for word in words:\n",
+            "        if word in counts:\n",
+            "            counts[word] = counts[word] + 1\n",
+            "        else:\n",
+            "            counts[word] = 1\n",
+            "    return counts\n",
+        ));
+        assert!(emitted.contains("py_add_assign_at"), "{emitted}");
+        assert!(
+            !reads_separately(&emitted),
+            "the fused form performs no separate read:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_sequence_increment_is_one_lookup_too() {
+        // The emitter cannot tell a mapping from a sequence, so the choice is type-directed and
+        // both containers have to work.
+        let emitted = over_a_list("    xs[0] = xs[0] + 1\n");
+        assert!(emitted.contains("py_add_assign_at"), "{emitted}");
+        assert!(!reads_separately(&emitted), "{emitted}");
+    }
+
+    #[test]
+    fn the_mirrored_form_is_left_alone() {
+        // `xs[0] = 1 + xs[0]` puts the read on the right. For text that is the other string.
+        let emitted = over_a_list("    xs[0] = 1 + xs[0]\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+        assert!(reads_separately(&emitted), "{emitted}");
+    }
+
+    #[test]
+    fn a_different_index_is_left_alone() {
+        // Reading one slot and writing another is two operations, not one.
+        let emitted = over_a_list("    xs[0] = xs[1] + 1\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+    }
+
+    #[test]
+    fn an_operand_touching_the_collection_is_left_alone() {
+        // The fused form holds the collection mutably, so a right operand that reads it would
+        // ask for a shared borrow inside a mutable one.
+        let emitted = over_a_list("    xs[0] = xs[0] + xs[1]\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+    }
+
+    #[test]
+    fn a_plain_assignment_is_unchanged() {
+        let emitted = over_a_list("    xs[0] = 1\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+        assert!(emitted.contains("PySetItem::py_set"), "{emitted}");
+    }
+
+    #[test]
+    fn subtraction_is_left_alone() {
+        let emitted = over_a_list("    xs[0] = xs[0] - 1\n");
+        assert!(!emitted.contains("py_add_assign_at"), "{emitted}");
+    }
+}
+
+/// A collection built once per iteration starts with enough room for that loop.
+mod known_collection_capacity {
+    use super::*;
+
+    #[test]
+    fn a_list_built_from_a_collection_uses_its_length() {
+        let emitted = emit(concat!(
+            "def copy(values: list[int]) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    for value in values:\n",
+            "        out.append(value)\n",
+            "    return out\n",
+        ));
+        assert!(
+            emitted.contains(
+                "Vec::with_capacity(PyLen::py_len(&(values), TextUnits::CodePoints) as usize)"
+            ),
+            "{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_mapping_built_from_a_collection_uses_its_length() {
+        let emitted = emit(concat!(
+            "def index(words: list[str]) -> dict[str, int]:\n",
+            "    positions: dict[str, int] = {}\n",
+            "    i = 0\n",
+            "    for word in words:\n",
+            "        positions[word] = i\n",
+            "        i = i + 1\n",
+            "    return positions\n",
+        ));
+        assert!(
+            emitted.contains("FastMap::with_capacity_and_hasher("),
+            "{emitted}"
+        );
+        assert!(
+            emitted.contains("PyLen::py_len(&(words), TextUnits::CodePoints) as usize"),
+            "{emitted}"
+        );
+    }
+
+    #[test]
+    fn a_list_built_by_a_simple_range_uses_its_trip_count() {
+        let emitted = emit(concat!(
+            "def zeros(size: int) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    for _i in range(size):\n",
+            "        out.append(0)\n",
+            "    return out\n",
+        ));
+        assert!(
+            emitted.contains("Vec::with_capacity(usize::try_from(size).unwrap_or(0))"),
+            "{emitted}"
+        );
+    }
+
+    #[test]
+    fn an_iterable_call_is_not_evaluated_early_or_twice() {
+        let emitted = emit(concat!(
+            "def source(values: list[int]) -> list[int]:\n",
+            "    return values\n",
+            "\n",
+            "def copy(values: list[int]) -> list[int]:\n",
+            "    out: list[int] = []\n",
+            "    for value in source(values):\n",
+            "        out.append(value)\n",
+            "    return out\n",
+        ));
+        assert!(!emitted.contains("Vec::with_capacity"), "{emitted}");
+    }
+}

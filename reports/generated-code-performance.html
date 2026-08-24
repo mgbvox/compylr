@@ -1,0 +1,965 @@
+<title>Where compylr Loses</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+  /* ---- Light palette: the complete token set. ------------------------------------ */
+  :root {
+    --ground:      #F4F7F7;
+    --surface:     #FFFFFF;
+    --surface-sunk:#EBF0F0;
+    --rule:        #D3DEDD;
+    --rule-soft:   #E3EAEA;
+
+    --ink:         #101819;
+    --ink-soft:    #3D4C4D;
+    --ink-faint:   #6B7B7C;
+
+    --accent:      #0A6E62;
+    --accent-bright:#0E8E7E;
+    --accent-wash: #E0F0ED;
+
+    --loss:        #A63A29;
+    --loss-wash:   #F7E5E1;
+
+    --code-bg:     #0F1A1B;
+    --code-ink:    #D6E4E3;
+    --code-dim:    #7E9694;
+    --code-key:    #6FD2BE;
+
+    --shadow: 0 1px 2px rgba(16,24,25,.05), 0 8px 24px -14px rgba(16,24,25,.30);
+
+    --measure: 34rem;
+    --wide: 62rem;
+  }
+
+  /* ---- Dark, for the un-stamped (system) state. ---------------------------------- */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0B1112;
+      --surface:     #121B1C;
+      --surface-sunk:#0E1617;
+      --rule:        #27383A;
+      --rule-soft:   #1C2A2B;
+
+      --ink:         #E4EDEC;
+      --ink-soft:    #A9BCBA;
+      --ink-faint:   #748A89;
+
+      --accent:      #45D2BB;
+      --accent-bright:#63E2CD;
+      --accent-wash: #14302D;
+
+      --loss:        #F09079;
+      --loss-wash:   #33201B;
+
+      --code-bg:     #060E0F;
+      --code-ink:    #CBDCDA;
+      --code-dim:    #6C8482;
+      --code-key:    #45D2BB;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.8);
+    }
+  }
+
+  /* ---- Dark, when explicitly chosen. --------------------------------------------- */
+  :root[data-theme="dark"] {
+    --ground:      #0B1112;
+    --surface:     #121B1C;
+    --surface-sunk:#0E1617;
+    --rule:        #27383A;
+    --rule-soft:   #1C2A2B;
+
+    --ink:         #E4EDEC;
+    --ink-soft:    #A9BCBA;
+    --ink-faint:   #748A89;
+
+    --accent:      #45D2BB;
+    --accent-bright:#63E2CD;
+    --accent-wash: #14302D;
+
+    --loss:        #F09079;
+    --loss-wash:   #33201B;
+
+    --code-bg:     #060E0F;
+    --code-ink:    #CBDCDA;
+    --code-dim:    #6C8482;
+    --code-key:    #45D2BB;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size: 17px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 1.25rem 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: var(--wide); margin: 0 auto; }
+
+  /* Prose stays at a readable measure; tables and code break out wider. */
+  .prose { max-width: var(--measure); }
+
+  h1, h2, h3, .eyebrow, .stat-value, th, .rank, .tag {
+    font-family: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  }
+
+  code, pre, .num, .bar-scale, .metric {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- Masthead ------------------------------------------------------------------ */
+  header.masthead {
+    padding: 4.5rem 0 2.5rem;
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    flex-wrap: wrap;
+    gap: .55rem 1rem;
+    align-items: baseline;
+  }
+  .eyebrow .dim { color: var(--ink-faint); font-weight: 500; letter-spacing: .1em; }
+
+  h1 {
+    font-size: clamp(2.4rem, 6vw, 4rem);
+    font-weight: 800;
+    line-height: 1.02;
+    letter-spacing: -.025em;
+    margin: 0;
+    text-wrap: balance;
+    max-width: 18ch;
+  }
+
+  .standfirst {
+    font-size: 1.15rem;
+    color: var(--ink-soft);
+    max-width: var(--measure);
+    margin: 0;
+  }
+
+  /* ---- Section scaffolding ------------------------------------------------------- */
+  section { padding-top: 3.5rem; }
+
+  h2 {
+    font-size: 1.55rem;
+    font-weight: 700;
+    letter-spacing: -.015em;
+    line-height: 1.2;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+
+  p { margin: 0 0 1rem; }
+  .prose > *:last-child { margin-bottom: 0; }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, .finding:focus-visible {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 3px;
+  }
+
+  strong { font-weight: 600; color: var(--ink); }
+
+  /* Inline code sits on a wash, not the code-block ground. */
+  :not(pre) > code {
+    font-size: .84em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule-soft);
+    border-radius: 3px;
+    padding: .08em .34em;
+    color: var(--ink);
+  }
+
+  /* ---- The scoreboard ------------------------------------------------------------ */
+  .board {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+    padding: 1.5rem 1.5rem 1.25rem;
+    margin-top: 1.75rem;
+    overflow-x: auto;
+  }
+
+  .board-inner { min-width: 34rem; }
+
+  .board-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding-bottom: .9rem;
+    margin-bottom: .35rem;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .board-title {
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-size: .74rem; font-weight: 700;
+    letter-spacing: .13em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .board-key { display: flex; gap: 1rem; font-size: .74rem; color: var(--ink-faint);
+               font-family: "Bricolage Grotesque", sans-serif; letter-spacing: .04em; }
+  .swatch { display: inline-block; width: .62rem; height: .62rem; border-radius: 2px;
+            margin-right: .34rem; vertical-align: baseline; }
+  .swatch.win  { background: var(--accent); }
+  .swatch.lose { background: var(--loss); }
+
+  .row {
+    display: grid;
+    grid-template-columns: 13.5rem 1fr 3.6rem;
+    align-items: center;
+    gap: .75rem;
+    padding: .2rem 0;
+  }
+  .row .name { font-size: .82rem; color: var(--ink-soft); font-family: "JetBrains Mono", monospace; }
+  .row.lose .name { color: var(--loss); font-weight: 500; }
+
+  .track {
+    position: relative;
+    height: 1.15rem;
+    background: var(--surface-sunk);
+    border-radius: 2px;
+  }
+  /* The 1.0x gridline: the whole point of the chart. */
+  .track::before {
+    content: "";
+    position: absolute;
+    left: 28.57%; top: -.15rem; bottom: -.15rem;
+    width: 1px;
+    background: var(--rule);
+  }
+  .bar {
+    position: absolute; top: .2rem; bottom: .2rem;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+  .row.lose .bar { background: var(--loss); }
+
+  .row .metric { font-size: .8rem; text-align: right; color: var(--ink-soft); }
+  .row.lose .metric { color: var(--loss); font-weight: 700; }
+
+  .bar-scale {
+    display: grid;
+    grid-template-columns: 13.5rem 1fr 3.6rem;
+    gap: .75rem;
+    font-size: .68rem;
+    color: var(--ink-faint);
+    padding-top: .5rem;
+    margin-top: .35rem;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .ticks { position: relative; height: 1rem; }
+  .ticks span { position: absolute; transform: translateX(-50%); }
+
+  .board-note {
+    font-size: .82rem;
+    color: var(--ink-faint);
+    margin: .9rem 0 0;
+    max-width: 48rem;
+  }
+
+  /* ---- Findings ------------------------------------------------------------------ */
+  .findings { display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1.75rem; }
+
+  .finding {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 5px;
+    padding: 1.6rem 1.75rem 1.75rem;
+    display: grid;
+    grid-template-columns: 2.6rem 1fr;
+    gap: 0 1.1rem;
+    box-shadow: var(--shadow);
+  }
+  .finding.structural { border-left-color: var(--loss); }
+
+  .rank {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+    padding-top: .18rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .finding.structural .rank { color: var(--loss); }
+
+  .finding h3 {
+    grid-column: 2;
+    font-size: 1.22rem;
+    font-weight: 700;
+    letter-spacing: -.012em;
+    line-height: 1.25;
+    margin: 0 0 .35rem;
+    text-wrap: balance;
+  }
+
+  .headline {
+    grid-column: 2;
+    display: flex; flex-wrap: wrap; gap: .45rem;
+    margin-bottom: .95rem;
+  }
+  .tag {
+    font-size: .69rem; font-weight: 700;
+    letter-spacing: .07em; text-transform: uppercase;
+    padding: .2rem .5rem;
+    border-radius: 3px;
+    background: var(--accent-wash);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+  .tag.warn { background: var(--loss-wash); color: var(--loss);
+              border-color: color-mix(in srgb, var(--loss) 24%, transparent); }
+  .tag.quiet { background: transparent; color: var(--ink-faint); border-color: var(--rule); }
+
+  .finding .body { grid-column: 2; max-width: var(--measure); }
+  .finding .body > *:last-child { margin-bottom: 0; }
+  .finding .full { grid-column: 2; }
+
+  @media (max-width: 34rem) {
+    .finding { grid-template-columns: 1fr; padding: 1.35rem 1.15rem 1.5rem; }
+    .rank { grid-column: 1; }
+    .finding h3, .headline, .finding .body, .finding .full { grid-column: 1; }
+    .row, .bar-scale { grid-template-columns: 8.5rem 1fr 3rem; }
+  }
+
+  /* ---- Data tables --------------------------------------------------------------- */
+  .table-wrap {
+    overflow-x: auto;
+    margin: 1.15rem 0;
+    border: 1px solid var(--rule-soft);
+    border-radius: 4px;
+    background: var(--surface-sunk);
+  }
+  table { border-collapse: collapse; width: 100%; min-width: 26rem; font-size: .84rem; }
+  th {
+    text-align: left;
+    font-size: .68rem; font-weight: 700;
+    letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-faint);
+    padding: .6rem .85rem;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  td {
+    padding: .48rem .85rem;
+    border-bottom: 1px solid var(--rule-soft);
+    font-family: "JetBrains Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-soft);
+  }
+  tr:last-child td { border-bottom: none; }
+  td.n, th.n { text-align: right; }
+  td.gain { color: var(--accent); font-weight: 700; }
+  td.bad  { color: var(--loss); font-weight: 700; }
+  td.label { font-size: .8rem; color: var(--ink); }
+
+  /* ---- Code ---------------------------------------------------------------------- */
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: 4px;
+    padding: .95rem 1.1rem;
+    overflow-x: auto;
+    font-size: .79rem;
+    line-height: 1.6;
+    margin: 1.15rem 0;
+    border: 1px solid var(--rule-soft);
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+  pre .k { color: var(--code-key); }
+  pre .c { color: var(--code-dim); }
+
+  /* ---- Callout ------------------------------------------------------------------- */
+  .callout {
+    background: var(--accent-wash);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    padding: .95rem 1.2rem;
+    margin: 1.2rem 0;
+    font-size: .93rem;
+    color: var(--ink-soft);
+  }
+  .callout.warn { background: var(--loss-wash); border-left-color: var(--loss); }
+  .callout > *:last-child { margin-bottom: 0; }
+  .callout strong { color: var(--ink); }
+
+  ul { margin: 0 0 1rem; padding-left: 1.15rem; }
+  li { margin-bottom: .5rem; }
+  li::marker { color: var(--accent); }
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    font-size: .82rem;
+    color: var(--ink-faint);
+    max-width: var(--measure);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .bar { transition: none; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>compylr &middot; codegen performance</span>
+      <span class="dim">21 August 2026 &middot; branch worktree-demo-perf-brainstorm</span>
+    </div>
+    <h1>Where compylr Loses</h1>
+    <p class="standfirst">
+      Three of fifteen demo workloads run <em>slower</em> compiled than interpreted. They are not
+      outliers &mdash; they are three separate systemic costs in the generated code, and each one
+      was reproduced, patched by hand, and re-measured.
+    </p>
+  </header>
+
+  <section>
+    <div class="prose">
+      <h2>The baseline</h2>
+      <p>
+        <code>make demo SCALE=4</code>, compiled against interpreted, best of five batches. The
+        scale is logarithmic and the hairline is parity &mdash; anything left of it is a workload
+        the compiler made worse.
+      </p>
+    </div>
+
+    <div class="board">
+      <div class="board-inner">
+        <div class="board-head">
+          <span class="board-title">Speedup over CPython 3.14</span>
+          <span class="board-key">
+            <span><span class="swatch win"></span>faster compiled</span>
+            <span><span class="swatch lose"></span>slower compiled</span>
+          </span>
+        </div>
+
+        <div class="row"><span class="name">matrices.multiply</span><span class="track"><span class="bar" style="left:28.57%;width:67.83%"></span></span><span class="metric">26.9x</span></div>
+        <div class="row"><span class="name">arithmetic.collatz_length</span><span class="track"><span class="bar" style="left:28.57%;width:63.33%"></span></span><span class="metric">21.6x</span></div>
+        <div class="row"><span class="name">dynamic.knapsack</span><span class="track"><span class="bar" style="left:28.57%;width:60.73%"></span></span><span class="metric">19.0x</span></div>
+        <div class="row"><span class="name">arithmetic.sieve</span><span class="track"><span class="bar" style="left:28.57%;width:50.83%"></span></span><span class="metric">11.8x</span></div>
+        <div class="row"><span class="name">structures.component_count</span><span class="track"><span class="bar" style="left:28.57%;width:50.13%"></span></span><span class="metric">11.4x</span></div>
+        <div class="row"><span class="name">stats.standard_deviation</span><span class="track"><span class="bar" style="left:28.57%;width:25.23%"></span></span><span class="metric">3.4x</span></div>
+        <div class="row"><span class="name">sorting.insertion_sort</span><span class="track"><span class="bar" style="left:28.57%;width:23.93%"></span></span><span class="metric">3.2x</span></div>
+        <div class="row"><span class="name">sorting.merge_sort</span><span class="track"><span class="bar" style="left:28.57%;width:23.93%"></span></span><span class="metric">3.2x</span></div>
+        <div class="row"><span class="name">dynamic.edit_distance</span><span class="track"><span class="bar" style="left:28.57%;width:18.93%"></span></span><span class="metric">2.5x</span></div>
+        <div class="row"><span class="name">stats.normalize</span><span class="track"><span class="bar" style="left:28.57%;width:14.33%"></span></span><span class="metric">2.0x</span></div>
+        <div class="row"><span class="name">graphs.topological_order</span><span class="track"><span class="bar" style="left:28.57%;width:12.13%"></span></span><span class="metric">1.8x</span></div>
+        <div class="row"><span class="name">matrices.transpose</span><span class="track"><span class="bar" style="left:28.57%;width:3.73%"></span></span><span class="metric">1.2x</span></div>
+        <div class="row lose"><span class="name">text.joined</span><span class="track"><span class="bar" style="left:26.40%;width:2.17%"></span></span><span class="metric">0.9x</span></div>
+        <div class="row lose"><span class="name">graphs.bfs_distances</span><span class="track"><span class="bar" style="left:21.20%;width:7.37%"></span></span><span class="metric">0.7x</span></div>
+        <div class="row lose"><span class="name">text.word_count</span><span class="track"><span class="bar" style="left:3.76%;width:24.81%"></span></span><span class="metric">0.3x</span></div>
+
+        <div class="bar-scale">
+          <span></span>
+          <span class="ticks">
+            <span style="left:3.57%">0.25x</span>
+            <span style="left:14.29%">0.5x</span>
+            <span style="left:28.57%">1x</span>
+            <span style="left:42.86%">2x</span>
+            <span style="left:57.14%">4x</span>
+            <span style="left:71.43%">8x</span>
+            <span style="left:85.71%">16x</span>
+          </span>
+          <span></span>
+        </div>
+      </div>
+      <p class="board-note">
+        The <code>reference</code> row is never compiled and measured 1.00x, so this run's noise
+        floor is tight. <code>sorting.merge_sort</code> is the exception &mdash; see the caveat at
+        the end.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>Seven ways to get it back</h2>
+      <p>
+        Ordered cheapest first, which is also roughly least-invasive first. Every delta below was
+        measured by hand-patching <code>demo/.compylr/crate/</code> and rebuilding; the crate has
+        since been restored, and <strong>no compiler source changed on this branch.</strong>
+      </p>
+    </div>
+
+    <div class="findings">
+
+      <!-- 1 -->
+      <article class="finding">
+        <div class="rank">1</div>
+        <h3>The generated crate has no <code>[profile.release]</code> at all</h3>
+        <div class="headline">
+          <span class="tag">10&ndash;25% across the board</span>
+          <span class="tag quiet">one config line</span>
+          <span class="tag quiet">+3s build</span>
+        </div>
+        <div class="body">
+          <p>
+            The bridge writes a manifest with <code>[package]</code>, <code>[lib]</code> and
+            <code>[dependencies]</code> &mdash; and nothing else. So every user's crate builds at
+            <code>codegen-units = 16</code>, <code>lto = false</code>.
+          </p>
+          <p>
+            That matters more here than in most crates. <code>compat.rs</code> and
+            <code>generated.rs</code> are separate modules, and at sixteen codegen units the
+            runtime helpers routinely land in a different unit from their only caller &mdash; so
+            <code>py_add</code>, <code>py_index</code> and <code>resolve_index</code> are
+            <em>not inlined</em>. Since every arithmetic operation in the subset is a trait call
+            by design, that is a great many un-inlined calls.
+          </p>
+        </div>
+        <div class="full">
+          <pre><code><span class="c"># added to the generated Cargo.toml</span>
+<span class="k">[profile.release]</span>
+lto = <span class="k">"fat"</span>
+codegen-units = <span class="k">1</span></code></pre>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>workload</th><th class="n">before</th><th class="n">after</th><th class="n">gain</th></tr></thead>
+              <tbody>
+                <tr><td class="label">structures.component_count</td><td class="n">17.89us</td><td class="n">13.43us</td><td class="n gain">1.33x</td></tr>
+                <tr><td class="label">stats.standard_deviation</td><td class="n">15.68us</td><td class="n">12.06us</td><td class="n gain">1.30x</td></tr>
+                <tr><td class="label">matrices.transpose</td><td class="n">48.59us</td><td class="n">39.92us</td><td class="n gain">1.22x</td></tr>
+                <tr><td class="label">stats.normalize</td><td class="n">34.15us</td><td class="n">29.33us</td><td class="n gain">1.16x</td></tr>
+                <tr><td class="label">sorting.insertion_sort</td><td class="n">13.70us</td><td class="n">11.90us</td><td class="n gain">1.15x</td></tr>
+                <tr><td class="label">matrices.multiply</td><td class="n">151.70us</td><td class="n">138.66us</td><td class="n gain">1.09x</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="body">
+          <div class="callout warn">
+            <p>
+              <strong>Rejected on measurement:</strong> <code>-C target-cpu=native</code>. No row
+              moved outside noise, and it would make a copied <code>.compylr/</code> directory
+              fault on a different machine. <code>panic = "abort"</code> is unavailable outright
+              &mdash; PyO3 needs unwinding to turn a panic into a Python exception.
+            </p>
+          </div>
+        </div>
+      </article>
+
+      <!-- 2 -->
+      <article class="finding">
+        <div class="rank">2</div>
+        <h3><code>x = x + y</code> on a string is quadratic where CPython's is not</h3>
+        <div class="headline">
+          <span class="tag">4.1x on text.joined</span>
+          <span class="tag quiet">emitter peephole</span>
+        </div>
+        <div class="body">
+          <p>Every word of <code>text.joined</code> currently emits:</p>
+        </div>
+        <div class="full">
+          <pre><code>out = PyAdd::py_add(&amp;(PyAdd::py_add(&amp;(out), &amp;(separator))?), &amp;(word))?;</code></pre>
+        </div>
+        <div class="body">
+          <p>
+            <code>PyAdd for String</code> allocates a fresh <code>String</code> and copies both
+            sides &mdash; so that is <strong>two full copies of the accumulator per
+            iteration</strong>. CPython special-cases <code>s = s + t</code> when the target holds
+            the only reference and resizes in place, which makes the interpreted version amortized
+            linear. Compiling this loop currently makes it asymptotically worse.
+          </p>
+          <p>
+            Replacing the two lines with <code>push_str</code> took the row from 0.9x to
+            <strong>3.8x</strong>:
+          </p>
+        </div>
+        <div class="full">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>workload</th><th class="n">before</th><th class="n">after</th><th class="n">gain</th></tr></thead>
+              <tbody>
+                <tr><td class="label">text.joined</td><td class="n">343.76us</td><td class="n">83.08us</td><td class="n gain">4.1x</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="body">
+          <p>
+            The shape of the fix: recognise an accumulator that reads itself &mdash;
+            <code>Assign { name, value: Binary { Add, left: Name(name), .. } }</code> &mdash; and
+            emit an in-place update. Keep it type-directed the way everything else is, through a
+            <code>PyAddAssign</code> trait: <code>String</code> gets <code>push_str</code>,
+            <code>i64</code> gets the checked add it already has. The backend still never learns
+            the operand's type.
+          </p>
+          <div class="callout">
+            <p>
+              <code>joined</code>'s own docstring says it is quadratic because each <code>+</code>
+              builds a new string. True of the <em>algorithm</em> &mdash; but the generated code is
+              quadratic with a constant factor of two on top, and that part is ours.
+            </p>
+          </div>
+        </div>
+      </article>
+
+      <!-- 3 -->
+      <article class="finding">
+        <div class="rank">3</div>
+        <h3>Every mapping and set uses SipHash</h3>
+        <div class="headline">
+          <span class="tag">up to 1.93x</span>
+          <span class="tag warn">turns a loss into a win</span>
+          <span class="tag quiet">exposes a latent bug</span>
+        </div>
+        <div class="body">
+          <p>
+            <code>rust_ty</code> emits bare <code>HashMap</code>/<code>HashSet</code>, so generated
+            code inherits <code>RandomState</code>. SipHash is the right default for keys arriving
+            over a network and the wrong one for keys coming from the user's own program. CPython
+            hashes small ints to themselves and caches a string's hash in the string object
+            &mdash; so on <code>dict[int, ...]</code> compylr does strictly more work per lookup
+            than the interpreter it is meant to beat.
+          </p>
+          <p>
+            A self-contained FxHasher in <code>runtime.rs</code> &mdash; about forty lines, no
+            external crate, in keeping with that file's self-contained rule:
+          </p>
+        </div>
+        <div class="full">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>workload</th><th class="n">before</th><th class="n">after</th><th class="n">gain</th></tr></thead>
+              <tbody>
+                <tr><td class="label">graphs.bfs_distances</td><td class="n">159.36us</td><td class="n">82.49us</td><td class="n gain">1.93x</td></tr>
+                <tr><td class="label">graphs.topological_order</td><td class="n">421.48us</td><td class="n">271.33us</td><td class="n gain">1.55x</td></tr>
+                <tr><td class="label">text.word_count</td><td class="n">189.51us</td><td class="n">166.44us</td><td class="n gain">1.14x</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="body">
+          <p><code>bfs_distances</code> goes from 0.7x to <strong>1.4x</strong> &mdash; from losing to winning.</p>
+          <div class="callout">
+            <p>
+              <strong>This surfaced a latent design bug.</strong> The runtime's impls read
+              <code>impl&lt;K, V&gt; PyIndexable&lt;K&gt; for HashMap&lt;K, V&gt;</code>, which
+              silently pins <code>S = RandomState</code>. The hasher is not currently a
+              <em>choice</em> &mdash; it is baked into ten trait impls. Making them generic over
+              <code>S</code> is mechanical and worth doing whatever hasher wins, and once it is
+              generic the hasher becomes a natural <code>TargetOption</code> beside
+              <code>unchecked-arithmetic</code>.
+            </p>
+          </div>
+          <p>
+            One knock-on: <code>HashMap::from([...])</code> exists only for
+            <code>RandomState</code>, so dict and set literals must emit
+            <code>FromIterator</code> instead. Trivial &mdash; but an emitter change, not only a
+            runtime one.
+          </p>
+        </div>
+      </article>
+
+      <!-- 4 -->
+      <article class="finding">
+        <div class="rank">4</div>
+        <h3><code>for x in xs</code> clones every element</h3>
+        <div class="headline">
+          <span class="tag">1.49x on a trivial loop</span>
+          <span class="tag quiet">needs blanket impls first</span>
+        </div>
+        <div class="body">
+          <p>
+            <code>PyIterate for Vec&lt;T&gt;</code> is <code>self.iter().cloned()</code>, and
+            <code>collection_loop</code> binds the clone into an owned local. For
+            <code>Vec&lt;i64&gt;</code> that is free. For <code>Vec&lt;String&gt;</code> it is an
+            allocation and a copy per element, per loop.
+          </p>
+          <p>
+            <code>text.total_length</code> is the cleanest measurement available &mdash; its body
+            is one <code>len()</code> per word:
+          </p>
+        </div>
+        <div class="full">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>N = 2000</th><th class="n">as generated</th><th class="n">by reference</th><th class="n">gain</th></tr></thead>
+              <tbody>
+                <tr><td class="label">text.total_length</td><td class="n">88.52us</td><td class="n">59.43us</td><td class="n gain">1.49x</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="body">
+          <p>
+            The loop variable is only read there, and lowering already computes the answer:
+            <code>is_assigned</code> runs a few lines above purely to decide <code>mut</code>. The
+            same call says whether a borrow would do.
+          </p>
+          <p>
+            <strong>What blocks it:</strong> the runtime traits are implemented on owned types
+            only, so a <code>&amp;String</code> loop variable fails to satisfy <code>PyLen</code>
+            &mdash; I hit exactly that compile error making the patch. It needs blanket
+            <code>impl&lt;T: PyLen + ?Sized&gt; PyLen for &amp;T</code> and the same for
+            <code>PyContains</code> and <code>PyAdd</code>. That is the real work; the emitter
+            change is three lines.
+          </p>
+        </div>
+      </article>
+
+      <!-- 5 -->
+      <article class="finding">
+        <div class="rank">5</div>
+        <h3>A returned local is deep-copied on the way out</h3>
+        <div class="headline">
+          <span class="tag">25 of 25 sites in the demo</span>
+          <span class="tag quiet">scales with result size</span>
+        </div>
+        <div class="body">
+          <p>
+            <code>Stmt::Return</code> routes through <code>emit_expr</code>, which clones any
+            non-<code>Copy</code> <code>Expr::Name</code>. So <code>return counts</code> emits
+            <code>Ok(counts.clone())</code> &mdash; a full deep copy of the collection, immediately
+            before the function ends and the original is dropped.
+          </p>
+          <p>
+            Removing all twenty-five in the demo compiled clean and changed no answer. The gain is
+            modest here (<code>topological_order</code> 271us &rarr; 243us) because the demo's
+            returned collections are small next to its loops &mdash; but it is a pure win and it
+            grows with result size.
+          </p>
+          <div class="callout warn">
+            <p>
+              <strong>Not unconditionally sound.</strong> <code>for v in xs: return xs</code> would
+              move out of something the loop borrows. Restricting the move to <em>tail
+              position</em> &mdash; the <code>emit_body</code> tail branch, which is the last
+              statement at depth zero and so cannot sit inside any loop &mdash; is trivially safe
+              and covered all 25 sites.
+            </p>
+          </div>
+          <p>
+            Neighbouring waste, same emitter: <code>d[k] = v</code> emits
+            <code>let __compylr_index = k.clone();</code> and then <code>py_set</code> does
+            <code>insert(key.clone(), value)</code>. Two allocations per dict write where one is
+            needed.
+          </p>
+        </div>
+      </article>
+
+      <!-- 6 -->
+      <article class="finding structural">
+        <div class="rank">6</div>
+        <h3>The boundary is O(n) per collection argument &mdash; and it is the ceiling for everything above</h3>
+        <div class="headline">
+          <span class="tag warn">16x slower on binary_search</span>
+          <span class="tag warn">design change</span>
+        </div>
+        <div class="body">
+          <p>
+            A collection parameter is converted element by element on every call. Timed at a fixed
+            N = 2000:
+          </p>
+        </div>
+        <div class="full">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>probe (N = 2000)</th><th class="n">compiled</th><th class="n">interpreted</th><th class="n">verdict</th></tr></thead>
+              <tbody>
+                <tr><td class="label">binary_search(list[int]) &mdash; O(log n) body</td><td class="n">8.12us</td><td class="n">0.49us</td><td class="n bad">16x slower</td></tr>
+                <tr><td class="label">is_sorted(list[int]) &mdash; O(n) body</td><td class="n">8.61us</td><td class="n">64.55us</td><td class="n gain">7.5x faster</td></tr>
+                <tr><td class="label">mean(list[float]) &mdash; O(n) body</td><td class="n">9.83us</td><td class="n">16.59us</td><td class="n gain">1.7x faster</td></tr>
+                <tr><td class="label">total_length(list[str]) &mdash; O(n) body</td><td class="n">83.58us</td><td class="n">32.33us</td><td class="n bad">2.6x slower</td></tr>
+                <tr><td class="label">copy_of(list[int]) &mdash; in <em>and</em> out</td><td class="n">28.43us</td><td class="n">16.15us</td><td class="n bad">1.8x slower</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="body">
+          <p>Per element, roughly:</p>
+          <ul>
+            <li><code>list[int]</code> in: <strong>~4 ns</strong> &mdash; cheap, no allocation.</li>
+            <li>returning a <code>list[int]</code>: <strong>~10 ns</strong> &mdash; a fresh <code>PyLong</code> each.</li>
+            <li><code>list[str]</code> in: <strong>~42 ns</strong> &mdash; a Rust <code>String</code> allocated and UTF-8 copied per element. <strong>Ten times the int cost</strong>, and the whole reason every <code>list[str]</code> workload in the demo loses.</li>
+          </ul>
+          <p>
+            <code>binary_search</code> is the sharpest statement of the problem: compiling it
+            converts 2000 elements in order to do eleven comparisons, turning an O(log n)
+            algorithm into an O(n) one and losing to the interpreter by 16x. No amount of codegen
+            quality fixes that.
+          </p>
+          <p>Directions, roughly in cost order:</p>
+          <ul>
+            <li>
+              <strong>Borrow read-only string parameters.</strong> PyO3 can hand back the interned
+              UTF-8 without allocating (<code>Cow&lt;'_, str&gt;</code>, or a borrowed
+              <code>&amp;str</code>). This alone removes the 10x <code>str</code> penalty &mdash;
+              and read-only is <em>already</em> the subset's rule, since mutating a parameter is a
+              rejected program. The compiler knows.
+            </li>
+            <li>
+              <strong>Stop converting per call.</strong> An instance behind <code>#[pyclass]</code>
+              already crosses once and stays Rust-side; that is why an attribute can be a cache. A
+              compylr-owned list held across calls would extend the same trick to free functions,
+              so a pipeline of compiled calls converts once rather than once per hop.
+            </li>
+            <li><strong>The buffer protocol</strong> for numeric lists, where the caller can supply <code>array</code> or <code>memoryview</code>.</li>
+            <li>
+              <strong>Cheapest of all &mdash; say so.</strong> A collection parameter costs O(n)
+              even when the body is O(1). That is written down nowhere, and
+              <code>demo/README.md</code> reads as though compiled is always at least as fast. One
+              paragraph would stop the next person losing an afternoon.
+            </li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- 7 -->
+      <article class="finding">
+        <div class="rank">7</div>
+        <h3>Smaller runtime items, worth one sweep</h3>
+        <div class="headline">
+          <span class="tag quiet">runtime.rs</span>
+          <span class="tag">2.7x when combined</span>
+        </div>
+        <div class="body">
+          <ul>
+            <li>
+              <strong><code>py_index</code> bounds-checks twice.</strong>
+              <code>resolve_index</code> proves <code>resolved &lt; length</code>, then
+              <code>items[resolved]</code> checks again; the <code>i64</code>/<code>usize</code>
+              round trip likely defeats LLVM's elision. Fixable without <code>unsafe</code>.
+            </li>
+            <li>
+              <strong><code>py_str_len</code> under <code>CodePoints</code> is O(n) per call.</strong>
+              <code>chars().count()</code> decodes the whole string every time <code>len(s)</code>
+              is evaluated. An <code>is_ascii()</code> fast path returning <code>len()</code> is
+              exact when it hits, and ASCII is the common case.
+            </li>
+            <li>
+              <strong>Three hash lookups per <code>d[k] = d[k] + 1</code>.</strong>
+              <code>k in d</code>, then <code>d[k]</code>, then the write. The <code>entry</code>
+              API does it in one.
+            </li>
+            <li>
+              <strong>No <code>with_capacity</code> anywhere.</strong> <code>vec![]</code> then
+              <code>push</code> in a loop whose trip count is often a <code>range</code> bound
+              already in hand.
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              A hand-written ideal <code>word_count</code> body &mdash; borrow-iterate, one
+              <code>entry</code>-style lookup, no return clone &mdash; runs in
+              <strong>62.31us against 167.27us as generated</strong>. That is 2.7x, and level with
+              CPython's 56us. Everything left over is the boundary from item 6.
+            </p>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>A measurement problem to fix first</h2>
+      <div class="callout warn">
+        <p>
+          <code>sorting.merge_sort</code> returned 202, 277, 235, 256, 264 and 160 us
+          <strong>across runs of binaries that were in some cases byte-identical.</strong> It is
+          recursive and allocation-heavy, and best-of-five-batches does not stabilise it. Any
+          conclusion drawn from that row today is noise &mdash; I discarded my own apparent
+          "regression" on it for exactly that reason.
+        </p>
+      </div>
+      <p>
+        Before optimising against this benchmark, it is worth having the harness report a spread
+        rather than a single best, so that a real 10% regression is distinguishable from this.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>Where each one lives</h2>
+    </div>
+    <div class="table-wrap" style="max-width:var(--wide)">
+      <table>
+        <thead><tr><th class="n">#</th><th>change</th><th>site</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td class="label">add <code>[profile.release]</code></td><td>compylr-bridge-python-rust/src/bindings.rs:283 &mdash; <code>cargo_manifest</code></td></tr>
+          <tr><td class="n">2</td><td class="label"><code>x = x + y</code> peephole</td><td>backend-rust/src/rust.rs:920 &mdash; <code>Stmt::Assign</code>; runtime.rs:157 &mdash; <code>PyAdd for String</code></td></tr>
+          <tr><td class="n">3</td><td class="label">hasher</td><td>rust.rs:74 &mdash; <code>rust_ty</code>; the ten map/set impls in runtime.rs</td></tr>
+          <tr><td class="n">4</td><td class="label">borrow-iterate</td><td>rust.rs:1087 &mdash; <code>collection_loop</code>; runtime.rs:623 &mdash; <code>PyIterate for Vec</code></td></tr>
+          <tr><td class="n">5</td><td class="label">return-site move</td><td>rust.rs:842 &mdash; <code>emit_body</code> tail; rust.rs:1397 &mdash; name clone</td></tr>
+          <tr><td class="n">6</td><td class="label">the boundary</td><td>compylr-bridge-python-rust/src/bindings.rs &mdash; signature emission</td></tr>
+          <tr><td class="n">7</td><td class="label">runtime sweep</td><td>runtime.rs:299 &mdash; <code>py_index</code>; runtime.rs:339 &mdash; <code>py_str_len</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>Suggested order, and what it adds up to</h2>
+      <p>
+        Items 1, 2 and 5 are self-contained, testable, and touch no semantics &mdash; one change
+        each. Item 3 is a small runtime refactor with a real payoff and an existing latent bug to
+        fix on the way. Item 4 needs the blanket impls first. Item 6 is a design change and
+        deserves its own OpenSpec proposal, though the documentation half of it can land
+        immediately.
+      </p>
+      <p>Items 1, 2, 3 and 5 measured together, SCALE=4:</p>
+    </div>
+
+    <div class="table-wrap" style="max-width:var(--wide)">
+      <table>
+        <thead><tr><th>workload</th><th class="n">baseline</th><th class="n">patched</th><th class="n">gain</th></tr></thead>
+        <tbody>
+          <tr><td class="label">text.joined</td><td class="n">352.74us</td><td class="n">83.08us</td><td class="n gain">4.25x</td></tr>
+          <tr><td class="label">graphs.bfs_distances</td><td class="n">167.65us</td><td class="n">80.87us</td><td class="n gain">2.07x</td></tr>
+          <tr><td class="label">graphs.topological_order</td><td class="n">445.98us</td><td class="n">245.69us</td><td class="n gain">1.82x</td></tr>
+          <tr><td class="label">structures.component_count</td><td class="n">17.89us</td><td class="n">13.45us</td><td class="n gain">1.33x</td></tr>
+          <tr><td class="label">stats.standard_deviation</td><td class="n">15.68us</td><td class="n">12.17us</td><td class="n gain">1.29x</td></tr>
+          <tr><td class="label">matrices.transpose</td><td class="n">48.59us</td><td class="n">39.38us</td><td class="n gain">1.23x</td></tr>
+          <tr><td class="label">text.word_count</td><td class="n">210.13us</td><td class="n">178.74us</td><td class="n gain">1.18x</td></tr>
+          <tr><td class="label">dynamic.knapsack</td><td class="n">39.77us</td><td class="n">34.11us</td><td class="n gain">1.17x</td></tr>
+          <tr><td class="label">sorting.insertion_sort</td><td class="n">13.70us</td><td class="n">11.70us</td><td class="n gain">1.17x</td></tr>
+          <tr><td class="label">stats.normalize</td><td class="n">34.15us</td><td class="n">30.26us</td><td class="n gain">1.13x</td></tr>
+          <tr><td class="label">arithmetic.sieve</td><td class="n">2.75us</td><td class="n">2.47us</td><td class="n gain">1.11x</td></tr>
+          <tr><td class="label">matrices.multiply</td><td class="n">151.70us</td><td class="n">136.53us</td><td class="n gain">1.11x</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:1.25rem">
+      <p>
+        Two of the three workloads that lost to the interpreter now win.
+        <code>text.word_count</code> is the one that still loses, and item 6 is why.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    Measured on Apple silicon, CPython 3.14, <code>--release</code>, <code>make demo SCALE=4</code>.
+    Candidates were tested by hand-patching <code>demo/.compylr/crate/</code> and rebuilding; the
+    crate was restored to its committed state afterwards. Full write-up in
+    <code>reports/generated-code-performance.md</code>.
+  </footer>
+
+</div>

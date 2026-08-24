@@ -4,11 +4,10 @@ expression: functions.trim()
 ---
 //! Translated by compylr.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::compat::{
-    IndexOrigin, PyAdd, PyContains, PyIterate, PyLen, PyNum, PySetItem, RuntimeError,
-    TextUnits, div_exact, py_borrow, py_place, py_subscript,
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
+    PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
+    py_borrow, py_place, py_subscript,
 };
 
 #[derive(Clone)]
@@ -18,7 +17,7 @@ pub struct Grid {
 
 impl Grid {
     pub fn __compylr_new(size: i64) -> Result<Self, RuntimeError> {
-        let mut rows: Vec<Vec<i64>> = vec![];
+        let mut rows: Vec<Vec<i64>> = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
         {
             let __compylr_stop: i64 = size;
             let __compylr_step: i64 = 1i64;
@@ -31,7 +30,7 @@ impl Grid {
             {
                 let _row: i64 = __compylr_cursor;
                 __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-                let mut line: Vec<i64> = vec![];
+                let mut line: Vec<i64> = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
                 {
                     let __compylr_stop: i64 = size;
                     let __compylr_step: i64 = 1i64;
@@ -73,8 +72,8 @@ impl Grid {
     }
 }
 
-pub fn bucket(key: String, value: i64) -> Result<HashMap<String, Vec<i64>>, RuntimeError> {
-    let mut buckets: HashMap<String, Vec<i64>> = HashMap::from([]);
+pub fn bucket(key: String, value: i64) -> Result<FastMap<String, Vec<i64>>, RuntimeError> {
+    let mut buckets: FastMap<String, Vec<i64>> = FastMap::from_iter([]);
     let row: Vec<i64> = vec![];
     {
         let __compylr_value = row.clone();
@@ -85,7 +84,7 @@ pub fn bucket(key: String, value: i64) -> Result<HashMap<String, Vec<i64>>, Runt
         let __compylr_value = value.clone();
         ((*py_place(&mut (buckets), &(key), IndexOrigin::FromEitherEnd)?)).push(__compylr_value);
     }
-    Ok(buckets.clone())
+    Ok(buckets)
 }
 
 pub fn diagonal(size: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
@@ -109,11 +108,11 @@ pub fn diagonal(size: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
             }
         }
     }
-    Ok(table.clone())
+    Ok(table)
 }
 
 pub fn zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
-    let mut table: Vec<Vec<i64>> = vec![];
+    let mut table: Vec<Vec<i64>> = Vec::with_capacity(usize::try_from(rows).unwrap_or(0));
     {
         let __compylr_stop: i64 = rows;
         let __compylr_step: i64 = 1i64;
@@ -126,7 +125,7 @@ pub fn zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
         {
             let _row: i64 = __compylr_cursor;
             __compylr_cursor = PyAdd::py_add(&(__compylr_cursor), &(__compylr_step))?;
-            let mut line: Vec<i64> = vec![];
+            let mut line: Vec<i64> = Vec::with_capacity(usize::try_from(columns).unwrap_or(0));
             {
                 let __compylr_stop: i64 = columns;
                 let __compylr_step: i64 = 1i64;
@@ -151,5 +150,5 @@ pub fn zeros(rows: i64, columns: i64) -> Result<Vec<Vec<i64>>, RuntimeError> {
             }
         }
     }
-    Ok(table.clone())
+    Ok(table)
 }
