@@ -2,10 +2,9 @@
 //!
 //! Kept apart from `rust.rs` on purpose: that module knows how to translate IR into Rust and
 //! nothing about Python, so the same translation could feed a non-Python consumer. This module is
-//! the only place where Rust values become Python values and where a [`RuntimeError`] becomes an
-//! exception.
-//!
-//! [`RuntimeError`]: super::runtime::RuntimeError
+//! the only place where Rust values become Python values and where a `RuntimeError` becomes an
+//! exception. That type is not one of this crate's: it lives in the runtime this crate *emits*,
+//! which is why it is named here rather than linked.
 //!
 //! The wrappers are thin by design. Each one calls the pure function, maps its error, and returns
 //! — no logic that could disagree with the translated body.
