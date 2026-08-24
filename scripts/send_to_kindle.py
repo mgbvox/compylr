@@ -163,9 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"No such file: {document}")
     size = document.stat().st_size
     if size > MAX_ATTACHMENT_BYTES:
-        raise SystemExit(
-            f"{document.name} is {size / 1024 / 1024:.1f} MB, over the 25 MB limit."
-        )
+        raise SystemExit(f"{document.name} is {size / 1024 / 1024:.1f} MB, over the 25 MB limit.")
 
     repo_root = find_repo_root(Path.cwd())
     config = parse_env_file(repo_root / ".env")

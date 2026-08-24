@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = ["compylr"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+dev = ["pytest>=8", "ruff>=0.6", "ty>=0.0.74"]
 
 [build-system]
 requires = ["hatchling"]
@@ -25,3 +25,11 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+# `.compylr/` is build output -- a generated crate and the IR it came from, not source anyone
+# wrote. `src/algorithms` is the project; `tests/` is checked with it.
+exclude = [".compylr"]

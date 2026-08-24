@@ -130,15 +130,11 @@ class TestIteration:
         assert project._functions["_nth_prime"](n) == _nth_prime(n)
 
     @pytest.mark.parametrize("n", [0, 1, 5, 100])
-    def test_a_counting_loop_matches_interpreted(
-        self, project: compylr.Manager, n: int
-    ) -> None:
+    def test_a_counting_loop_matches_interpreted(self, project: compylr.Manager, n: int) -> None:
         assert project._functions["_sum_to"](n) == _sum_to(n)
 
     @pytest.mark.parametrize("n", [0, 1, 4])
-    def test_a_negative_step_matches_interpreted(
-        self, project: compylr.Manager, n: int
-    ) -> None:
+    def test_a_negative_step_matches_interpreted(self, project: compylr.Manager, n: int) -> None:
         # Python's `range(n, 0, -1)` has no Rust equivalent, so this is the one most likely to
         # differ if the loop were emitted as a native range.
         assert project._functions["_countdown"](n) == _countdown(n)
