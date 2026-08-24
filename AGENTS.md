@@ -260,7 +260,7 @@ silently was the first.
   committing. Commit at each checkpoint rather than batching.
 * **The benchmark tables in both READMEs are generated.** `scripts/update_benchmarks.py` rewrites
   the blocks between `<!-- benchmark:NAME -->` markers from a real run, and
-  `.github/workflows/benchmark.yml` runs it and commits the result. Editing a table by hand is
+  `.github/workflows/benchmark.yml` runs it and opens a pull request with the result. Editing a table by hand is
   editing output: the next run overwrites it. Moving or renaming a marker is what breaks the job,
   so the script's `--check` mode runs in CI and on commit.
 * **CI, the Makefile and the pre-commit hooks run the same commands.** `make check` is what the
