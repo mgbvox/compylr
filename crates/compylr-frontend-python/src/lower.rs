@@ -11,7 +11,7 @@
 //!   may call one defined below it. A callee this source cannot see is *not* an error: lowering
 //!   handles one source at a time, and a decorated function may legitimately call one in a module
 //!   that has not been marked yet, so rejecting here would make success depend on arrival order.
-//!   Such a call is recorded by name and checked by [`crate::ir::Unit::validate`] once every
+//!   Such a call is recorded by name and checked by [`compylr_ir::Unit::validate`] once every
 //!   source is assembled.
 //! * **Inference covers whatever is determined.** A binding may omit its annotation when its
 //!   initializer's type follows from literals, already-typed names, negation, arithmetic,
@@ -20,7 +20,7 @@
 //!   choosing among candidates. An expression containing an unseen call is *undetermined* — not
 //!   an error — and such a binding still needs an annotation.
 //!
-//! Lowering is therefore also a small type checker: [`lower_expr`] returns an expression and
+//! Lowering is therefore also a small type checker: `lower_expr` returns an expression and
 //! its type together, so shape and type can never be derived from separate traversals and
 //! disagree.
 

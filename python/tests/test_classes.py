@@ -118,9 +118,7 @@ class TestStatePersists:
         a.bump(1)
         assert (a.get(), b.get()) == (1, 100)
 
-    def test_an_instance_the_caller_keeps_holds_its_state(
-        self, project: compylr.Manager
-    ) -> None:
+    def test_an_instance_the_caller_keeps_holds_its_state(self, project: compylr.Manager) -> None:
         held = project._functions["_Counter"](0)
         for _ in range(5):
             held.bump(2)

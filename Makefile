@@ -33,7 +33,7 @@ help: ## List the available targets
 # -- everyday ---------------------------------------------------------------------------
 
 .PHONY: check
-check: fmt lint test python ## Everything CI would run: format, lint, both suites
+check: fmt-check lint doc test python ## Everything CI runs: format, lint, docs, both suites
 
 .PHONY: test
 test: ## Run the Rust suite
@@ -51,11 +51,41 @@ fmt: ## Format every crate
 fmt-check: ## Fail if anything is unformatted
 	cargo fmt --all --check
 
+.PHONY: doc
+doc: ## Build the docs, warnings denied
+	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --lib
+
 .PHONY: python
-python: develop ## Run the Python suite and its linters
+python: develop py-lint py-types ## Run the Python suite, its linters, and its type checker
 	$(PY) -m pytest
-	$(VENV)/bin/ruff check python/
-	$(VENV)/bin/mypy python/compylr
+
+.PHONY: py-lint
+py-lint: $(VENV) ## Ruff, both halves: the lint rules and the formatter
+	$(VENV)/bin/ruff check python/ scripts/
+	$(VENV)/bin/ruff format --check python/ scripts/
+
+.PHONY: py-fmt
+py-fmt: $(VENV) ## Format the Python sources
+	$(VENV)/bin/ruff format python/ scripts/
+
+.PHONY: py-types
+py-types: $(VENV) ## Type-check the package with ty
+	$(VENV)/bin/ty check python/compylr
+
+.PHONY: hooks
+hooks: $(VENV) ## Install the pre-commit hooks, once per clone
+	$(VENV)/bin/pre-commit install
+
+.PHONY: precommit
+precommit: $(VENV) ## Run every pre-commit hook over the whole tree
+	$(VENV)/bin/pre-commit run --all-files
+
+# Depends on clean-artifacts deliberately: the rebuild key is the IR fingerprint and the compiler's
+# version does not move during development, so a cached build would have this timing last build's
+# code and reporting it as this one's.
+.PHONY: benchmarks
+benchmarks: clean-artifacts develop ## Re-measure and rewrite the README tables: make benchmarks SCALE=4
+	$(PY) scripts/update_benchmarks.py --scale $(SCALE) --n $(N)
 
 .PHONY: coverage
 coverage: ## Rust coverage, with the venv out of the way
@@ -66,7 +96,7 @@ coverage: ## Rust coverage, with the venv out of the way
 
 $(VENV):
 	uv venv
-	uv pip install --python $(PY) maturin pytest pytest-cov ruff mypy
+	uv pip install --python $(PY) maturin pytest pytest-cov ruff ty pre-commit
 
 .PHONY: develop
 develop: $(VENV) ## Rebuild compylr._core into the venv
@@ -116,6 +146,11 @@ demo-primes-run: develop ## Run the three nth-prime variants: make demo-primes-r
 	cd $(DEMO) && uv sync --quiet && uv run compylr compyle src
 	cd $(DEMO) && uv run python -m algorithms.nth_prime $(N)
 
+# `ty check src` and not `src tests`: a `@compyle`-marked class is a *value* -- the decorator
+# returns a wrapper, not a class -- so the marked name cannot be used as a type annotation, and
+# `tests/test_variants.py` annotates a fixture with `memoized.PrimeCache`. Widening this means
+# answering what a marked class should look like to a type checker, which is a change to compylr's
+# public typing surface rather than to CI.
 .PHONY: demo-check
 demo-check: develop ## The demo's own suite and linters
 	cd $(DEMO) && uv sync --extra dev --quiet
@@ -123,7 +158,7 @@ demo-check: develop ## The demo's own suite and linters
 	cd $(DEMO) && uv run pytest
 	cd $(DEMO) && uv run ruff check .
 	cd $(DEMO) && uv run ruff format --check .
-	cd $(DEMO) && uv run mypy src
+	cd $(DEMO) && uv run ty check src
 
 .PHONY: demo-rebuild
 demo-rebuild: clean-artifacts demo-check ## Rebuild the demo from nothing, then check it

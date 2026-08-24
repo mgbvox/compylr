@@ -33,7 +33,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from random import Random
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from ._timing import (
     DISABLE_ENV,
@@ -186,12 +186,17 @@ def measure(scale: int, repetitions: int = REPETITIONS) -> Measurement:
 
 def _run_child(scale: int, repetitions: int, *, disabled: bool) -> Measurement:
     """Measure in a fresh process, with compilation on or off."""
-    measured: Measurement = measure_in_child(  # type: ignore[assignment]
-        "algorithms.benchmark",
-        ["--scale", str(scale), "--repetitions", str(repetitions)],
-        disabled=disabled,
+    # The child prints JSON, so it comes back as `dict[str, Any]`: the shape is a contract
+    # between the two processes rather than something either end can prove. `Measurement` is
+    # where that contract is written down, and the cast is where it is asserted.
+    return cast(
+        "Measurement",
+        measure_in_child(
+            "algorithms.benchmark",
+            ["--scale", str(scale), "--repetitions", str(repetitions)],
+            disabled=disabled,
+        ),
     )
-    return measured
 
 
 def _timings(measured: Measurement) -> dict[str, Timing]:

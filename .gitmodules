@@ -1,3 +1,9 @@
 [submodule "vendored/ruff"]
 	path = vendored/ruff
 	url = https://github.com/astral-sh/ruff.git
+[submodule "py2many"]
+	path = py2many
+	url = https://github.com/py2many/py2many.git
+[submodule "inspiration/py2many"]
+	path = inspiration/py2many
+	url = https://github.com/py2many/py2many.git
