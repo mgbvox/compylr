@@ -81,9 +81,7 @@ hr { border: 0; border-top: 1px solid #ccc; margin: 1.5em 0; }
 .meta { color: #666; font-size: 0.9em; }
 """
 
-H2_PATTERN = re.compile(
-    r'<h2[^>]*\bid="(?P<id>[^"]+)"[^>]*>(?P<text>.*?)</h2>', re.DOTALL
-)
+H2_PATTERN = re.compile(r'<h2[^>]*\bid="(?P<id>[^"]+)"[^>]*>(?P<text>.*?)</h2>', re.DOTALL)
 TAG_PATTERN = re.compile(r"<[^>]+>")
 
 
@@ -132,9 +130,7 @@ def list_changes(changes_dir: Path) -> list[str]:
     if not changes_dir.is_dir():
         return []
     return sorted(
-        entry.name
-        for entry in changes_dir.iterdir()
-        if entry.is_dir() and entry.name != "archive"
+        entry.name for entry in changes_dir.iterdir() if entry.is_dir() and entry.name != "archive"
     )
 
 
@@ -338,9 +334,7 @@ def build_book(
     book.set_language("en")
     book.add_author(author)
     book.add_metadata("DC", "date", today)
-    book.add_metadata(
-        "DC", "description", f"Planning artifacts for change {change_name}"
-    )
+    book.add_metadata("DC", "description", f"Planning artifacts for change {change_name}")
 
     style = epub.EpubItem(
         uid="style",
@@ -362,9 +356,7 @@ def build_book(
         item.content = f"<h1>{doc.title}</h1>\n{html}"
         item.add_item(style)
         book.add_item(item)
-        chapters.append(
-            Chapter(document=doc, item=item, subheadings=extract_subheadings(html))
-        )
+        chapters.append(Chapter(document=doc, item=item, subheadings=extract_subheadings(html)))
 
     book.toc = build_toc(chapters)
     book.spine = [title_page, *(chapter.item for chapter in chapters)]
@@ -382,9 +374,7 @@ def resolve_change_name(explicit: str | None, changes_dir: Path) -> str:
         raise SystemExit(f"No active changes found in {changes_dir}")
     if len(available) > 1:
         listed = "\n  ".join(available)
-        raise SystemExit(
-            f"Multiple active changes; name the one to render:\n  {listed}"
-        )
+        raise SystemExit(f"Multiple active changes; name the one to render:\n  {listed}")
     return available[0]
 
 

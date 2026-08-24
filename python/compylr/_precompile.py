@@ -30,8 +30,23 @@ from ._errors import ConfigurationError
 #: An environment or a cache holds other people's code, and importing it would mean precompiling a
 #: small project pulled in an arbitrary dependency tree.
 SKIPPED_DIRECTORIES = frozenset(
-    {".venv", "venv", ".git", ".hg", "__pycache__", ".compylr", ".mypy_cache", ".pytest_cache",
-     ".ruff_cache", "build", "dist", "target", "node_modules", ".tox", ".eggs"}
+    {
+        ".venv",
+        "venv",
+        ".git",
+        ".hg",
+        "__pycache__",
+        ".compylr",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "build",
+        "dist",
+        "target",
+        "node_modules",
+        ".tox",
+        ".eggs",
+    }
 )
 
 
@@ -200,8 +215,11 @@ def precompile(root: Path | str) -> Report:
         try:
             _import_file(path, name)
         except BaseException as error:  # noqa: BLE001 - a module may raise anything on import
-            report.failures.append(ImportFailure(module=str(path.relative_to(root)),
-                                                 reason=f"{type(error).__name__}: {error}"))
+            report.failures.append(
+                ImportFailure(
+                    module=str(path.relative_to(root)), reason=f"{type(error).__name__}: {error}"
+                )
+            )
             continue
         report.modules_imported += 1
 
@@ -271,9 +289,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="compylr",
-        description=(
-            "Compile a project ahead of its first run, so no call pays the build cost."
-        ),
+        description=("Compile a project ahead of its first run, so no call pays the build cost."),
         epilog=(
             "Discovery imports every module beneath the root, because a decorator only registers "
             "when it runs. Module-level code therefore executes. Environments, caches, and build "

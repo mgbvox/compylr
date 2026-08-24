@@ -1,5 +1,9 @@
 # compylr
 
+[![Rust](https://github.com/mgbvox/compylr/actions/workflows/rust.yml/badge.svg)](https://github.com/mgbvox/compylr/actions/workflows/rust.yml)
+[![Python](https://github.com/mgbvox/compylr/actions/workflows/python.yml/badge.svg)](https://github.com/mgbvox/compylr/actions/workflows/python.yml)
+[![Benchmark](https://github.com/mgbvox/compylr/actions/workflows/benchmark.yml/badge.svg)](https://github.com/mgbvox/compylr/actions/workflows/benchmark.yml)
+
 Transpiles a strict, fully annotated Python subset to Rust, and calls the result from Python.
 
 ```python
@@ -147,12 +151,33 @@ and asserts it, and a test in this repository fails when a form is added to the 
 demo does not know about. **Depth** is `nth_prime`, one problem three ways, measured compiled
 against interpreted in two separate processes.
 
-The benchmark reports the spread rather than promising that compiled is always faster. In the
-recorded scale-one run, arithmetic in a tight loop was 21.8× faster, matrix multiplication 11.3×,
-and text joining 3.5×; `text.word_count` was 0.5× and conversion-dominated binary search 0.2×.
-Collections are converted element by element on every call, so compiling pays when the generated
-body saves more than that boundary costs. The demo README records the complete before/after table,
-its noise floor, and the defects the benchmark found despite every answer being correct.
+The benchmark reports the spread rather than a headline, and this table is **generated** — written
+back by [`scripts/update_benchmarks.py`](scripts/update_benchmarks.py) from a real run, never
+edited by hand. Its ends are the finding: the top is arithmetic in a tight loop, where there is
+nothing for the interpreter to do but dispatch, and the bottom is work dominated by **crossing the
+boundary** — collections are converted element by element on every call, so compiling pays
+only when the generated body saves more than that conversion costs.
+
+<!-- benchmark:summary -->
+| workload | compiled | interpreted | speedup |
+| --- | ---: | ---: | ---: |
+| `arithmetic.collatz_length` | 0.28us | 6.11us | **22.0x** |
+| `dynamic.knapsack` | 21.54us | 246.76us | **11.5x** |
+| `structures.component_count` | 6.51us | 60.01us | **9.2x** |
+| … | | | |
+| `text.joined` | 77.27us | 61.71us | **0.8x** |
+| `graphs.bfs_distances` | 49.62us | 27.17us | **0.5x** |
+| `text.word_count` | 74.16us | 18.69us | **0.3x** |
+| `reference (never compiled)` | 38.80us | 40.17us | 1.0x |
+
+_scale 1 — measured on Darwin arm64, Python 3.14.0, 2026-08-24._
+<!-- /benchmark:summary -->
+
+The `reference` row is never compiled, so its ratio is what "no difference" looks like on the
+machine that produced the table — read every other row against that rather than against 1.0. The
+demo's own README carries the whole table, the before/after this change measured, what the subset
+costs as it shows up in real code, and the defects the benchmark found despite every answer being
+correct.
 
 ## Turning it off
 
@@ -475,13 +500,16 @@ git submodule update --init
 Then:
 
 ```bash
-cargo test                                    # Rust: unit, fixture, emission, execution
-cargo clippy -p compylr --all-targets -- -D warnings
+cargo test --workspace                        # Rust: unit, fixture, emission, execution
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
 
 uv venv && source .venv/bin/activate
-uv pip install -e ".[dev]" || (uv pip install maturin pytest pytest-cov ruff mypy && maturin develop)
+uv pip install -e ".[dev]"
 pytest                                        # Python: the package and the native boundary
-ruff check python/ && mypy python/compylr
+ruff check python/ scripts/                   # lint
+ruff format --check python/ scripts/          # formatting
+ty check python/compylr                       # types
 ```
 
 The binary prints the unit fingerprint and each function's signature, and reports rejections

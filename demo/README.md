@@ -157,6 +157,58 @@ make demo                                   # from the repository root
 uv run python -m algorithms.benchmark       # or directly, from here
 ```
 
+<!-- benchmark:algorithms -->
+```
+every algorithm, scale=1, per call, best of 5 batches
+
+workload                           compiled    interpreted   speedup
+--------------------------------------------------------------------
+arithmetic.collatz_length            0.28us         6.11us     22.0x
+dynamic.knapsack                    21.54us       246.76us     11.5x
+structures.component_count           6.51us        60.01us      9.2x
+matrices.multiply                    9.76us        80.84us      8.3x
+arithmetic.sieve                     1.20us         8.82us      7.3x
+stats.standard_deviation             5.49us        19.35us      3.5x
+sorting.merge_sort                  64.23us       177.35us      2.8x
+sorting.insertion_sort               4.71us        12.59us      2.7x
+dynamic.edit_distance               47.35us       111.83us      2.4x
+stats.normalize                     11.00us        23.42us      2.1x
+graphs.topological_order           144.35us       209.18us      1.4x
+reference (never compiled)          38.80us        40.17us      1.0x
+matrices.transpose                   5.76us         5.96us      1.0x
+text.joined                         77.27us        61.71us      0.8x
+graphs.bfs_distances                49.62us        27.17us      0.5x
+text.word_count                     74.16us        18.69us      0.3x
+
+The reference is never compiled, so its 1.04x is this run's noise floor — read every other row against that, not against 1.0.
+Both modes returned the same answer for every workload.
+```
+
+_scale 1 — measured on Darwin arm64, Python 3.14.0, 2026-08-24._
+<!-- /benchmark:algorithms -->
+
+**The spread is the point.** A demo reporting one speedup would be hiding what is worth knowing.
+
+The rows at the top are arithmetic in a tight loop, where there is nothing for the interpreter to
+do but dispatch. The rows at the bottom are dominated by **crossing the boundary**: collections go
+by value, and every element is converted on **every call**. Measured on this machine, an integer
+element costs roughly 4 ns to cross, a text element roughly 42 ns, and returning an element roughly
+10 ns. Text is therefore the most expensive supported collection element; `text.word_count`
+deliberately keeps `list[str]` represented in the table.
+
+That conversion cost is proportional to the argument's length even when the function body is not.
+`sorting.binary_search` converts all 2,000 integers at scale four to perform only about eleven
+comparisons. Measured here it took 11.54 us compiled against 0.65 us interpreted — about 17.8x
+slower — because its O(n) boundary dominates its O(log n) body.
+`bfs_distances` similarly converts a mapping of lists on the way in and a mapping of integers on
+the way out. A faster generated body does not guarantee a faster call; the ratio between conversion
+and computation is what each row measures.
+
+`reference` is the control. It is never compiled, so its ratio is what "no difference" looks like
+on the machine you ran this on. Read every other row against that, not against 1.0.
+
+**What this change bought.** The block above is regenerated from a real run, so it reports whatever this revision measures. That is a different question from what the performance work moved, and this table answers the second one — it is written by hand and stays put.
+
 The final clean scale-one run had a 2% control-row floor and 1–5% row spreads, except
 `sorting.merge_sort`, which the harness marked unstable at 38% and whose figure is therefore not
 worth reading. The baseline is the table recorded before this change; `—` means the workload was
@@ -199,41 +251,30 @@ that happened to include it.
 while the resulting artifact could fault if `.compylr` were copied to a machine with a different
 instruction set. The generated manifest has a test preventing that flag from being reintroduced.
 
-**The spread is the point.** A demo reporting one speedup would be hiding what is worth knowing.
-
-The rows at the top are arithmetic in a tight loop, where there is nothing for the interpreter to
-do but dispatch. The rows at the bottom are dominated by **crossing the boundary**: collections go
-by value, and every element is converted on **every call**. Measured on this machine, an integer
-element costs roughly 4 ns to cross, a text element roughly 42 ns, and returning an element roughly
-10 ns. Text is therefore the most expensive supported collection element; `text.word_count`
-deliberately keeps `list[str]` represented in the table.
-
-That conversion cost is proportional to the argument's length even when the function body is not.
-`sorting.binary_search` converts all 2,000 integers at scale four to perform only about eleven
-comparisons. Measured here it took 11.54 us compiled against 0.65 us interpreted — about 17.8x
-slower — because its O(n) boundary dominates its O(log n) body.
-`bfs_distances` similarly converts a mapping of lists on the way in and a mapping of integers on
-the way out. A faster generated body does not guarantee a faster call; the ratio between conversion
-and computation is what each row measures.
-
-`reference` is the control. It is never compiled, so its ratio is what "no difference" looks like
-on the machine you ran this on. Read every other row against that, not against 1.0.
-
 ### The nth prime
 
 ```bash
 uv run python -m algorithms.nth_prime.benchmark --n 500
 ```
 
+<!-- benchmark:nth-prime -->
 ```
+nth prime, n=500, per call, best of 5 batches
+
 variant                          compiled    interpreted   speedup
 ------------------------------------------------------------------
-reference (never compiled)      1058.15us      1049.28us      1.0x
-recursive                         38.13us      1243.62us     32.6x
-iterative                         19.25us       613.14us     31.8x
-memoized (cold cache)             36.21us      1058.52us     29.2x
+reference (never compiled)      1066.72us      1054.66us      1.0x
+recursive                         37.76us      1207.53us     32.0x
+iterative                         18.94us       628.95us     33.2x
+memoized (cold cache)             35.87us      1045.49us     29.1x
 memoized (warm cache)              0.10us         0.08us      0.8x
+
+The reference is never compiled, so its 0.99x is this run's noise floor — read every other row against that, not against 1.0.
+Both modes returned the same answer for every variant.
 ```
+
+_n = 500 — measured on Darwin arm64, Python 3.14.0, 2026-08-24._
+<!-- /benchmark:nth-prime -->
 
 **A warm cache hit is *slower* compiled** — 0.10 µs against 0.08 µs. Crossing the boundary costs
 more than a dictionary lookup saves. That is not a defect; it is the shape of the tradeoff, and
@@ -342,7 +383,8 @@ make demo-check        # from the repository root: sync, precompile, test, lint,
 
 uv run pytest          # or piecemeal, from here
 uv run ruff check .
-uv run mypy src
+uv run ruff format --check .
+uv run ty check src
 ```
 
 The repository's own suite also builds this project, runs every algorithm, and asserts the

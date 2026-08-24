@@ -3,10 +3,15 @@ name = "compylr-demo"
 version = "0.1.0"
 description = "A worked compylr project: three nth-prime variants, and common algorithms"
 requires-python = ">=3.12"
-dependencies = ["compylr"]
+# maturin is a dependency of *running this project*, not of developing it. The demo compiles on
+# first call and compylr shells out to maturin to build what it generated -- installing compylr
+# gets the compiler, not the ability to build its output, which is a deliberate choice there and
+# an obligation here. Left implicit it works on any machine with a global maturin and fails on
+# every machine without one, which is exactly how it passed locally and failed on a runner.
+dependencies = ["compylr", "maturin>=1.9,<2.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+dev = ["pytest>=8", "ruff>=0.6", "ty>=0.0.74"]
 
 [build-system]
 requires = ["hatchling"]
@@ -25,3 +30,11 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+# `.compylr/` is build output -- a generated crate and the IR it came from, not source anyone
+# wrote. `src/algorithms` is the project; `tests/` is checked with it.
+exclude = [".compylr"]

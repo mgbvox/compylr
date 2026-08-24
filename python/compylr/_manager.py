@@ -47,10 +47,17 @@ class CompiledFunction(Generic[P, R]):
     "the compiled result matches the interpreted one" testable at all.
     """
 
-    def __init__(self, function: Callable[P, R], manager: Manager, settings: Settings) -> None:
+    def __init__(
+        self, function: Callable[P, R], manager: Manager, settings: Settings, name: str
+    ) -> None:
         self._function = function
         self._manager = manager
         self._settings = settings
+        # The name the manager registered this function under, passed in rather than re-derived
+        # from the function. `Callable` does not promise a `__name__` -- an object with `__call__`
+        # is callable and has none -- and deriving the same key twice is how the wrapper and the
+        # registry could come to disagree about which member this is.
+        self._name = name
         self._compiled: Callable[..., R] | None = None
         functools.update_wrapper(self, function)
         # Since PEP 649 (3.14) a function's annotations are computed lazily from `__annotate__`,
@@ -71,12 +78,12 @@ class CompiledFunction(Generic[P, R]):
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         if self._compiled is None:
-            self._compiled = self._manager._resolve(self._function.__name__)
+            self._compiled = self._manager._resolve(self._name)
         return self._compiled(*args, **kwargs)
 
     def __repr__(self) -> str:
         state = "compiled" if self._compiled is not None else "not built yet"
-        return f"<compylr function {self._function.__name__!r} ({state})>"
+        return f"<compylr function {self._name!r} ({state})>"
 
 
 class CompiledClass:
@@ -243,7 +250,7 @@ class Manager:
         wrapper: Any = (
             CompiledClass(function, self, settings)
             if isinstance(function, type)
-            else CompiledFunction(function, self, settings)
+            else CompiledFunction(function, self, settings, name)
         )
         self._functions[name] = wrapper
         # A newly marked function changes the unit, so whatever was built no longer covers it.
@@ -290,8 +297,7 @@ class Manager:
 
         if (
             self._pipeline.cached_fingerprint() == compiled.fingerprint
-            and self._pipeline.cached_module_name(list(compiled.passes))
-            == compiled.module_name
+            and self._pipeline.cached_module_name(list(compiled.passes)) == compiled.module_name
         ):
             module = self._import_cached(compiled.module_name)
             if module is not None:

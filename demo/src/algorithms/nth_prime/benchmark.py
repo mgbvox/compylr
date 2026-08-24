@@ -28,7 +28,7 @@ import json
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from .._timing import (
     DISABLE_ENV,
@@ -132,12 +132,16 @@ def measure(n: int, repetitions: int = REPETITIONS) -> Measurement:
 
 def _run_child(n: int, repetitions: int, *, disabled: bool) -> Measurement:
     """Measure in a fresh process, with compilation on or off."""
-    measured: Measurement = measure_in_child(  # type: ignore[assignment]
-        "algorithms.nth_prime.benchmark",
-        ["--n", str(n), "--repetitions", str(repetitions)],
-        disabled=disabled,
+    # `dict[str, Any]` on the way out of the child, because it crossed a process boundary as
+    # JSON. `Measurement` is the shape both ends agree on; the cast is where that is asserted.
+    return cast(
+        "Measurement",
+        measure_in_child(
+            "algorithms.nth_prime.benchmark",
+            ["--n", str(n), "--repetitions", str(repetitions)],
+            disabled=disabled,
+        ),
     )
-    return measured
 
 
 #: Every row of the comparison, in the order it is printed.

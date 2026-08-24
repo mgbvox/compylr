@@ -17,7 +17,7 @@ from compylr import _manager, _precompile
 from compylr._errors import ConfigurationError
 from conftest import needs_toolchain
 
-MARKED = '''
+MARKED = """
 import compylr
 
 c = compylr.initialize(root={root!r})
@@ -26,7 +26,7 @@ c = compylr.initialize(root={root!r})
 @c.compyle
 def {name}(n: int) -> int:
     return n * {factor}
-'''
+"""
 
 
 def write(root: Path, relative: str, body: str) -> Path:
@@ -109,7 +109,7 @@ class TestDiscovery:
         write(
             tmp_path,
             "pkg/c.py",
-            f'''
+            f"""
             import compylr
 
             c = compylr.initialize(root={artifacts!r})
@@ -122,7 +122,7 @@ class TestDiscovery:
 
                 def get(self) -> int:
                     return self.v
-            ''',
+            """,
         )
         report = _precompile.precompile(tmp_path)
         assert set(report.functions) == {"one", "two"}

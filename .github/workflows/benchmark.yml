@@ -1,0 +1,117 @@
+name: Benchmark
+
+# The demo is where cost shows up. A quadratic clone in `for`, an O(n) clone per nested read and a
+# full recompile per marked member were all invisible to every correctness test in the repository
+# and visible here, so this runs on its own rather than waiting for someone to remember.
+#
+# It **writes the numbers back**: `scripts/update_benchmarks.py` rewrites the marked blocks in
+# `README.md` and `demo/README.md` and the job commits the result. A table nobody re-measures is
+# worse than no table, because a reader trusts it.
+#
+# Read the runner in the block's provenance line before comparing two runs. A GitHub runner is
+# shared hardware and its noise floor is far worse than a quiet laptop's; the floor is printed in
+# the block itself, which is the honest way to say so.
+
+on:
+  # A change to the compiler, the runtime surface, or the workloads can move these numbers.
+  push:
+    branches: ["main"]
+    paths:
+      - "crates/**"
+      - "python/compylr/**"
+      - "demo/src/**"
+      - "scripts/update_benchmarks.py"
+      - ".github/workflows/benchmark.yml"
+  schedule:
+    # Monday, early UTC. Catches drift in the toolchain and the runner image, which move without
+    # anything in this repository changing.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      scale:
+        description: "Input size for the algorithm table"
+        required: false
+        default: "1"
+      n:
+        description: "Which prime the nth-prime table times"
+        required: false
+        default: "500"
+
+concurrency:
+  # Not cancel-in-progress: this one commits, and a cancelled run could leave one README rewritten
+  # and the other not.
+  group: benchmark
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Dispatch inputs reach the shell through the environment and are checked to be integers.
+      # They come from someone with write access, but a workflow that interpolates an input
+      # straight into a command line is the shape of a workflow that later gets one it did not
+      # write.
+      - name: The run's parameters
+        env:
+          SCALE_INPUT: ${{ inputs.scale || '1' }}
+          N_INPUT: ${{ inputs.n || '500' }}
+        run: |
+          set -euo pipefail
+          [[ "$SCALE_INPUT" =~ ^[0-9]+$ ]] || { echo "scale must be a number"; exit 1; }
+          [[ "$N_INPUT" =~ ^[0-9]+$ ]] || { echo "n must be a number"; exit 1; }
+          echo "SCALE=$SCALE_INPUT" >> "$GITHUB_ENV"
+          echo "N=$N_INPUT" >> "$GITHUB_ENV"
+
+      # The rebuild key is the IR fingerprint and the generated crate is **committed**, so a fresh
+      # checkout already has an artifact that a build will happily reuse. Measuring that would be
+      # measuring whichever revision last wrote it. This has cost real time before.
+      - name: Measure this revision, not the committed artifact
+        run: rm -rf .compylr demo/.compylr
+
+      - name: Re-measure and rewrite the READMEs
+        run: python scripts/update_benchmarks.py --scale "$SCALE" --n "$N"
+
+      # The generated crate under `demo/.compylr/` is committed to be read, and a Linux rebuild of
+      # it differs from the macOS one that is checked in -- `.cargo/config.toml` carries the
+      # platform's linker flags. Restore it: this job's output is the two READMEs and nothing else.
+      - name: Restore the committed artifact
+        run: git checkout -- demo/.compylr || true
+
+      - name: Report
+        run: |
+          {
+            echo "## Benchmarks (scale $SCALE, n $N)"
+            echo
+            git --no-pager diff -- README.md demo/README.md || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit the numbers
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md demo/README.md
+          if git diff --cached --quiet; then
+            echo "the tables did not move"
+            exit 0
+          fi
+          # `[skip ci]`: this commit touches two READMEs, and re-running the Rust and Python
+          # suites over a table of timings buys nothing.
+          git commit -m "Re-measure the benchmarks [skip ci]"
+          git push
