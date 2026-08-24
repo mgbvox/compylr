@@ -319,7 +319,7 @@ pub struct Names<'a> {
 ///
 /// [`Names`] wrapped rather than extended, because a behavior is not a name and a struct called
 /// "everything nameable" should not quietly start carrying one. Wrapped rather than passed
-/// alongside, because [`lower_expr`] takes this and not [`Ctx`], and a second parameter would
+/// alongside, because `lower_expr` takes this and not `Ctx`, and a second parameter would
 /// have meant editing forty call sites to thread a value none of them look at.
 ///
 /// `Copy`, like the `Names` it holds, so passing it down costs nothing and no call site has to

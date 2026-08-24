@@ -17,7 +17,8 @@
 //!
 //! The first rule is where the checking mode comes in, and it is worth being precise about what
 //! reading it does and does not change. A failing operation is left unfolded under **both** modes,
-//! but for two different reasons — see [`left_unfolded`]. The answer being the same today is a
+//! but for two different reasons — see `left_unfolded`, which is private and so is named here
+//! as code rather than linked. The answer being the same today is a
 //! fact about these two modes rather than a property of folding, which is why the decision is
 //! made by matching on the mode rather than by ignoring it: a mode added later has to answer the
 //! question here instead of inheriting an answer nobody wrote down.

@@ -40,10 +40,7 @@ class TestCompileUnit:
         assert "pyo3" in compiled.manifest
 
     def test_defaults_to_the_rust_backend(self) -> None:
-        assert (
-            compile_unit([ADD]).target_sources
-            == compile_unit([ADD], "rust").target_sources
-        )
+        assert compile_unit([ADD]).target_sources == compile_unit([ADD], "rust").target_sources
 
     def test_an_empty_project_is_not_an_error(self) -> None:
         # A project can legitimately have nothing marked yet.
@@ -122,9 +119,7 @@ class TestDiagnostics:
 
     def test_valid_python_outside_the_subset_raises_a_different_error(self) -> None:
         with pytest.raises(_core.UnsupportedProgramError):
-            compile_unit(
-                ["def loops(a: int) -> int:\n    while a:\n        pass\n    return a\n"]
-            )
+            compile_unit(["def loops(a: int) -> int:\n    while a:\n        pass\n    return a\n"])
 
     def test_the_two_are_distinguishable(self) -> None:
         # Catching one must not catch the other: a typo and an unsupported feature need different

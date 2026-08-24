@@ -83,9 +83,7 @@ def implemented_backends() -> list[str]:
 def check_backend(name: str) -> None:
     """Raise unless `name` is a backend that can compile today."""
 
-def check_behavior(
-    axes: dict[str, str], backend: str = "rust", frontend: str = "python"
-) -> None:
+def check_behavior(axes: dict[str, str], backend: str = "rust", frontend: str = "python") -> None:
     """Raise unless every axis and language named is valid for this pair.
 
     Nothing is parsed and no target source is generated. This is what lets the decorator reject a
