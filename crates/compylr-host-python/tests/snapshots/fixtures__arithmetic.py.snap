@@ -1,5 +1,5 @@
 ---
-source: tests/fixtures.rs
+source: crates/compylr-host-python/tests/fixtures.rs
 expression: functions
 ---
 [
@@ -33,8 +33,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 0,
-            end: 48,
+            start: 321,
+            end: 369,
         },
     },
     Function {
@@ -67,12 +67,12 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 51,
-            end: 106,
+            start: 372,
+            end: 427,
         },
     },
     Function {
-        name: "scale",
+        name: "product",
         params: [
             Param {
                 name: "a",
@@ -101,8 +101,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 109,
-            end: 159,
+            start: 430,
+            end: 482,
         },
     },
     Function {
@@ -136,12 +136,12 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 162,
-            end: 205,
+            start: 485,
+            end: 528,
         },
     },
     Function {
-        name: "remainder",
+        name: "modulo",
         params: [
             Param {
                 name: "a",
@@ -171,8 +171,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 208,
-            end: 262,
+            start: 531,
+            end: 582,
         },
     },
     Function {
@@ -196,8 +196,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 265,
-            end: 305,
+            start: 585,
+            end: 625,
         },
     },
 ]

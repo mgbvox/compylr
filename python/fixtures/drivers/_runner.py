@@ -22,7 +22,9 @@ from __future__ import annotations
 import ast
 import json
 import math
+from collections.abc import Iterable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 #: How far two floats may differ and still be the same answer.
@@ -118,7 +120,9 @@ def _validate_entry(entry: object, name: str, where: str, *, argument: bool = Fa
     if not isinstance(args, list):
         raise DriverError(f"{name}: {where} arguments must be a list, not {type(args).__name__}")
     for supplied in args:
-        if isinstance(supplied, dict):
+        # A mapping is data unless it names a class: fixtures take dict arguments, and reading
+        # every one of them as a call would make `lookup({"a": 1}, "a")` unstatable.
+        if isinstance(supplied, dict) and "new" in supplied:
             _validate_entry(supplied, name, f"{where} argument", argument=True)
 
     methods = entry.get("methods", [])
@@ -146,6 +150,53 @@ def _validate_entry(entry: object, name: str, where: str, *, argument: bool = Fa
         )
 
 
+def encode_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Re-express a driver's calls so JSON can carry them without losing a type.
+
+    The translation tier reads drivers through JSON, and JSON has one sequence type and only
+    string keys -- so a set would arrive as a list, a tuple as a list, and an integer mapping key
+    as its spelling. The generated harness has to build a `HashSet` where the driver wrote a set,
+    so the distinction has to survive the trip. Values that JSON already represents exactly are
+    left alone; the rest are tagged.
+    """
+    return [_encode_entry(entry) for entry in calls]
+
+
+def _encode_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    encoded: dict[str, Any] = {}
+    if "call" in entry:
+        encoded["call"] = entry["call"]
+    else:
+        encoded["new"] = entry["new"]
+    encoded["args"] = [_encode_argument(argument) for argument in entry.get("args", [])]
+    encoded["methods"] = [
+        [name, [_encode_argument(argument) for argument in args]]
+        for name, args in entry.get("methods", [])
+    ]
+    return encoded
+
+
+def _encode_argument(argument: Any) -> Any:
+    # A mapping naming a class is a call, not data -- the same rule the validator applies.
+    if isinstance(argument, dict) and "new" in argument:
+        return _encode_entry(argument)
+    return _encode_value(argument)
+
+
+def _encode_value(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, list):
+        return [_encode_value(item) for item in value]
+    if isinstance(value, tuple):
+        return {"$tuple": [_encode_value(item) for item in value]}
+    if isinstance(value, (set, frozenset)):
+        return {"$set": [_encode_value(item) for item in sorted(value)]}
+    if isinstance(value, dict):
+        return {"$dict": [[_encode_value(k), _encode_value(v)] for k, v in value.items()]}
+    raise DriverError(f"no JSON encoding for a {type(value).__name__}")
+
+
 def members_named(calls: list[dict[str, Any]]) -> set[str]:
     """Every fixture member a driver reaches, including classes built to pass as arguments."""
     found: set[str] = set()
@@ -153,7 +204,7 @@ def members_named(calls: list[dict[str, Any]]) -> set[str]:
     def walk(entry: dict[str, Any]) -> None:
         found.add(entry.get("call", entry.get("new", "")))
         for argument in entry.get("args", []):
-            if isinstance(argument, dict):
+            if isinstance(argument, dict) and "new" in argument:
                 walk(argument)
 
     for entry in calls:
@@ -301,3 +352,40 @@ def values_agree(left: Any, right: Any) -> bool:
     if type(left) is not type(right):
         return False
     return bool(left == right)
+
+
+#: Fixtures whose names begin with this only mean anything together: one calls into the other.
+CROSS_SOURCE_PREFIX = "cross_source_"
+
+
+def group_for(stem: str, every_stem: Iterable[str]) -> list[str]:
+    """The fixtures that must be present for ``stem`` to resolve.
+
+    Stated once, here, because both tiers need the same answer: a call across two sources
+    resolves only when both are in the same unit, and the translation tier groups its units the
+    way `emit_quality.rs` already does.
+    """
+    if stem.startswith(CROSS_SOURCE_PREFIX):
+        return sorted(s for s in every_stem if s.startswith(CROSS_SOURCE_PREFIX))
+    return [stem]
+
+
+def fixture_namespace(paths: Iterable[Path]) -> SimpleNamespace:
+    """Run fixture sources into one namespace, the way one unit shares one namespace.
+
+    This is the oracle side: plain CPython running the fixture's own source, with nothing about
+    it depending on the compiler being correct.
+    """
+    namespace: dict[str, Any] = {}
+    for path in paths:
+        exec(compile(path.read_text(), str(path), "exec"), namespace)  # noqa: S102
+    namespace.pop("__builtins__", None)
+    return SimpleNamespace(**namespace)
+
+
+def interpreted_results(accepted_dir: Path, drivers_dir: Path, stem: str) -> list[Any]:
+    """What CPython answers for one fixture's driver."""
+    stems = [p.stem for p in accepted_dir.glob("*.py")]
+    sources = [accepted_dir / f"{name}.py" for name in group_for(stem, stems)]
+    calls = load_calls(drivers_dir / f"{stem}.py")
+    return run_calls(calls, fixture_namespace(sources))

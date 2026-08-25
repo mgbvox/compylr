@@ -22,14 +22,14 @@ pub fn halve(a: i64) -> Result<i64, RuntimeError> {
     Ok(PyNum::div_floor(&(a), &(2i64))?)
 }
 
+pub fn modulo(a: i64, b: i64) -> Result<i64, RuntimeError> {
+    Ok(PyNum::rem_floor(&(a), &(b))?)
+}
+
 pub fn negate(a: i64) -> Result<i64, RuntimeError> {
     Ok(PyNum::py_neg(&(a))?)
 }
 
-pub fn remainder(a: i64, b: i64) -> Result<i64, RuntimeError> {
-    Ok(PyNum::rem_floor(&(a), &(b))?)
-}
-
-pub fn scale(a: i64, b: i64) -> Result<i64, RuntimeError> {
+pub fn product(a: i64, b: i64) -> Result<i64, RuntimeError> {
     Ok(PyNum::py_mul(&(a), &(b))?)
 }

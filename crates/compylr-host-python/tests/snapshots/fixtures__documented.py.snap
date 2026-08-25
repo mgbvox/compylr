@@ -1,10 +1,10 @@
 ---
-source: tests/fixtures.rs
+source: crates/compylr-host-python/tests/fixtures.rs
 expression: functions
 ---
 [
     Function {
-        name: "add",
+        name: "summed",
         params: [
             Param {
                 name: "a",
@@ -35,8 +35,8 @@ expression: functions
             "Return the sum of two integers.",
         ),
         span: Span {
-            start: 0,
-            end: 90,
+            start: 321,
+            end: 414,
         },
     },
     Function {
@@ -76,8 +76,8 @@ expression: functions
             "Scale a value.\n\n    A longer explanation, spanning several lines, with a blank line above.\n    ",
         ),
         span: Span {
-            start: 93,
-            end: 267,
+            start: 417,
+            end: 591,
         },
     },
     Function {
@@ -98,8 +98,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 270,
-            end: 315,
+            start: 594,
+            end: 639,
         },
     },
 ]

@@ -18,19 +18,19 @@
 
 ## 2. A driver for every accepted fixture
 
-- [ ] 2.1 Write the check first, in `crates/compylr-host-python/tests/fixtures.rs`: every fixture in
+- [x] 2.1 Write the check first, in `crates/compylr-host-python/tests/fixtures.rs`: every fixture in
       `python/fixtures/accepted/` has exactly one driver, and the suite fails naming any that does
       not. Derive both lists from their directories, never from a literal list
-- [ ] 2.2 Add the coverage check beside it: every function and every class a fixture defines is named
+- [x] 2.2 Add the coverage check beside it: every function and every class a fixture defines is named
       by its driver. Read the members from the lowered unit, so the check cannot drift from what the
       fixture actually declares
-- [ ] 2.3 Write one driver per accepted fixture. Choose inputs that reach the boundary values each
+- [x] 2.3 Write one driver per accepted fixture. Choose inputs that reach the boundary values each
       fixture's constructs distinguish — negative operands for `division.py` and any indexing, an
       empty collection, a non-ASCII string wherever length or text is involved, and the recursive
       cases in `calls.py` and `call_inference.py`
-- [ ] 2.4 Confirm every driver produces at least one line of output under CPython, and that running
+- [x] 2.4 Confirm every driver produces at least one line of output under CPython, and that running
       it twice produces the same transcript
-- [ ] 2.5 `ruff check`, `pytest`, `cargo test --workspace`; commit
+- [x] 2.5 `ruff check`, `pytest`, `cargo test --workspace`; commit
 
 ## 3. The translation tier
 

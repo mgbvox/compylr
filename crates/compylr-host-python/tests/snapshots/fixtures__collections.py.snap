@@ -1,10 +1,10 @@
 ---
-source: tests/fixtures.rs
+source: crates/compylr-host-python/tests/fixtures.rs
 expression: functions
 ---
 [
     Function {
-        name: "total",
+        name: "first_and_count",
         params: [
             Param {
                 name: "xs",
@@ -57,8 +57,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 0,
-            end: 95,
+            start: 321,
+            end: 426,
         },
     },
     Function {
@@ -93,12 +93,12 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 98,
-            end: 163,
+            start: 429,
+            end: 494,
         },
     },
     Function {
-        name: "build",
+        name: "build_list",
         params: [],
         ret: List(
             Int,
@@ -137,8 +137,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 166,
-            end: 224,
+            start: 497,
+            end: 560,
         },
     },
     Function {
@@ -182,8 +182,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 227,
-            end: 287,
+            start: 563,
+            end: 623,
         },
     },
     Function {
@@ -217,8 +217,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 290,
-            end: 336,
+            start: 626,
+            end: 672,
         },
     },
     Function {
@@ -260,8 +260,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 339,
-            end: 390,
+            start: 675,
+            end: 726,
         },
     },
     Function {
@@ -316,8 +316,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 393,
-            end: 485,
+            start: 729,
+            end: 821,
         },
     },
     Function {
@@ -352,8 +352,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 488,
-            end: 541,
+            start: 824,
+            end: 877,
         },
     },
     Function {
@@ -377,8 +377,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 544,
-            end: 592,
+            start: 880,
+            end: 928,
         },
     },
 ]

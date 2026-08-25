@@ -9,12 +9,17 @@ not is a tier reporting on a different program.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from pathlib import Path
 
 import _runner as runner
 import pytest
+
+_ACCEPTED = Path(__file__).resolve().parents[1] / "fixtures" / "accepted"
+_DRIVERS_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "drivers"
+_STEMS = sorted(p.stem for p in _ACCEPTED.glob("*.py"))
 
 
 def write(tmp_path: Path, body: str, name: str = "sample.py") -> Path:
@@ -98,12 +103,61 @@ class TestMembersNamed:
         )
         assert runner.members_named(runner.load_calls(path)) == {"add", "Counter"}
 
+    def test_a_mapping_argument_is_data_not_a_call(self, tmp_path: Path) -> None:
+        # Fixtures take dict arguments. Reading every mapping in argument position as a call
+        # would make `lookup({"a": 1}, "a")` unstatable.
+        path = write(tmp_path, 'CALLS = [{"call": "lookup", "args": [{"a": 1}, "a"]}]\n')
+        assert runner.members_named(runner.load_calls(path)) == {"lookup"}
+
     def test_it_reports_a_class_constructed_as_an_argument(self, tmp_path: Path) -> None:
         path = write(
             tmp_path,
             'CALLS = [{"call": "read", "args": [{"new": "Counter", "args": [3]}]}]\n',
         )
         assert runner.members_named(runner.load_calls(path)) == {"read", "Counter"}
+
+
+class TestEncoding:
+    """JSON carries a driver to the translation tier without losing a type."""
+
+    def test_values_json_represents_exactly_are_left_alone(self) -> None:
+        calls = [{"call": "f", "args": [1, 2.5, "s", True, None, [1, 2]]}]
+        assert runner.encode_calls(calls) == [
+            {"call": "f", "args": [1, 2.5, "s", True, None, [1, 2]], "methods": []}
+        ]
+
+    def test_a_set_stays_distinguishable_from_a_list(self) -> None:
+        (entry,) = runner.encode_calls([{"call": "f", "args": [{2, 1}]}])
+        # Without the tag this would arrive as `[1, 2]` and the harness would build a Vec.
+        assert entry["args"] == [{"$set": [1, 2]}]
+
+    def test_a_tuple_stays_distinguishable_from_a_list(self) -> None:
+        (entry,) = runner.encode_calls([{"call": "f", "args": [(1, "a")]}])
+        assert entry["args"] == [{"$tuple": [1, "a"]}]
+
+    def test_a_mapping_keeps_its_key_type(self) -> None:
+        (entry,) = runner.encode_calls([{"call": "f", "args": [{1: "a"}]}])
+        assert entry["args"] == [{"$dict": [[1, "a"]]}]
+
+    def test_a_constructed_argument_stays_a_call(self) -> None:
+        (entry,) = runner.encode_calls(
+            [{"call": "read", "args": [{"new": "Counter", "args": [3]}]}]
+        )
+        assert entry["args"] == [{"new": "Counter", "args": [3], "methods": []}]
+
+    def test_methods_are_carried_with_their_arguments(self) -> None:
+        (entry,) = runner.encode_calls(
+            [{"new": "Grid", "args": [2], "methods": [["write", [0, 1, {2, 3}]]]}]
+        )
+        assert entry["methods"] == [["write", [0, 1, {"$set": [2, 3]}]]]
+
+    def test_the_whole_corpus_encodes(self) -> None:
+        # Every driver in the tree must survive the trip, or the translation tier cannot read it.
+        drivers = Path(__file__).resolve().parents[1] / "fixtures" / "drivers"
+        for path in sorted(drivers.glob("*.py")):
+            if path.name.startswith("_"):
+                continue
+            json.dumps(runner.encode_calls(runner.load_calls(path)))
 
 
 class TestRunning:
@@ -247,3 +301,33 @@ class _Counter:
 def _module(**members: object) -> object:
     """A stand-in for an imported fixture module."""
     return type("module", (), members)
+
+
+class TestTheCorpusRuns:
+    """Every driver actually exercises its fixture under CPython.
+
+    A driver that produces nothing proves nothing, and one whose transcript varies between runs
+    would make the differential tiers flaky rather than make the compiler wrong.
+    """
+
+    @pytest.mark.parametrize("stem", _STEMS)
+    def test_a_driver_writes_at_least_one_line(self, stem: str) -> None:
+        results = runner.interpreted_results(_ACCEPTED, _DRIVERS_DIR, stem)
+        transcript = runner.render_transcript(results)
+        assert transcript.strip(), f"{stem} produced no output"
+        assert len(transcript.splitlines()) >= 1
+
+    @pytest.mark.parametrize("stem", _STEMS)
+    def test_a_driver_is_deterministic(self, stem: str) -> None:
+        once = runner.render_transcript(runner.interpreted_results(_ACCEPTED, _DRIVERS_DIR, stem))
+        twice = runner.render_transcript(runner.interpreted_results(_ACCEPTED, _DRIVERS_DIR, stem))
+        assert once == twice, f"{stem} rendered differently on a second run"
+
+    def test_the_cross_source_pair_resolves_as_one_namespace(self) -> None:
+        # `caller` reaches a function defined in the other source. Running it alone would raise
+        # NameError, which is why the grouping rule is stated once and shared by both tiers.
+        assert runner.group_for("cross_source_caller", _STEMS) == [
+            "cross_source_callee",
+            "cross_source_caller",
+        ]
+        assert runner.group_for("arithmetic", _STEMS) == ["arithmetic"]

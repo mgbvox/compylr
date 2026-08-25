@@ -10,13 +10,19 @@ use crate::compat::{
     py_borrow, py_place, py_subscript,
 };
 
-pub fn build() -> Result<Vec<i64>, RuntimeError> {
+pub fn build_list() -> Result<Vec<i64>, RuntimeError> {
     let xs: Vec<i64> = vec![1i64, 2i64, 3i64];
     Ok(xs)
 }
 
 pub fn characters(s: String) -> Result<i64, RuntimeError> {
     Ok(PyLen::py_len(&(s), TextUnits::CodePoints))
+}
+
+pub fn first_and_count(xs: Vec<i64>) -> Result<i64, RuntimeError> {
+    let first: i64 = py_subscript(&(xs), &(0i64), IndexOrigin::FromEitherEnd)?;
+    let count: i64 = PyLen::py_len(&(xs), TextUnits::CodePoints);
+    Ok(PyAdd::py_add(&(first), &(count))?)
 }
 
 pub fn from_end(xs: Vec<i64>) -> Result<i64, RuntimeError> {
@@ -39,12 +45,6 @@ pub fn nested(d: FastMap<String, Vec<i64>>, key: String) -> Result<i64, RuntimeE
 pub fn pair() -> Result<String, RuntimeError> {
     let t: (i64, String) = (1i64, String::from("a"));
     Ok((t).1.clone())
-}
-
-pub fn total(xs: Vec<i64>) -> Result<i64, RuntimeError> {
-    let first: i64 = py_subscript(&(xs), &(0i64), IndexOrigin::FromEitherEnd)?;
-    let count: i64 = PyLen::py_len(&(xs), TextUnits::CodePoints);
-    Ok(PyAdd::py_add(&(first), &(count))?)
 }
 
 pub fn unique() -> Result<FastSet<i64>, RuntimeError> {

@@ -13,6 +13,9 @@ use compylr_frontend_python::frontend::parse_file;
 use compylr_frontend_python::lower::lower_source_members;
 use compylr_ir::{Function, Unit};
 
+mod support;
+use support::drivers;
+
 /// The workspace root, which the fixture tree hangs off.
 ///
 /// `CARGO_MANIFEST_DIR` is this crate's directory, two levels down since the host binding moved
@@ -276,4 +279,70 @@ fn unit_fingerprint_is_stable_across_addition_order() {
 /// same bundle the pipeline uses.
 fn python_stance() -> compylr_ir::Behavior {
     compylr_ir::Behavior::of(&compylr_frontend_python::component::PYTHON_BEHAVIOR)
+}
+
+/// Every accepted fixture states which calls exercise it, and nothing states calls for a fixture
+/// that is not there.
+///
+/// The corpus's value is entirely in its coverage, and coverage that is not checked decays. Both
+/// lists are read from their directories: a literal list drifted once already and hid a real
+/// defect.
+#[test]
+fn every_accepted_fixture_has_exactly_one_driver() {
+    let fixtures = drivers::accepted_stems();
+    let declared = drivers::driver_stems();
+    assert!(!fixtures.is_empty(), "there must be accepted fixtures");
+
+    let undriven: Vec<&String> = fixtures.iter().filter(|f| !declared.contains(f)).collect();
+    assert!(
+        undriven.is_empty(),
+        "these accepted fixtures have no driver, so they prove nothing: {undriven:?}\n\
+         add python/fixtures/drivers/<name>.py for each"
+    );
+
+    let orphaned: Vec<&String> = declared.iter().filter(|d| !fixtures.contains(d)).collect();
+    assert!(
+        orphaned.is_empty(),
+        "these drivers name no accepted fixture: {orphaned:?}"
+    );
+}
+
+/// A driver reaches every member its fixture defines.
+///
+/// The members come from the lowered unit rather than from a list beside the check, so what is
+/// demanded cannot drift from what the fixture actually declares. A member no driver calls
+/// contributes nothing to the evidence, which is the whole point of the corpus.
+#[test]
+fn every_driver_reaches_every_member_its_fixture_defines() {
+    let Some(loaded) = drivers::load_all() else {
+        eprintln!("skipping: no python3 on PATH to read the drivers");
+        return;
+    };
+
+    let mut missing: Vec<String> = Vec::new();
+    for stem in drivers::accepted_stems() {
+        let driver = loaded
+            .get(&stem)
+            .unwrap_or_else(|| panic!("{stem} has no driver; the companion test names it"));
+
+        let path = fixtures_dir().join("accepted").join(format!("{stem}.py"));
+        let parsed = parse_file(&path).expect("fixture must parse as valid Python");
+        let (functions, classes) = lower_source_members(&parsed, python_stance())
+            .unwrap_or_else(|error| panic!("{stem} should lower, but failed: {error}"));
+
+        let defined = functions
+            .iter()
+            .map(|f| f.name.clone())
+            .chain(classes.iter().map(|c| c.name.clone()));
+        for member in defined {
+            if !driver.members.contains(&member) {
+                missing.push(format!("{stem}.{member}"));
+            }
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "these members are defined by a fixture and called by no driver: {missing:?}"
+    );
 }
