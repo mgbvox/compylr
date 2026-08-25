@@ -17,7 +17,9 @@ reported there with their original source locations if they remain unresolved.
 Malformed annotations, known unsupported built-ins, nested class-valued boundary annotations once
 their class is known, and every other violation SHALL still be reported as soon as the available
 project context can decide them. Deferral SHALL NOT become silent acceptance or interpreted
-fallback.
+fallback. Once a class annotation resolves, a use that tries to return, store, rebind, or otherwise
+consume its borrowed parameter SHALL fail during whole-project validation with the consuming use's
+location, before generated Rust is written.
 
 #### Scenario: Missing annotation
 
@@ -42,8 +44,8 @@ fallback.
 
 #### Scenario: A class annotation can precede its class
 
-- **WHEN** a top-level function directly taking or returning `Tally` is marked before the `Tally`
-  class is marked
+- **WHEN** a top-level function taking a borrow-only `Tally` or returning a newly owned `Tally` is
+  marked before the `Tally` class is marked
 - **THEN** marking succeeds and the annotation resolves during the whole-project build
 
 #### Scenario: Marking order does not matter
@@ -72,6 +74,12 @@ fallback.
 - **WHEN** a marked function has a `list[Tally]` boundary annotation and the complete project
   defines `Tally`
 - **THEN** the build fails with a located unsupported-boundary-type diagnostic before Rust emission
+
+#### Scenario: A borrowed instance escape is reported before emission
+
+- **WHEN** a marked `identity(t: Tally) -> Tally` returns `t` and the project defines `Tally`
+- **THEN** the whole-project build fails at the returned `t` before writing generated Rust rather
+  than cloning the instance or deferring the failure to rustc
 
 #### Scenario: No silent fallback
 
