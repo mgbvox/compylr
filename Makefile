@@ -34,7 +34,7 @@ help: ## List the available targets
 # -- everyday ---------------------------------------------------------------------------
 
 .PHONY: check
-check: fmt-check lint doc test python ts go ## Everything CI runs: format, lint, docs, all suites
+check: fmt-check lint doc test python ts go docs-generated ## Everything CI runs: format, lint, docs, every suite
 
 .PHONY: test
 test: ## Run the Rust suite
@@ -102,6 +102,11 @@ go-test: ## Test and build Go packages
 .PHONY: go-demo
 go-demo: ## Build Go shared library for TypeScript demo
 	cd $(DEMO_TS)/.compylr/go && go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .
+
+.PHONY: docs-generated
+docs-generated: $(VENV) ## Verify the generated documentation blocks are current
+	$(PY) scripts/update_benchmarks.py --check
+	$(PY) scripts/update_subset.py --check
 
 .PHONY: hooks
 hooks: $(VENV) ## Install the pre-commit hooks, once per clone

@@ -44,6 +44,7 @@ jobs:
       # Cheap, and it fails the moment someone edits a README in a way that would make the
       # benchmark job silently write nothing.
       - run: python scripts/update_benchmarks.py --check
+      - run: python scripts/update_subset.py --check
 
   test:
     name: pytest (${{ matrix.python-version }})

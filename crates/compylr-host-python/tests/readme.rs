@@ -255,3 +255,54 @@ fn readme_does_not_promise_a_python_package_that_does_not_exist() {
         );
     }
 }
+
+/// The generated subset matrix is addressable, populated, and rests on fixtures that exist.
+///
+/// The mechanical half of "the documented subset is generated from the corpus". What the table
+/// *claims* is checked by `scripts/update_subset.py --check`, which regenerates it; what this
+/// checks is that the block is still there to be regenerated, and that every fixture it names is
+/// still in the corpus. Moving or renaming a marker is what breaks the generator, and it would
+/// otherwise break it silently.
+#[test]
+fn readme_carries_a_generated_subset_matrix() {
+    let text = readme();
+    let opening = "<!-- subset:matrix -->";
+    let closing = "<!-- /subset:matrix -->";
+
+    assert_eq!(
+        text.matches(opening).count(),
+        1,
+        "expected exactly one {opening}"
+    );
+    assert_eq!(
+        text.matches(closing).count(),
+        1,
+        "expected exactly one {closing}"
+    );
+
+    let start = text.find(opening).expect("the opening marker") + opening.len();
+    let end = text.find(closing).expect("the closing marker");
+    assert!(end > start, "{closing} appears before {opening}");
+    let block = text[start..end].trim();
+
+    assert!(
+        block.contains("| Form | Kind | Exercised by |"),
+        "the subset matrix is empty; run ./scripts/update_subset.py"
+    );
+
+    // Every fixture the table names must still be in the corpus. A renamed fixture would
+    // otherwise leave the README pointing at a file nobody can open.
+    let accepted = repo_root().join("python/fixtures/accepted");
+    for line in block.lines().filter(|line| line.starts_with("| `")) {
+        let named = line
+            .rsplit('|')
+            .nth(1)
+            .expect("a row ends with the fixture that exercises it")
+            .trim()
+            .trim_matches('`');
+        assert!(
+            accepted.join(named).exists(),
+            "the subset matrix names {named}, which is not in python/fixtures/accepted/"
+        );
+    }
+}

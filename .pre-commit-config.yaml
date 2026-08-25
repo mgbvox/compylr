@@ -109,3 +109,12 @@ repos:
         language: system
         pass_filenames: false
         files: ^(README\.md|demo/README\.md|scripts/update_benchmarks\.py)$
+
+      # Regenerates the matrix and compares, so it runs the compiler -- but it measures nothing,
+      # which is what keeps a documentation check off the benchmark's timescale.
+      - id: subset-matrix
+        name: subset matrix is current
+        entry: python3 scripts/update_subset.py --check
+        language: system
+        pass_filenames: false
+        files: ^(README\.md|scripts/update_subset\.py|scripts/_regions\.py|python/fixtures/accepted/.*\.py)$

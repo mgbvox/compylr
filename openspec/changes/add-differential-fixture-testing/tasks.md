@@ -97,20 +97,20 @@
 
 ## 7. The generated subset matrix
 
-- [ ] 7.1 Extract `Region`, `find_region`, and `replace_region` out of
+- [x] 7.1 Extract `Region`, `find_region`, and `replace_region` out of
       `scripts/update_benchmarks.py` into a shared module, leaving that script's behavior unchanged.
       Confirm `./scripts/update_benchmarks.py --check` still passes
-- [ ] 7.2 Write tests for the generator first: regeneration is idempotent; a construct appears only
+- [x] 7.2 Write tests for the generator first: regeneration is idempotent; a construct appears only
       when a fixture exercising it agreed with CPython; `--check` fails on drift naming what differs
       and measures nothing
-- [ ] 7.3 Add `scripts/update_subset.py` in the shape of `py2many`'s `scripts/lang_table.py`: derive
+- [x] 7.3 Add `scripts/update_subset.py` in the shape of `py2many`'s `scripts/lang_table.py`: derive
       the matrix from the corpus and the differential results, not from a hand-kept list
-- [ ] 7.4 Add the markers to `README.md` and generate the first table
-- [ ] 7.5 Extend `crates/compylr-host-python/tests/readme.rs` to cover the new region, so the matrix
+- [x] 7.4 Add the markers to `README.md` and generate the first table
+- [x] 7.5 Extend `crates/compylr-host-python/tests/readme.rs` to cover the new region, so the matrix
       joins what already cannot drift
-- [ ] 7.6 Wire `--check` into the Makefile, `.pre-commit-config.yaml`, and the CI workflows — all
+- [x] 7.6 Wire `--check` into the Makefile, `.pre-commit-config.yaml`, and the CI workflows — all
       three, so it is not a check people discover in a pull request
-- [ ] 7.7 `make check`, `make precommit`; commit
+- [x] 7.7 `make check`, `make precommit`; commit
 
 ## 8. Close out
 
