@@ -198,3 +198,108 @@ print(json.dumps([_runner.render_encoded(v) for v in json.loads(sys.argv[2])]))
     );
     Some(serde_json::from_slice(&output.stdout).expect("the renderer emits JSON"))
 }
+
+/// One top-level function or class in a corpus file: its 1-based inclusive line range.
+#[derive(Debug, Clone)]
+pub struct Member {
+    pub name: String,
+    pub first_line: usize,
+    pub last_line: usize,
+}
+
+/// A corpus file and the top-level members it declares.
+#[derive(Debug, Clone)]
+pub struct CorpusFile {
+    pub path: PathBuf,
+    pub members: Vec<Member>,
+}
+
+/// Ordinary Python, not written for this compiler.
+///
+/// This repository's own Python, the demo, the scripts, and the standard library of whichever
+/// interpreter is installed -- located by asking it rather than by guessing, so the corpus is
+/// whatever that machine actually has. Vendoring third-party Python to test the compiler would be
+/// a maintenance burden with no upside: the property being established does not depend on *which*
+/// Python, only on it being Python nobody wrote for us.
+///
+/// Returns `None` when no interpreter can be found, which the caller reports as a skip naming the
+/// missing tool. Files that do not parse on the running version are reported separately: that is a
+/// fact about the interpreter, not about lowering.
+pub fn robustness_corpus() -> Option<(Vec<CorpusFile>, usize)> {
+    let interpreter = python()?;
+    let script = r#"
+import ast, json, pathlib, sys, sysconfig
+
+roots = [pathlib.Path(p) for p in sys.argv[1:]]
+stdlib = sysconfig.get_paths().get("stdlib")
+if stdlib:
+    roots.append(pathlib.Path(stdlib))
+
+files, unparsed = [], 0
+seen = set()
+for root in roots:
+    if not root.is_dir():
+        continue
+    for path in sorted(root.rglob("*.py")):
+        resolved = str(path.resolve())
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        # `test/` and `lib2to3/` ship source that is invalid on purpose, the same way this
+        # repository's own rejected corpus does.
+        if any(part in ("test", "tests", "lib2to3", "idle_test") for part in path.parts):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            tree = ast.parse(text)
+        except (SyntaxError, UnicodeDecodeError, ValueError, OSError):
+            unparsed += 1
+            continue
+        members = [
+            {"name": node.name, "first": node.lineno, "last": node.end_lineno}
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.end_lineno is not None
+        ]
+        if members:
+            files.append({"path": resolved, "members": members})
+
+print(json.dumps({"files": files, "unparsed": unparsed}))
+"#;
+    let root = workspace_root();
+    let output = Command::new(interpreter)
+        .arg("-c")
+        .arg(script)
+        .arg(root.join("python/compylr"))
+        .arg(root.join("demo/src"))
+        .arg(root.join("scripts"))
+        .output()
+        .expect("running the interpreter must not fail once it has been located");
+    assert!(
+        output.status.success(),
+        "assembling the robustness corpus failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("the walker emits JSON");
+    let unparsed = parsed["unparsed"].as_u64().unwrap_or(0) as usize;
+    let files = parsed["files"]
+        .as_array()
+        .expect("files is an array")
+        .iter()
+        .map(|entry| CorpusFile {
+            path: PathBuf::from(entry["path"].as_str().expect("a path")),
+            members: entry["members"]
+                .as_array()
+                .expect("members is an array")
+                .iter()
+                .map(|m| Member {
+                    name: m["name"].as_str().expect("a name").to_string(),
+                    first_line: m["first"].as_u64().expect("a line") as usize,
+                    last_line: m["last"].as_u64().expect("a line") as usize,
+                })
+                .collect(),
+        })
+        .collect();
+    Some((files, unparsed))
+}

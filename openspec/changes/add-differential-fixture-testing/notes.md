@@ -52,3 +52,20 @@ on the same source, and each crate documents fine on its own.
 
 This change modifies no `crates/*/src/` file and no manifest, and `cargo doc --lib` does not build
 tests, so it is not reachable from here. Diagnosis and the ruled-out causes are in `HANDOFF.md`.
+
+## What the robustness walk found
+
+Nothing, which is the good outcome and is worth recording as a measurement rather than an
+impression.
+
+**8,121 top-level members across 959 files**, including the standard library of the interpreter on
+this machine, located by asking it. **Zero panics. Zero diagnostics without a usable source
+position. Zero files that failed to parse.** 6.6s.
+
+**76 members lowered — 0.9%.** That number is reported and never asserted: the corpus is whatever
+Python the machine has, so a threshold would make the suite fail for reasons unrelated to the
+compiler. It is low because the subset requires complete annotations and ordinary Python does not
+carry them; what makes it useful is watching it move as the subset grows.
+
+Task 6.5 asked for whatever panics or unlocated errors this found to be fixed. There were none, so
+nothing was changed — the frontend already held the property over inputs nobody wrote for it.

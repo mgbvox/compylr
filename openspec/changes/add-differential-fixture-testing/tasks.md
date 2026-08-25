@@ -82,18 +82,18 @@
 
 ## 6. The robustness walk
 
-- [ ] 6.1 Write the test first in `crates/compylr-host-python/tests/corpus.rs`: over a corpus of
+- [x] 6.1 Write the test first in `crates/compylr-host-python/tests/corpus.rs`: over a corpus of
       Python not written for this compiler, every outcome is a lowered unit or a diagnostic carrying
       a source position; a panic fails; a failure without a position fails
-- [ ] 6.2 Assemble the corpus per D5: `python/compylr/`, `demo/src/`, `scripts/`, and the running
+- [x] 6.2 Assemble the corpus per D5: `python/compylr/`, `demo/src/`, `scripts/`, and the running
       interpreter's standard library located by asking it. Skip a file that does not parse, and count
       it as a parse failure rather than a lowering outcome
-- [ ] 6.3 Report the proportion of top-level members that lowered, out of how many. **Do not assert a
+- [x] 6.3 Report the proportion of top-level members that lowered, out of how many. **Do not assert a
       threshold** — D5 and the design's non-goals record why
-- [ ] 6.4 Skip cleanly, naming what was missing, when no interpreter can be located
-- [ ] 6.5 Fix whatever panics or unlocated errors this finds. If one is large, narrow the corpus
+- [x] 6.4 Skip cleanly, naming what was missing, when no interpreter can be located
+- [x] 6.5 Fix whatever panics or unlocated errors this finds. If one is large, narrow the corpus
       naming the specific module and record a follow-up rather than weakening the check
-- [ ] 6.6 `cargo test --workspace`; commit
+- [x] 6.6 `cargo test --workspace`; commit
 
 ## 7. The generated subset matrix
 
