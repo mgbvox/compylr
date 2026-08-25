@@ -89,6 +89,8 @@ a single one-line function produced 238 lines and the translation was lines 200â
 | `demo` | The worked example: what it must contain, that it compiles, and that this repo verifies it |
 | `pipeline-architecture` | What a frontend, a backend, and a host bridge are, and how each is resolved |
 | `ir-optimization` | Verification and the pass pipeline between lowering and emission |
+| `semantic-behavior` | Behavior axes, how each language declares its stance, and how a request resolves |
+| `generated-code-performance` | What an optimization may not change, and how a speedup is measured and guarded |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
