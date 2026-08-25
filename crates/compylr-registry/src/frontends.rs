@@ -7,6 +7,7 @@
 
 use compylr_core::frontend::{Frontend, FrontendError};
 use compylr_frontend_python::PythonFrontend;
+use compylr_frontend_typescript::TypeScriptFrontend;
 
 /// One entry in the registry.
 ///
@@ -28,7 +29,7 @@ const REGISTRY: &[Entry] = &[
     },
     Entry {
         name: "typescript",
-        frontend: None,
+        frontend: Some(&TypeScriptFrontend),
     },
     Entry {
         name: "go",

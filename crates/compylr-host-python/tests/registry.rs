@@ -9,14 +9,17 @@ use compylr_core::backend::BackendError;
 use compylr_registry::backends::{lookup, names};
 
 #[test]
-fn the_rust_backend_is_implemented() {
-    let backend = lookup("rust").expect("rust must be implemented");
-    assert_eq!(backend.name(), "rust");
+fn the_rust_and_go_backends_are_implemented() {
+    let rust = lookup("rust").expect("rust must be implemented");
+    assert_eq!(rust.name(), "rust");
+
+    let go = lookup("go").expect("go must be implemented");
+    assert_eq!(go.name(), "go");
 }
 
 #[test]
 fn reserved_backends_resolve_as_reserved() {
-    for name in ["typescript", "go", "cpp"] {
+    for name in ["typescript", "cpp"] {
         match lookup(name) {
             Err(BackendError::NotImplemented { backend }) => assert_eq!(backend, name),
             Err(other) => panic!("{name} should be reserved, got {other:?}"),
@@ -32,6 +35,10 @@ fn an_unrecognized_backend_lists_the_available_names() {
             assert_eq!(backend, "brainfuck");
             assert!(
                 available.contains(&"rust".to_string()),
+                "the error must name the backends a user can actually pick, got {available:?}"
+            );
+            assert!(
+                available.contains(&"go".to_string()),
                 "the error must name the backends a user can actually pick, got {available:?}"
             );
         }

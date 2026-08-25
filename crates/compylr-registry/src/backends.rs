@@ -4,6 +4,7 @@
 //! would tell someone asking for TypeScript that no such target exists, which is both false and
 //! discouraging.
 
+use compylr_backend_golang::GoBackend;
 use compylr_backend_rust::rust::RustBackend;
 use compylr_core::backend::{Backend, BackendError};
 
@@ -30,7 +31,7 @@ const REGISTRY: &[Entry] = &[
     },
     Entry {
         name: "go",
-        backend: None,
+        backend: Some(&GoBackend),
     },
     Entry {
         name: "cpp",

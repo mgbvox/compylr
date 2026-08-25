@@ -567,15 +567,19 @@ host language's runtime.
 
 ```
 crates/
-  compylr-diagnostics/         spans and located diagnostics; depends on nothing
-  compylr-ir/                  the IR: types, expressions, statements, Unit, fingerprints, artifact
-  compylr-core/                the traits and the component model; knows no implementation
-  compylr-frontend-python/     ruff parsing and lowering; the only crate that depends on ruff
-  compylr-backend-rust/        IR -> Rust source, plus the runtime shim embedded in generated crates
-  compylr-bridge-python-rust/  the PyO3 layer generated onto compiled functions, for one pair
-  compylr-host-python/         compylr._core: the compiler itself, exposed to Python
-  compylr-registry/            where implementations are registered; the one crate that knows them all
-  compylr-cli/                 the `compylr` binary and its --emit surface
+  compylr-diagnostics/              spans and located diagnostics; depends on nothing
+  compylr-ir/                       the IR: types, expressions, statements, Unit, fingerprints, artifact
+  compylr-core/                     the traits and the component model; knows no implementation
+  compylr-frontend-python/          ruff parsing and lowering; the only crate that depends on ruff
+  compylr-frontend-typescript/      oxc parsing and lowering for TypeScript
+  compylr-backend-rust/             IR -> Rust source, plus the runtime shim embedded in generated crates
+  compylr-backend-golang/           IR -> Go source emission
+  compylr-bridge-python-rust/       the PyO3 layer generated onto compiled functions, for (python, rust)
+  compylr-bridge-typescript-golang/ the CGo/JS loader generated onto compiled functions, for (typescript, go)
+  compylr-host-python/              compylr._core: the compiler itself, exposed to Python
+  compylr-host-typescript/          Node-API native addon exposing the compiler to TypeScript/Node.js
+  compylr-registry/                 where implementations are registered; the one crate that knows them all
+  compylr-cli/                      the `compylr` binary and its --emit surface
 python/
   compylr/      the Python package: initialize, the decorator, the build pipeline
   tests/        pytest suite for the package and the native boundary

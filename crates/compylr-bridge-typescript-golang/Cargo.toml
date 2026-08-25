@@ -1,0 +1,14 @@
+# The host bridge for the (typescript, go) pair: generates CGo export bindings
+# and Node.js FFI wrappers that make compiled Go callable from TypeScript.
+#
+# Depends on the Go backend, never the reverse. It emits CGo/JS source as text
+# and does not itself depend on Node-API or napi.
+[package]
+name = "compylr-bridge-typescript-golang"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compylr-ir.workspace = true
+compylr-core.workspace = true
+compylr-backend-golang.workspace = true

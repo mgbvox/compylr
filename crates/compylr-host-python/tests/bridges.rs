@@ -78,11 +78,10 @@ fn an_unbridged_pair_names_both_languages() {
     assert!(rendered.contains("go"), "{rendered}");
 }
 
-/// A caller must be able to tell "no bridge" from "no backend" without reading prose.
 #[test]
 fn an_unbridged_pair_is_distinguishable_from_an_unimplemented_target() {
     let unbridged = bridge_registry::lookup("python", "go").expect_err("no bridge");
-    let unimplemented = compylr_registry::backends::lookup("go").expect_err("no backend either");
+    let unimplemented = compylr_registry::backends::lookup("cpp").expect_err("no backend either");
 
     assert!(unbridged.is_unbridged());
     assert!(unimplemented.is_not_implemented());

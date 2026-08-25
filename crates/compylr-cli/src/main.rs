@@ -275,11 +275,18 @@ fn run(options: &Options) -> Result<String, String> {
         Emit::Summary => {
             let mut out = format!("unit fingerprint: {:016x}\n", unit.fingerprint());
             for function in unit.functions() {
+                let ret_name = match options.frontend.as_str() {
+                    "typescript" => {
+                        use compylr_frontend_typescript::spelling::TypeScriptSpelling;
+                        function.ret.typescript_name()
+                    }
+                    _ => function.ret.python_name(),
+                };
                 out.push_str(&format!(
                     "  {} ({} params) -> {}\n",
                     function.name,
                     function.params.len(),
-                    function.ret.python_name()
+                    ret_name
                 ));
             }
             Ok(out)
@@ -297,8 +304,13 @@ fn run(options: &Options) -> Result<String, String> {
             // about the target, and it stays answerable for a target no host can call yet.
             let files =
                 backend.post_process(backend.emit(&unit).map_err(|error| error.to_string())?);
+            let generated_path = match backend.name() {
+                "rust" => compylr_backend_rust::rust::GENERATED_PATH,
+                "go" => "generated.go",
+                _ => "generated",
+            };
             files
-                .get(compylr_backend_rust::rust::GENERATED_PATH)
+                .get(generated_path)
                 .cloned()
                 .ok_or_else(|| "this backend emits no translated-code file".to_string())
         }
