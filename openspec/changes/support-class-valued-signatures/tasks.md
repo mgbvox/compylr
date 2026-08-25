@@ -1,25 +1,25 @@
 ## 1. Frontend Resolution and Located Boundary Diagnostics
 
-- [ ] 1.1 Write diagnostic and lowering tests for same-source and cross-source direct class-valued
+- [x] 1.1 Write diagnostic and lowering tests for same-source and cross-source direct class-valued
   free-function parameters/returns, both source orders, a misspelled class name, known unsupported
   built-ins, nested class-valued containers at multiple depths, and explicit method boundary
   positions; assert error category and exact source location before changing lowering.
-- [ ] 1.2 Write failing lowering tests for every direct-instance-parameter use class before
+- [x] 1.2 Write failing lowering tests for every direct-instance-parameter use class before
   implementation: attribute reads, direct and method mutation, compatible forwarding, direct and
   aliased return, local/collection/attribute storage, rebinding, incompatible consumption, newly
   constructed returns, and owned results returned from another function; assert that each escape
   is located at the consuming use and target emission is never reached.
-- [ ] 1.3 Add dedicated machine-readable unresolved-class-annotation and
+- [x] 1.3 Add dedicated machine-readable unresolved-class-annotation and
   borrowed-instance-escape categories; use the former only for bare names that could resolve from
   another source, and report the latter once the class is known without adding it to the manager's
   deferred set.
-- [ ] 1.4 Resolve direct class annotations from the complete cross-source class table, then add a
+- [x] 1.4 Resolve direct class annotations from the complete cross-source class table, then add a
   boundary-shape validator that accepts only direct top-level free-function instances and rejects
   nested or out-of-scope instance positions at their annotation spans before backend emission.
-- [ ] 1.5 Add an exhaustive pre-emission ownership-use validator that permits reads, mutation, and
+- [x] 1.5 Add an exhaustive pre-emission ownership-use validator that permits reads, mutation, and
   compatible borrowed forwarding; rejects return, alias/storage, rebinding, and owned consumption;
   and accepts only constructor- or owned-call-derived class results as owned returns.
-- [ ] 1.6 Run the focused diagnostics, frontend, lowering, unit-verifier, and host-Python tests and
+- [x] 1.6 Run the focused diagnostics, frontend, lowering, unit-verifier, and host-Python tests and
   commit the frontend checkpoint.
 
 ## 2. Decorator Deferral Without Silent Acceptance
