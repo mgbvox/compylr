@@ -5,7 +5,7 @@
 //! snapshot the lowered IR so that an unintended change in shape shows up as a diff rather than
 //! as a silently different tree.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use compylr_diagnostics::error::LowerErrorKind;
@@ -104,80 +104,114 @@ fn default_behavior_fixture_fingerprints_are_stable() {
     insta::assert_debug_snapshot!(fingerprints);
 }
 
+/// What the corpus records each rejected program is refused *for*.
+///
+/// Every file in `python/fixtures/rejected/` appears here, and
+/// `every_rejected_fixture_is_covered_by_the_table` derives that requirement from the directory
+/// rather than from a count. It used to be a count, and twelve fixtures had drifted out of the
+/// table without anything noticing -- a fixture with no recorded rejection is one whose refusal
+/// nothing is asserting.
+const REJECTIONS: &[(&str, LowerErrorKind)] = &[
+    (
+        "missing_param_annotation.py",
+        LowerErrorKind::MissingAnnotation,
+    ),
+    (
+        "missing_return_annotation.py",
+        LowerErrorKind::MissingAnnotation,
+    ),
+    (
+        "unsupported_type_complex.py",
+        LowerErrorKind::UnsupportedType,
+    ),
+    ("unsupported_generic.py", LowerErrorKind::UnsupportedType),
+    ("none_parameter.py", LowerErrorKind::UnsupportedType),
+    ("type_parameters.py", LowerErrorKind::UnsupportedType),
+    (
+        "constructor_early_return.py",
+        LowerErrorKind::UnsupportedConstruct,
+    ),
+    ("decorated.py", LowerErrorKind::UnsupportedConstruct),
+    ("async_function.py", LowerErrorKind::UnsupportedConstruct),
+    ("varargs.py", LowerErrorKind::UnsupportedConstruct),
+    ("kwargs.py", LowerErrorKind::UnsupportedConstruct),
+    ("default_value.py", LowerErrorKind::UnsupportedConstruct),
+    ("keyword_only.py", LowerErrorKind::UnsupportedConstruct),
+    ("non_boolean_test.py", LowerErrorKind::TypeMismatch),
+    ("non_boolean_loop_test.py", LowerErrorKind::TypeMismatch),
+    ("import_statement.py", LowerErrorKind::UnsupportedConstruct),
+    ("class_definition.py", LowerErrorKind::UnsupportedConstruct),
+    ("exponentiation.py", LowerErrorKind::UnsupportedConstruct),
+    ("str_plus_int.py", LowerErrorKind::TypeMismatch),
+    ("boolean_arithmetic.py", LowerErrorKind::TypeMismatch),
+    ("negate_string.py", LowerErrorKind::TypeMismatch),
+    ("compare_unrelated.py", LowerErrorKind::TypeMismatch),
+    ("narrowing_annotation.py", LowerErrorKind::TypeMismatch),
+    ("return_type_conflict.py", LowerErrorKind::TypeMismatch),
+    ("return_from_unit.py", LowerErrorKind::TypeMismatch),
+    ("main_guard.py", LowerErrorKind::UnsupportedConstruct),
+    ("big_integer.py", LowerErrorKind::LiteralOutOfRange),
+    ("unbound_name.py", LowerErrorKind::Unresolved),
+    ("alias_of_unbound.py", LowerErrorKind::Unresolved),
+    ("redeclare_local.py", LowerErrorKind::Reassignment),
+    ("conflicting_annotation.py", LowerErrorKind::TypeMismatch),
+    ("bare_expression.py", LowerErrorKind::UnsupportedConstruct),
+    ("trailing_string.py", LowerErrorKind::UnsupportedConstruct),
+    ("wrong_arity.py", LowerErrorKind::ArityMismatch),
+    ("wrong_argument_type.py", LowerErrorKind::TypeMismatch),
+    ("missing_return.py", LowerErrorKind::MissingReturn),
+    ("float_dict_key.py", LowerErrorKind::UnsupportedType),
+    ("bare_list_annotation.py", LowerErrorKind::UnsupportedType),
+    ("mismatched_literal.py", LowerErrorKind::TypeMismatch),
+    (
+        "computed_tuple_index.py",
+        LowerErrorKind::UnsupportedConstruct,
+    ),
+    ("slicing.py", LowerErrorKind::UnsupportedConstruct),
+    ("reserved_len.py", LowerErrorKind::UnsupportedConstruct),
+    ("reserved_range.py", LowerErrorKind::UnsupportedConstruct),
+    (
+        "range_outside_loop.py",
+        LowerErrorKind::UnsupportedConstruct,
+    ),
+    (
+        "break_outside_loop.py",
+        LowerErrorKind::LoopControlOutsideLoop,
+    ),
+    ("branch_bound_name.py", LowerErrorKind::Unresolved),
+    ("one_branch_returns.py", LowerErrorKind::MissingReturn),
+    ("append_to_mapping.py", LowerErrorKind::TypeMismatch),
+    (
+        "assign_into_parameter.py",
+        LowerErrorKind::UnsupportedConstruct,
+    ),
+    ("assign_into_tuple.py", LowerErrorKind::TypeMismatch),
+    ("class_inherits.py", LowerErrorKind::UnsupportedConstruct),
+    (
+        "class_without_init.py",
+        LowerErrorKind::UnsupportedConstruct,
+    ),
+    ("membership_type_mismatch.py", LowerErrorKind::TypeMismatch),
+    (
+        "method_without_self.py",
+        LowerErrorKind::UnsupportedConstruct,
+    ),
+    ("mutate_alias.py", LowerErrorKind::UnsupportedConstruct),
+    ("mutate_parameter.py", LowerErrorKind::UnsupportedConstruct),
+    (
+        "unannotated_attribute.py",
+        LowerErrorKind::MissingAnnotation,
+    ),
+    ("undeclared_attribute.py", LowerErrorKind::Unresolved),
+    (
+        "unsupported_method.py",
+        LowerErrorKind::UnsupportedConstruct,
+    ),
+];
+
 #[test]
 fn every_rejected_fixture_fails_with_the_expected_kind() {
-    let cases: &[(&str, LowerErrorKind)] = &[
-        (
-            "missing_param_annotation.py",
-            LowerErrorKind::MissingAnnotation,
-        ),
-        (
-            "missing_return_annotation.py",
-            LowerErrorKind::MissingAnnotation,
-        ),
-        (
-            "unsupported_type_complex.py",
-            LowerErrorKind::UnsupportedType,
-        ),
-        ("unsupported_generic.py", LowerErrorKind::UnsupportedType),
-        ("none_parameter.py", LowerErrorKind::UnsupportedType),
-        ("type_parameters.py", LowerErrorKind::UnsupportedType),
-        (
-            "constructor_early_return.py",
-            LowerErrorKind::UnsupportedConstruct,
-        ),
-        ("decorated.py", LowerErrorKind::UnsupportedConstruct),
-        ("async_function.py", LowerErrorKind::UnsupportedConstruct),
-        ("varargs.py", LowerErrorKind::UnsupportedConstruct),
-        ("kwargs.py", LowerErrorKind::UnsupportedConstruct),
-        ("default_value.py", LowerErrorKind::UnsupportedConstruct),
-        ("keyword_only.py", LowerErrorKind::UnsupportedConstruct),
-        ("non_boolean_test.py", LowerErrorKind::TypeMismatch),
-        ("non_boolean_loop_test.py", LowerErrorKind::TypeMismatch),
-        ("import_statement.py", LowerErrorKind::UnsupportedConstruct),
-        ("class_definition.py", LowerErrorKind::UnsupportedConstruct),
-        ("exponentiation.py", LowerErrorKind::UnsupportedConstruct),
-        ("str_plus_int.py", LowerErrorKind::TypeMismatch),
-        ("boolean_arithmetic.py", LowerErrorKind::TypeMismatch),
-        ("negate_string.py", LowerErrorKind::TypeMismatch),
-        ("compare_unrelated.py", LowerErrorKind::TypeMismatch),
-        ("narrowing_annotation.py", LowerErrorKind::TypeMismatch),
-        ("return_type_conflict.py", LowerErrorKind::TypeMismatch),
-        ("return_from_unit.py", LowerErrorKind::TypeMismatch),
-        ("main_guard.py", LowerErrorKind::UnsupportedConstruct),
-        ("big_integer.py", LowerErrorKind::LiteralOutOfRange),
-        ("unbound_name.py", LowerErrorKind::Unresolved),
-        ("alias_of_unbound.py", LowerErrorKind::Unresolved),
-        ("redeclare_local.py", LowerErrorKind::Reassignment),
-        ("conflicting_annotation.py", LowerErrorKind::TypeMismatch),
-        ("bare_expression.py", LowerErrorKind::UnsupportedConstruct),
-        ("trailing_string.py", LowerErrorKind::UnsupportedConstruct),
-        ("wrong_arity.py", LowerErrorKind::ArityMismatch),
-        ("wrong_argument_type.py", LowerErrorKind::TypeMismatch),
-        ("missing_return.py", LowerErrorKind::MissingReturn),
-        ("float_dict_key.py", LowerErrorKind::UnsupportedType),
-        ("bare_list_annotation.py", LowerErrorKind::UnsupportedType),
-        ("mismatched_literal.py", LowerErrorKind::TypeMismatch),
-        (
-            "computed_tuple_index.py",
-            LowerErrorKind::UnsupportedConstruct,
-        ),
-        ("slicing.py", LowerErrorKind::UnsupportedConstruct),
-        ("reserved_len.py", LowerErrorKind::UnsupportedConstruct),
-        ("reserved_range.py", LowerErrorKind::UnsupportedConstruct),
-        (
-            "range_outside_loop.py",
-            LowerErrorKind::UnsupportedConstruct,
-        ),
-        (
-            "break_outside_loop.py",
-            LowerErrorKind::LoopControlOutsideLoop,
-        ),
-        ("branch_bound_name.py", LowerErrorKind::Unresolved),
-        ("one_branch_returns.py", LowerErrorKind::MissingReturn),
-    ];
-
-    for (name, expected) in cases {
+    for (name, expected) in REJECTIONS {
         assert_eq!(
             rejected(name),
             *expected,
@@ -186,17 +220,72 @@ fn every_rejected_fixture_fails_with_the_expected_kind() {
     }
 }
 
+/// Every rejected program is **still** refused.
+///
+/// The inverted guard. Growing the accepted subset is a decision, and this is what makes it one:
+/// a program here that begins to lower fails the suite, and the failure is cleared by moving it
+/// into `accepted/` and giving it a driver -- never by editing an allowance. Without this, a
+/// construct becoming supported is invisible, and the corpus quietly stops recording what the
+/// subset refuses.
+#[test]
+fn every_rejected_fixture_is_still_refused() {
+    let recorded: BTreeMap<&str, LowerErrorKind> = REJECTIONS.iter().copied().collect();
+    let mut lowered = Vec::new();
+
+    for name in rejected_names() {
+        let path = fixtures_dir().join("rejected").join(&name);
+        if lower_fixture(&path).is_ok() {
+            let kind = recorded.get(name.as_str()).map_or_else(
+                || "with no recorded rejection".to_string(),
+                |kind| format!("recorded as {}", kind.code()),
+            );
+            lowered.push(format!("{name} ({kind})"));
+        }
+    }
+
+    assert!(
+        lowered.is_empty(),
+        "these programs are in the rejected corpus but now lower successfully: {lowered:?}\n\
+         if a construct became supported, move its program into python/fixtures/accepted/ and \
+         give it a driver -- see python/fixtures/rejected/README.md"
+    );
+}
+
+/// Every file in the rejected corpus has a recorded rejection.
+///
+/// Derived from the directory, not counted. A count cannot tell you *which* fixture drifted out,
+/// and it did not: twelve had.
 #[test]
 fn every_rejected_fixture_is_covered_by_the_table() {
-    // Guards against adding a fixture and forgetting to assert on it, which would leave a
-    // rejection rule silently untested.
-    let dir = fixtures_dir().join("rejected");
-    let count = std::fs::read_dir(&dir)
+    let recorded: BTreeSet<String> = REJECTIONS
+        .iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
+    let on_disk: BTreeSet<String> = rejected_names().into_iter().collect();
+
+    let untabled: Vec<&String> = on_disk.difference(&recorded).collect();
+    assert!(
+        untabled.is_empty(),
+        "these rejected fixtures have no recorded rejection: {untabled:?}"
+    );
+    let missing: Vec<&String> = recorded.difference(&on_disk).collect();
+    assert!(
+        missing.is_empty(),
+        "the table records rejections for files that are not there: {missing:?}"
+    );
+}
+
+/// The rejected corpus, read from the directory.
+fn rejected_names() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(fixtures_dir().join("rejected"))
         .expect("rejected fixtures directory must exist")
         .filter_map(Result::ok)
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "py"))
-        .count();
-    assert_eq!(count, 59, "update the rejection table when adding fixtures");
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".py"))
+        .collect();
+    names.sort();
+    assert!(!names.is_empty(), "there must be rejected fixtures");
+    names
 }
 
 #[test]

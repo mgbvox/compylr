@@ -72,13 +72,13 @@
 
 ## 5. The inverted guard over the rejection corpus
 
-- [ ] 5.1 Write the test first: a program in `python/fixtures/rejected/` that lowers successfully
+- [x] 5.1 Write the test first: a program in `python/fixtures/rejected/` that lowers successfully
       fails the suite, naming the program and the rejection the corpus recorded for it
-- [ ] 5.2 Add it to `fixtures.rs` beside the existing completeness guard, deriving the list from the
+- [x] 5.2 Add it to `fixtures.rs` beside the existing completeness guard, deriving the list from the
       directory
-- [ ] 5.3 Document in the fixture directory that clearing this failure means moving the program into
+- [x] 5.3 Document in the fixture directory that clearing this failure means moving the program into
       `accepted/` with a driver — never adding an allowance
-- [ ] 5.4 `cargo test --workspace`; commit
+- [x] 5.4 `cargo test --workspace`; commit
 
 ## 6. The robustness walk
 
