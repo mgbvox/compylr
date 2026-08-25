@@ -44,6 +44,20 @@ jobs:
       # Cheap, and it fails the moment someone edits a README in a way that would make the
       # benchmark job silently write nothing.
       - run: python scripts/update_benchmarks.py --check
+
+  subset:
+    name: subset matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Regenerating the matrix emits each fixture's IR and runs the translation tier, so this
+      # needs a toolchain and the vendored ruff submodule. It deliberately does **not** live in
+      # the `ruff and ty` job: that one is toolchain-free and finishes in seconds, and putting a
+      # cargo build in it is what made this check fail the first time.
+      - uses: ./.github/actions/setup-rust
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - run: python scripts/update_subset.py --check
 
   test:

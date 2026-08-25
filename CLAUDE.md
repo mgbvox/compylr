@@ -309,6 +309,13 @@ silently was the first.
   mode runs in the Makefile, the hooks, and CI. Both scripts share `scripts/_regions.py`; they are
   deliberately separate scripts, because folding a documentation check into a benchmark would put
   it on the benchmark's timescale.
+* **After a rebase, `cargo doc --workspace` can fail against a stale build cache while
+  `cargo build`, `cargo test`, and `cargo clippy` all pass.** The errors name real files and read
+  like a genuine API mismatch -- unresolved `compylr_ir::Behavior`, `BinOp::Add has no field
+  checked` -- because rustdoc is compiling against an rmeta from before the rebase. `cargo clean
+  --doc` does **not** clear it; `cargo clean -p compylr-ir -p compylr-core -p
+  compylr-frontend-python -p compylr-backend-rust` does. Each crate documents fine on its own the
+  whole time, which is the tell. This cost real time once already.
 * **CI, the Makefile and the pre-commit hooks run the same commands.** `make check` is what the
   workflows do; `.pre-commit-config.yaml` is the subset fast enough to run on a commit. When you
   add a check, add it in all three, or it is a check people discover in a pull request instead.

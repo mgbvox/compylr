@@ -120,3 +120,33 @@ class TestTheRealReadme:
         assert update_subset.compare(update_subset.MATRIX, body) is None, (
             "README's subset matrix is stale; run ./scripts/update_subset.py"
         )
+
+
+class TestMarkersMode:
+    """The fast half, for a commit hook.
+
+    Regenerating the matrix runs the compiler over the whole corpus. That belongs in CI and in
+    `make check`, not on a commit -- the same split `update_benchmarks.py` already makes. Moving
+    or renaming a marker is what breaks the generator, and this catches that in a fraction of a
+    second.
+    """
+
+    def test_it_passes_on_the_real_readme(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert update_subset.main(["--markers"]) == 0
+        assert "matrix" in capsys.readouterr().out
+
+    def test_it_runs_no_subprocess(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The whole point: a commit hook must not shell out to cargo.
+        def forbidden(*args: object, **kwargs: object) -> None:
+            raise AssertionError("--markers must not run a subprocess")
+
+        monkeypatch.setattr(update_subset.subprocess, "run", forbidden)
+        assert update_subset.main(["--markers"]) == 0
+
+    def test_it_fails_when_the_region_is_gone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        missing = tmp_path / "doc.md"
+        missing.write_text("no markers here\n")
+        monkeypatch.setattr(update_subset, "MATRIX", Region("matrix", missing, prefix="subset"))
+        assert update_subset.main(["--markers"]) == 1

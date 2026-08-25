@@ -42,33 +42,19 @@ lands, the exclusion and this note come out together.
   cannot resolve `float`, every annotation degrades to its own spelling, and the coercion above
   becomes a no-op that looks like it is working.
 
-## `make check` blocked by a pre-existing `doc` failure
+## A `doc` failure that was not real
 
-`make check` runs `fmt-check lint doc test python`. Every stage passes except `doc`, which fails
-on this branch for reasons this change cannot reach: `cargo doc --workspace` compiles three crates
-against a `compylr_ir` that predates behavior profiles, while `cargo build --workspace --lib`,
-`cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings` all succeed
-on the same source, and each crate documents fine on its own.
+While implementing, `make check` failed at `doc`: `cargo doc --workspace` reported three crates
+compiling against a `compylr_ir` that predated behavior profiles, while `cargo build`, `cargo
+test`, and `cargo clippy` all passed on the same source and each crate documented fine alone.
 
-This change modifies no `crates/*/src/` file and no manifest, and `cargo doc --lib` does not build
-tests, so it is not reachable from here. Diagnosis and the ruled-out causes are in `HANDOFF.md`.
+It was a **stale local build cache**, left by the rebase that put this branch on current `main`.
+`cargo clean --doc` does not clear it; cleaning the four packages does, after which
+`cargo doc --workspace` passes. CI never saw it -- `rustdoc` was green on this branch throughout,
+which is what prompted looking again.
 
-## What the robustness walk found
-
-Nothing, which is the good outcome and is worth recording as a measurement rather than an
-impression.
-
-**8,121 top-level members across 959 files**, including the standard library of the interpreter on
-this machine, located by asking it. **Zero panics. Zero diagnostics without a usable source
-position. Zero files that failed to parse.** 6.6s.
-
-**76 members lowered — 0.9%.** That number is reported and never asserted: the corpus is whatever
-Python the machine has, so a threshold would make the suite fail for reasons unrelated to the
-compiler. It is low because the subset requires complete annotations and ordinary Python does not
-carry them; what makes it useful is watching it move as the subset grows.
-
-Task 6.5 asked for whatever panics or unlocated errors this found to be fixed. There were none, so
-nothing was changed — the frontend already held the property over inputs nobody wrote for it.
+Recorded because two commit messages in this branch describe it as a pre-existing branch failure.
+It was not. The trap is now noted in `CLAUDE.md`.
 
 ## The demo did not move
 

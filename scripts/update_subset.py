@@ -241,9 +241,23 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="verify the published matrix is what regeneration would produce; write nothing",
     )
+    parser.add_argument(
+        "--markers",
+        action="store_true",
+        help="verify only that the region is addressable; runs no compiler",
+    )
     arguments = parser.parse_args(argv)
 
     try:
+        if arguments.markers:
+            # Presence only. Regenerating the matrix runs the compiler, and a commit hook is not
+            # the place for that -- the same reason `update_benchmarks.py` checks markers rather
+            # than re-measuring. Moving or renaming a marker is what breaks the generator, and
+            # this is what catches it in the second it takes.
+            find_region(MATRIX.path.read_text(), MATRIX)
+            print(f"ok  {MATRIX.path.name}  {MATRIX.name}")
+            return 0
+
         body = generate()
         if arguments.check:
             difference = compare(MATRIX, body)
