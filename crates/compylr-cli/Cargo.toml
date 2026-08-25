@@ -15,9 +15,12 @@ compylr-core.workspace = true
 compylr-ir.workspace = true
 compylr-diagnostics.workspace = true
 compylr-frontend-python.workspace = true
+compylr-frontend-typescript.workspace = true
 compylr-registry.workspace = true
 compylr-backend-rust.workspace = true
+compylr-backend-golang.workspace = true
 compylr-bridge-python-rust.workspace = true
+compylr-bridge-typescript-golang.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

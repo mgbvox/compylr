@@ -76,6 +76,8 @@ const PARSERS: [&str; 4] = [
     "ruff_text_size",
 ];
 
+const TS_PARSERS: [&str; 4] = ["oxc_allocator", "oxc_ast", "oxc_parser", "oxc_span"];
+
 /// Only the Python frontend may depend on a Python parser.
 ///
 /// This is the load-bearing edge. The moment a second crate can parse Python, "the IR is
@@ -94,6 +96,26 @@ fn only_the_python_frontend_depends_on_a_python_parser() {
             assert!(
                 parsers.is_empty(),
                 "{name} depends on {parsers:?}; only compylr-frontend-python may parse Python"
+            );
+        }
+    }
+}
+
+/// Only the TypeScript frontend may depend on a TypeScript parser.
+#[test]
+fn only_the_typescript_frontend_depends_on_a_typescript_parser() {
+    for name in every_crate() {
+        let deps = direct_dependencies(&name);
+        let parsers: Vec<&&str> = TS_PARSERS.iter().filter(|p| deps.contains(**p)).collect();
+        if name == "compylr-frontend-typescript" {
+            assert!(
+                !parsers.is_empty(),
+                "the TypeScript frontend must be the crate that parses TypeScript"
+            );
+        } else {
+            assert!(
+                parsers.is_empty(),
+                "{name} depends on {parsers:?}; only compylr-frontend-typescript may parse TypeScript"
             );
         }
     }
@@ -229,13 +251,27 @@ fn the_rust_backend_knows_no_host_language() {
     }
 }
 
+/// The Go backend may not depend on a host bridge and knows no host runtime.
+#[test]
+fn the_golang_backend_knows_no_host_language() {
+    let deps = direct_dependencies("compylr-backend-golang");
+    assert!(
+        !deps.contains("compylr-bridge-typescript-golang"),
+        "the bridge depends on the backend, never the reverse"
+    );
+
+    let source = read_crate_source("compylr-backend-golang");
+    for spelling in ["napi", "pyo3", "koffi"] {
+        assert!(
+            !source.contains(spelling),
+            "the Go backend mentions {spelling}; exposing generated code to a host belongs to \
+             a bridge, one per (source, target) pair"
+        );
+    }
+}
+
 /// The `(python, rust)` bridge generates PyO3 source; it does not parse Python and does not
 /// link PyO3.
-///
-/// Both are easy to reach for and both would be wrong. Reading the user's Python here would mean
-/// the binding layer depended on something the IR does not carry, which is exactly what would
-/// not survive a second frontend; linking PyO3 would confuse generating a boundary with being
-/// one.
 #[test]
 fn the_python_rust_bridge_neither_parses_python_nor_links_pyo3() {
     let deps = direct_dependencies("compylr-bridge-python-rust");
@@ -248,6 +284,23 @@ fn the_python_rust_bridge_neither_parses_python_nor_links_pyo3() {
     assert!(
         !deps.contains("pyo3"),
         "the bridge emits PyO3 source as text and has no reason to link it"
+    );
+}
+
+/// The `(typescript, go)` bridge generates CGo/JS loader source; it does not parse TypeScript
+/// and does not link napi.
+#[test]
+fn the_typescript_golang_bridge_neither_parses_ts_nor_links_napi() {
+    let deps = direct_dependencies("compylr-bridge-typescript-golang");
+    for parser in TS_PARSERS {
+        assert!(
+            !deps.contains(parser),
+            "the bridge depends on {parser}; it reads the IR, not the user's source"
+        );
+    }
+    assert!(
+        !deps.contains("napi"),
+        "the bridge emits JS/CGo loader as text and has no reason to link napi"
     );
 }
 

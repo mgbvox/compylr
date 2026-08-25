@@ -1,0 +1,12 @@
+# The Go backend: IR to Go source, plus runtime helpers.
+#
+# Nothing here knows which language the IR came from, and nothing here depends on Node-API or PyO3.
+[package]
+name = "compylr-backend-golang"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compylr-diagnostics.workspace = true
+compylr-ir.workspace = true
+compylr-core.workspace = true

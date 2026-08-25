@@ -1,0 +1,24 @@
+{
+  "name": "compylr-demo-ts",
+  "version": "0.1.0",
+  "description": "Common algorithms in TypeScript compiled to Go via compylr",
+  "type": "module",
+  "scripts": {
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "start": "node --experimental-strip-types src/algorithms/index.ts",
+    "benchmark": "node --experimental-strip-types src/algorithms/benchmark.ts"
+  },
+  "keywords": [
+    "compylr",
+    "compiler",
+    "typescript",
+    "golang",
+    "algorithms"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

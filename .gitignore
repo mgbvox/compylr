@@ -23,6 +23,12 @@ demo/.compylr/*
 !demo/.compylr/crate/
 !demo/.compylr/ir/
 
+!demo-ts/.compylr/
+demo-ts/.compylr/*
+!demo-ts/.compylr/go/
+!demo-ts/.compylr/ir/
+demo-ts/.compylr/lib/
+
 # The build output under the committed crate, which is ~64M and rebuilt on demand.
 demo/.compylr/crate/target/
 *.so
@@ -52,4 +58,6 @@ __pycache__/
 
 # The demo's own environment. Its .compylr is handled above.
 demo/.venv/
+node_modules/
+demo-ts/dist/
 demo/uv.lock

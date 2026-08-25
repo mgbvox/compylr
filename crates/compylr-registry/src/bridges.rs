@@ -5,6 +5,7 @@
 //! made visible, and a nested structure would suggest a factoring that does not exist.
 
 use compylr_bridge_python_rust::PythonRustBridge;
+use compylr_bridge_typescript_golang::TypeScriptGoBridge;
 use compylr_core::bridge::{BridgeError, HostBridge};
 
 /// One entry in the registry.
@@ -18,9 +19,14 @@ struct Entry {
 }
 
 /// Every registered pair.
-const REGISTRY: &[Entry] = &[Entry {
-    bridge: &PythonRustBridge,
-}];
+const REGISTRY: &[Entry] = &[
+    Entry {
+        bridge: &PythonRustBridge,
+    },
+    Entry {
+        bridge: &TypeScriptGoBridge,
+    },
+];
 
 /// Every `(source, target)` pair that can be called across today.
 pub fn pairs() -> Vec<(String, String)> {

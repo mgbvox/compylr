@@ -1,0 +1,17 @@
+# The TypeScript frontend: parsing with oxc_parser, and lowering the supported subset to IR.
+#
+# oxc crates are dependencies of this crate alone. That is what keeps
+# `cargo build -p compylr-backend-golang` free of a TypeScript parser.
+[package]
+name = "compylr-frontend-typescript"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compylr-diagnostics.workspace = true
+compylr-ir.workspace = true
+compylr-core.workspace = true
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_parser.workspace = true
+oxc_span.workspace = true

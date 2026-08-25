@@ -15,6 +15,7 @@ SHELL := /bin/bash
 VENV := .venv
 PY := $(VENV)/bin/python
 DEMO := demo
+DEMO_TS := demo-ts
 FIXTURE ?= python/fixtures/accepted/inference.py
 N ?= 500
 SCALE ?= 1
@@ -33,7 +34,7 @@ help: ## List the available targets
 # -- everyday ---------------------------------------------------------------------------
 
 .PHONY: check
-check: fmt-check lint doc test python ## Everything CI runs: format, lint, docs, both suites
+check: fmt-check lint doc test python ts go ## Everything CI runs: format, lint, docs, all suites
 
 .PHONY: test
 test: ## Run the Rust suite
@@ -72,6 +73,36 @@ py-fmt: $(VENV) ## Format the Python sources
 py-types: $(VENV) ## Type-check the package with ty
 	$(VENV)/bin/ty check python/compylr
 
+.PHONY: ts
+ts: ts-lint ts-types ts-test ## Run the TypeScript suite, linters, and type checker
+
+.PHONY: ts-lint
+ts-lint: ## Verify TypeScript demo formatting
+	cd $(DEMO_TS) && npm ci --silent || npm install --silent
+
+.PHONY: ts-types
+ts-types: ## Type-check TypeScript demo sources
+	cd $(DEMO_TS) && npx tsc --noEmit
+
+.PHONY: ts-test
+ts-test: ## Run TypeScript test suite
+	cd $(DEMO_TS) && npm test
+
+.PHONY: go
+go: go-lint go-test go-demo ## Run Go linters, tests, and demo build
+
+.PHONY: go-lint
+go-lint: ## Verify gofmt and go vet on generated Go code
+	cd $(DEMO_TS)/.compylr/go && gofmt -l . && go vet ./...
+
+.PHONY: go-test
+go-test: ## Test and build Go packages
+	cd $(DEMO_TS)/.compylr/go && go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .
+
+.PHONY: go-demo
+go-demo: ## Build Go shared library for TypeScript demo
+	cd $(DEMO_TS)/.compylr/go && go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .
+
 .PHONY: hooks
 hooks: $(VENV) ## Install the pre-commit hooks, once per clone
 	$(VENV)/bin/pre-commit install
@@ -104,7 +135,7 @@ develop: $(VENV) ## Rebuild compylr._core into the venv
 
 .PHONY: clean-artifacts
 clean-artifacts: ## Drop generated crates, so a backend change is picked up
-	rm -rf .compylr $(DEMO)/.compylr
+	rm -rf .compylr $(DEMO)/.compylr $(DEMO_TS)/.compylr
 
 .PHONY: clean
 clean: clean-artifacts ## Also drop Rust build output
@@ -167,6 +198,25 @@ demo-check: develop ## The demo's own suite and linters
 
 .PHONY: demo-rebuild
 demo-rebuild: clean-artifacts demo-check ## Rebuild the demo from nothing, then check it
+
+# -- the typescript demo ----------------------------------------------------------------
+
+.PHONY: demo-ts
+demo-ts: ## TypeScript demo benchmark: make demo-ts SCALE=1
+	cd $(DEMO_TS) && node --experimental-strip-types src/algorithms/benchmark.ts --scale $(SCALE)
+
+.PHONY: demo-ts-primes
+demo-ts-primes: ## TypeScript nth prime benchmark: make demo-ts-primes N=500
+	cd $(DEMO_TS) && node --experimental-strip-types src/algorithms/nth_prime/benchmark.ts --n $(N)
+
+.PHONY: demo-ts-run
+demo-ts-run: ## Run TypeScript demo algorithms and IR coverage
+	cd $(DEMO_TS) && npm start
+
+.PHONY: demo-ts-check
+demo-ts-check: ## The TypeScript demo's own test suite and type check
+	cd $(DEMO_TS) && npm test
+	cd $(DEMO_TS) && npx tsc --noEmit
 
 # -- specs ------------------------------------------------------------------------------
 

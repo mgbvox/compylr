@@ -1,0 +1,22 @@
+name: Set up TypeScript & Node.js
+description: >
+  Set up Node.js with the specified version and configure caching for npm dependencies.
+
+inputs:
+  node-version:
+    description: "Node.js version (e.g. '22')"
+    required: false
+    default: "22"
+  cache-dependency-path:
+    description: "Path to package-lock.json or package.json for caching"
+    required: false
+    default: "demo-ts/package.json"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: "npm"
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}

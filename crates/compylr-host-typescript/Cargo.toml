@@ -1,0 +1,24 @@
+# The Node-API host binding: exposes the compiler to Node.js / TypeScript.
+#
+# Links napi-rs because it is a Node.js native addon.
+[package]
+name = "compylr-host-typescript"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+compylr-diagnostics.workspace = true
+compylr-ir.workspace = true
+compylr-core.workspace = true
+compylr-frontend-typescript.workspace = true
+compylr-backend-golang.workspace = true
+compylr-bridge-typescript-golang.workspace = true
+compylr-registry.workspace = true
+napi.workspace = true
+napi-derive.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true

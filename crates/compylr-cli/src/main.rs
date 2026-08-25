@@ -79,25 +79,17 @@ impl Emit {
 /// Everything the command line asked for.
 #[derive(Debug)]
 struct Options {
-    path: PathBuf,
+    paths: Vec<PathBuf>,
     emit: Emit,
     frontend: String,
     backend: String,
     out: Option<PathBuf>,
-    /// What the user asked of each axis, before it is resolved against the two languages.
-    ///
-    /// Held unresolved because resolution needs the components, and parsing must not depend on
-    /// which languages happen to be registered — an unknown *axis* is a mistake worth reporting
-    /// even for a pair that would itself have been refused.
     behavior: BehaviorRequest,
 }
 
 /// Parse arguments by hand.
-///
-/// Four flags do not justify an argument-parsing dependency, and the crate's dependency surface is
-/// currently the vendored ruff tree plus PyO3 and serde.
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
-    let mut path: Option<PathBuf> = None;
+    let mut paths: Vec<PathBuf> = Vec::new();
     let mut emit = Emit::Summary;
     let mut frontend = DEFAULT_FRONTEND.to_string();
     let mut backend = DEFAULT_BACKEND.to_string();
@@ -129,24 +121,23 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 return Err(format!("unknown option '{other}'"));
             }
             other => {
-                if path.is_some() {
-                    return Err("only one file may be given".to_string());
-                }
-                path = Some(PathBuf::from(other));
+                paths.push(PathBuf::from(other));
             }
         }
     }
 
+    if paths.is_empty() {
+        return Err("no input file or directory given".to_string());
+    }
+
     let options = Options {
-        path: path.ok_or("no input file given")?,
+        paths,
         emit,
         frontend,
         backend,
         out,
         behavior,
     };
-    // Required rather than defaulted: writing several files somewhere the user did not name is a
-    // side effect a command should not have.
     if options.emit == Emit::Crate && options.out.is_none() {
         return Err("--emit crate needs --out DIR to write to".to_string());
     }
@@ -252,14 +243,42 @@ fn run(options: &Options) -> Result<String, String> {
     // about the behavior, not about whichever thing the code happened to reach first.
     let behavior = resolve_behavior(&options.behavior, frontend, backend)?;
 
-    let source = std::fs::read_to_string(&options.path)
-        .map_err(|error| format!("could not read {}: {error}", options.path.display()))?;
+    let mut sources = Vec::new();
+    let ext = match options.frontend.as_str() {
+        "typescript" => "ts",
+        "python" => "py",
+        _ => "",
+    };
+
+    for path in &options.paths {
+        if path.is_dir() {
+            for entry in std::fs::read_dir(path)
+                .map_err(|e| format!("could not read dir {}: {e}", path.display()))?
+            {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let p = entry.path();
+                if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some(ext) {
+                    let content = std::fs::read_to_string(&p)
+                        .map_err(|error| format!("could not read {}: {error}", p.display()))?;
+                    sources.push(Source::new(content, behavior));
+                }
+            }
+        } else {
+            let content = std::fs::read_to_string(path)
+                .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+            sources.push(Source::new(content, behavior));
+        }
+    }
+
+    if sources.is_empty() {
+        return Err("no matching source files found".to_string());
+    }
 
     // The frontend does the parsing and the assembly. Reading the file is this crate's business
     // because the trait takes text: the decorator's sources come from a live function object and
     // may correspond to no file at all.
     let mut unit = frontend
-        .lower(&[Source::new(source, behavior)])
+        .lower(&sources)
         .map_err(|error| error.to_string())?;
     // Unconditional, and the same check `compile` runs. A CLI with its own idea of what is
     // well formed would become a second source of answers.
@@ -275,11 +294,18 @@ fn run(options: &Options) -> Result<String, String> {
         Emit::Summary => {
             let mut out = format!("unit fingerprint: {:016x}\n", unit.fingerprint());
             for function in unit.functions() {
+                let ret_name = match options.frontend.as_str() {
+                    "typescript" => {
+                        use compylr_frontend_typescript::spelling::TypeScriptSpelling;
+                        function.ret.typescript_name()
+                    }
+                    _ => function.ret.python_name(),
+                };
                 out.push_str(&format!(
                     "  {} ({} params) -> {}\n",
                     function.name,
                     function.params.len(),
-                    function.ret.python_name()
+                    ret_name
                 ));
             }
             Ok(out)
@@ -297,8 +323,13 @@ fn run(options: &Options) -> Result<String, String> {
             // about the target, and it stays answerable for a target no host can call yet.
             let files =
                 backend.post_process(backend.emit(&unit).map_err(|error| error.to_string())?);
+            let generated_path = match backend.name() {
+                "rust" => compylr_backend_rust::rust::GENERATED_PATH,
+                "go" => "generated.go",
+                _ => "generated",
+            };
             files
-                .get(compylr_backend_rust::rust::GENERATED_PATH)
+                .get(generated_path)
                 .cloned()
                 .ok_or_else(|| "this backend emits no translated-code file".to_string())
         }
@@ -331,10 +362,36 @@ fn run(options: &Options) -> Result<String, String> {
                     .map_err(|e| format!("could not write {}: {e}", path.display()))?;
                 written.push(relative.clone());
             }
-            let manifest = artifact.manifest;
-            std::fs::write(root.join("Cargo.toml"), manifest)
-                .map_err(|e| format!("could not write the manifest: {e}"))?;
-            written.push("Cargo.toml".to_string());
+
+            let manifest_filename = match backend.name() {
+                "go" => "go.mod",
+                _ => "Cargo.toml",
+            };
+            if !files.contains_key(manifest_filename) {
+                let manifest = artifact.manifest;
+                std::fs::write(root.join(manifest_filename), manifest)
+                    .map_err(|e| format!("could not write the manifest: {e}"))?;
+                written.push(manifest_filename.to_string());
+            }
+
+            // If emitting into .compylr/go or .compylr/crate, also write .compylr/ir/unit.json and state.json
+            if let Some(parent) = root.parent() {
+                let dir_name = root.file_name().and_then(|s| s.to_str());
+                if dir_name == Some("go") || dir_name == Some("crate") {
+                    let ir_dir = parent.join("ir");
+                    let _ = std::fs::create_dir_all(&ir_dir);
+                    if let Ok(json) = unit.to_json() {
+                        let _ = std::fs::write(ir_dir.join("unit.json"), json);
+                    }
+                    let state = format!(
+                        "{{\n  \"version\": 2,\n  \"fingerprint\": \"{:016x}\",\n  \"target\": \"{}\"\n}}\n",
+                        unit.fingerprint(),
+                        options.backend
+                    );
+                    let _ = std::fs::write(parent.join("state.json"), state);
+                }
+            }
+
             // A report of what was written, never source: the source went to files.
             Ok(format!(
                 "wrote {} to {}\n",
@@ -358,7 +415,7 @@ mod tests {
         let options = parse(&["f.py"]).unwrap();
         assert_eq!(options.emit, Emit::Summary);
         assert_eq!(options.backend, "rust");
-        assert_eq!(options.path, PathBuf::from("f.py"));
+        assert_eq!(options.paths, vec![PathBuf::from("f.py")]);
     }
 
     #[test]
@@ -423,8 +480,12 @@ mod tests {
     }
 
     #[test]
-    fn two_files_are_an_error() {
-        assert!(parse(&["a.py", "b.py"]).is_err());
+    fn multiple_files_are_accepted() {
+        let options = parse(&["a.py", "b.py"]).unwrap();
+        assert_eq!(
+            options.paths,
+            vec![PathBuf::from("a.py"), PathBuf::from("b.py")]
+        );
     }
 
     #[test]
