@@ -91,6 +91,7 @@ a single one-line function produced 238 lines and the translation was lines 200â
 | `ir-optimization` | Verification and the pass pipeline between lowering and emission |
 | `semantic-behavior` | Behavior axes, how each language declares its stance, and how a request resolves |
 | `generated-code-performance` | What an optimization may not change, and how a speedup is measured and guarded |
+| `fixture-corpus` | The accepted and rejected corpora, their drivers, and CPython as the oracle |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
