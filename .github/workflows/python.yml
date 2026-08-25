@@ -39,7 +39,7 @@ jobs:
       # half of that: no invocation is ever handed the fixtures directory.
       - run: ruff check python/ scripts/
       - run: ruff format --check python/ scripts/
-      - run: ty check python/compylr
+      - run: ty check python/compylr python/fixtures/drivers
 
       # Cheap, and it fails the moment someone edits a README in a way that would make the
       # benchmark job silently write nothing.

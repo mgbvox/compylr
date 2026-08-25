@@ -1,20 +1,20 @@
 ## 1. The driver format and the shared runner
 
-- [ ] 1.1 Write tests for the driver format in `python/tests/test_drivers.py`: a driver declares its
+- [x] 1.1 Write tests for the driver format in `python/tests/test_drivers.py`: a driver declares its
       calls as literal data readable with `ast.literal_eval`; a free-function call names a member and
       its arguments; a class call names constructor arguments and an ordered sequence of method
       calls; a malformed driver fails with a message naming the driver and what was wrong
-- [ ] 1.2 Add `python/fixtures/drivers/_runner.py`: read a driver's declaration, invoke the calls in
+- [x] 1.2 Add `python/fixtures/drivers/_runner.py`: read a driver's declaration, invoke the calls in
       order against a supplied module, and return the results. It returns *values*, not text — D2 —
       so the boundary tier can compare objects
-- [ ] 1.3 Add the canonical transcript renderer beside it: JSON, mapping keys sorted, sets as sorted
+- [x] 1.3 Add the canonical transcript renderer beside it: JSON, mapping keys sorted, sets as sorted
       arrays, tuples as arrays, one fixed float representation. Write the tests first, one per `Ty`,
       including a mapping whose insertion order differs from its sorted order
-- [ ] 1.4 Add the float tolerance as one named constant, read by both the runner and the renderer,
+- [x] 1.4 Add the float tolerance as one named constant, read by both the runner and the renderer,
       and assert it matches the one `demo/src/algorithms/__main__.py` already uses — D4
-- [ ] 1.5 Add `python/fixtures/drivers/` to the linted and type-checked paths in `pyproject.toml`,
+- [x] 1.5 Add `python/fixtures/drivers/` to the linted and type-checked paths in `pyproject.toml`,
       and confirm `python/fixtures/accepted/` and `rejected/` stay excluded
-- [ ] 1.6 `ruff check`, `ruff format --check`, `ty check`, `pytest`; commit
+- [x] 1.6 `ruff check`, `ruff format --check`, `ty check`, `pytest`; commit
 
 ## 2. A driver for every accepted fixture
 

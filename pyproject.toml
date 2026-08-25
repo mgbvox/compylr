@@ -54,9 +54,21 @@ omit = ["*/_core.*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Applies the exclusions below even to a path named explicitly on the command line. Without this,
+# `ruff check --fix python/fixtures/rejected/import_statement.py` lints a file that is invalid on
+# purpose -- which is how the `import os` that fixture exists to test was once deleted.
+force-exclude = true
 # The fixtures are compiler inputs, not code: `rejected/` is deliberately invalid, and linting it
-# would report exactly the problems it exists to contain.
-extend-exclude = ["python/fixtures", "python/entrypoint.py", "vendored", "inspiration"]
+# would report exactly the problems it exists to contain. `python/fixtures/drivers/` is the
+# exception and is deliberately *not* excluded -- a driver is ordinary Python that states which
+# calls exercise a fixture, so it is held to the same standard as the rest of the tree.
+extend-exclude = [
+    "python/fixtures/accepted",
+    "python/fixtures/rejected",
+    "python/entrypoint.py",
+    "vendored",
+    "inspiration",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -67,11 +79,13 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python-version = "3.11"
 
 [tool.ty.src]
-# `python/fixtures/` is compiler *input*, and `rejected/` is deliberately invalid -- type-checking
-# it would report exactly the errors it exists to contain, which is the same reason ruff excludes
-# it. `demo/` is its own project with its own configuration and is checked from there.
+# The accepted and rejected corpora are compiler *input*, and `rejected/` is deliberately invalid
+# -- type-checking it would report exactly the errors it exists to contain, which is the same
+# reason ruff excludes it. `python/fixtures/drivers/` is not input and is checked. `demo/` is its
+# own project with its own configuration and is checked from there.
 exclude = [
-    "python/fixtures",
+    "python/fixtures/accepted",
+    "python/fixtures/rejected",
     "python/entrypoint.py",
     "vendored",
     "inspiration",

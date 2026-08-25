@@ -70,8 +70,8 @@ py-fmt: $(VENV) ## Format the Python sources
 	$(VENV)/bin/ruff format python/ scripts/
 
 .PHONY: py-types
-py-types: $(VENV) ## Type-check the package with ty
-	$(VENV)/bin/ty check python/compylr
+py-types: $(VENV) ## Type-check the package and the fixture drivers with ty
+	$(VENV)/bin/ty check python/compylr python/fixtures/drivers
 
 .PHONY: ts
 ts: ts-lint ts-types ts-test ## Run the TypeScript suite, linters, and type checker
