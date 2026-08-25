@@ -24,14 +24,14 @@
 
 ## 2. Decorator Deferral Without Silent Acceptance
 
-- [ ] 2.1 Write Python manager tests showing that a class-annotated function may be marked before or
+- [x] 2.1 Write Python manager tests showing that a class-annotated function may be marked before or
   after its class, a final typo fails at whole-project build with its location, `complex` and
   malformed annotations still fail while marking, and nested instance containers or borrowed
   ownership escapes fail at whole-project validation before any build pipeline writes Rust.
-- [ ] 2.2 Replace the manager's single deferred code with an explicit immutable set containing only
+- [x] 2.2 Replace the manager's single deferred code with an explicit immutable set containing only
   undetermined bindings and unresolved class annotations, leaving every other validation error
   immediate and preserving the no-interpreted-fallback behavior.
-- [ ] 2.3 Run the focused Python manager, programmatic compilation, and host exception-category tests
+- [x] 2.3 Run the focused Python manager, programmatic compilation, and host exception-category tests
   and commit the decorator checkpoint.
 
 ## 3. Borrowed Instance ABI in Generated Rust
