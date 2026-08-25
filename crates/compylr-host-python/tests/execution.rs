@@ -1225,6 +1225,74 @@ fn instance_state_survives_between_calls() {
 }
 
 #[test]
+fn free_functions_borrow_instances_and_preserve_owned_results() {
+    let source = concat!(
+        "class Tally:\n",
+        "    def __init__(self, start: int) -> None:\n",
+        "        self.value: int = start\n",
+        "        self.history: list[int] = [start]\n",
+        "\n",
+        "    def bump(self, by: int) -> None:\n",
+        "        self.value = self.value + by\n",
+        "\n",
+        "def read(tally: Tally) -> int:\n",
+        "    return tally.value + tally.history[0]\n",
+        "\n",
+        "def mutate(tally: Tally, by: int) -> int:\n",
+        "    tally.value = tally.value + by\n",
+        "    tally.history[0] = tally.value\n",
+        "    return tally.value\n",
+        "\n",
+        "def mutate_by_method(tally: Tally, by: int) -> int:\n",
+        "    tally.bump(by)\n",
+        "    return tally.value\n",
+        "\n",
+        "def forward(tally: Tally, by: int) -> int:\n",
+        "    return mutate_by_method(tally, by)\n",
+        "\n",
+        "def build(start: int) -> Tally:\n",
+        "    return Tally(start)\n",
+        "\n",
+        "def build_and_mutate(start: int) -> int:\n",
+        "    tally = build(start)\n",
+        "    changed = mutate(tally, 2)\n",
+        "    return read(tally) + changed\n",
+    );
+    let unit = unit_from(source);
+    let emitted = lookup("rust").unwrap().emit(&unit).expect("must emit");
+    let generated = &emitted["src/generated.rs"];
+    assert!(generated.contains("pub fn read(tally: &Tally)"));
+    assert!(generated.contains("pub fn mutate(tally: &mut Tally"));
+    assert!(generated.contains("pub fn forward(tally: &mut Tally"));
+    assert!(
+        !generated.contains("tally.clone()"),
+        "a borrowed instance must never be cloned to fake ownership:\n{generated}"
+    );
+
+    let out = run_unit(
+        "free_function_instance_borrows",
+        &unit,
+        r#"
+    let mut first = build(3).unwrap();
+    println!("{}", read(&first).unwrap());
+    mutate(&mut first, 2).unwrap();
+    println!("{}", read(&first).unwrap());
+    forward(&mut first, 4).unwrap();
+    println!("{}", read(&first).unwrap());
+
+    let second = build(10).unwrap();
+    println!("{}", read(&second).unwrap());
+    println!("{}", build_and_mutate(4).unwrap());
+"#,
+    );
+    assert_eq!(
+        out.lines().collect::<Vec<_>>(),
+        ["6", "10", "14", "20", "18"],
+        "direct and forwarded mutation must affect one instance while owned returns stay independent"
+    );
+}
+
+#[test]
 fn a_method_calling_a_mutating_method_takes_a_mutable_receiver() {
     // The transitive case, and the likeliest bug: a method whose body is only `self.bump()`
     // mutates through the call, and a shared receiver there produces a borrow-checker error about

@@ -1,5 +1,6 @@
 ---
 source: crates/compylr-host-python/tests/emit_quality.rs
+assertion_line: 138
 expression: functions.trim()
 ---
 //! Translated by compylr.
@@ -37,6 +38,6 @@ pub fn build(start: i64) -> Result<Tally, RuntimeError> {
     Ok(t)
 }
 
-pub fn read(t: Tally) -> Result<i64, RuntimeError> {
+pub fn read(t: &Tally) -> Result<i64, RuntimeError> {
     Ok((t).count.clone())
 }

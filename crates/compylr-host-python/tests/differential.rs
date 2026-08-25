@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
+use compylr_backend_rust::{InstanceAccess, instance_parameter_accesses};
 use compylr_frontend_python::frontend::parse_file;
 use compylr_frontend_python::lower::lower_source_members;
 use compylr_ir::{Class, Function, Ty, Unit};
@@ -368,6 +369,7 @@ fn __render_str(value: &str) -> String {
 /// The statements that run one driver's calls and print one line per call.
 fn calls_body(unit: &Unit, calls: &[Value], stem: &str) -> String {
     let mut body = String::new();
+    let instance_accesses = instance_parameter_accesses(unit);
     for (index, entry) in calls.iter().enumerate() {
         let methods = entry["methods"].as_array().cloned().unwrap_or_default();
         let args = entry["args"].as_array().cloned().unwrap_or_default();
@@ -393,12 +395,29 @@ fn calls_body(unit: &Unit, calls: &[Value], stem: &str) -> String {
         let name = entry["call"].as_str().expect("a call names its member");
         let function = function_named(unit, name)
             .unwrap_or_else(|| panic!("{stem}: {name} is not a function in this unit"));
-        let rendered: Vec<String> = function
-            .params
-            .iter()
-            .zip(&args)
-            .map(|(p, v)| literal(&p.ty, v, unit))
-            .collect();
+        let mut rendered = Vec::with_capacity(function.params.len());
+        for (position, (param, value)) in function.params.iter().zip(&args).enumerate() {
+            let argument = literal(&param.ty, value, unit);
+            if matches!(param.ty, Ty::Instance(_)) {
+                let access = instance_accesses
+                    .get(&(function.name.clone(), param.name.clone()))
+                    .copied()
+                    .unwrap_or(InstanceAccess::Shared);
+                let mutable = matches!(access, InstanceAccess::Mutable);
+                let binding = format!("__arg{index}_{position}");
+                body.push_str(&format!(
+                    "    let {}{binding} = {argument};\n",
+                    if mutable { "mut " } else { "" }
+                ));
+                rendered.push(if mutable {
+                    format!("&mut {binding}")
+                } else {
+                    format!("&{binding}")
+                });
+            } else {
+                rendered.push(argument);
+            }
+        }
         let call = format!("{name}({})?", rendered.join(", "));
 
         if methods.is_empty() {

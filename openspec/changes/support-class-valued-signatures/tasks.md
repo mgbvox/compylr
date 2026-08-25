@@ -36,17 +36,17 @@
 
 ## 3. Borrowed Instance ABI in Generated Rust
 
-- [ ] 3.1 Write backend tests first for a read-only instance parameter, direct attribute mutation,
+- [x] 3.1 Write backend tests first for a read-only instance parameter, direct attribute mutation,
   nested place mutation, a transitively mutating method call, shared and mutable forwarding across
   forward/chained/mutually recursive generated calls, and newly owned returns; assert compilable
   emitted form, executed state semantics, and the absence of an inner-instance clone.
-- [ ] 3.2 Introduce one whole-unit instance-parameter access analysis that seeds shared/directly
+- [x] 3.2 Introduce one whole-unit instance-parameter access analysis that seeds shared/directly
   mutable modes, reuses the existing place-root and transitive method-mutation logic, and propagates
   mutable requirements across free-function call edges to a fixpoint.
-- [ ] 3.3 Emit direct instance parameters as `&T` or `&mut T` from that analysis and adapt generated
+- [x] 3.3 Emit direct instance parameters as `&T` or `&mut T` from that analysis and adapt generated
   call arguments to the callee's borrowed ABI; rely on validated non-escaping input and never clone
   a borrowed parameter into an owned result or storage location.
-- [ ] 3.4 Run backend unit, emission-quality, conformance, generated-crate compile, and execution
+- [x] 3.4 Run backend unit, emission-quality, conformance, generated-crate compile, and execution
   tests and commit the borrowed-ABI checkpoint.
 
 ## 4. Stable Python Wrapper Conversion

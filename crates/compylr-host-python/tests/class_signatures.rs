@@ -7,6 +7,7 @@
 use compylr_core::{Frontend, Source};
 use compylr_frontend_python::component::{PYTHON_BEHAVIOR, PythonFrontend};
 use compylr_ir::{Behavior, Ty};
+use compylr_registry::backends::lookup;
 
 fn source(text: &str) -> Source {
     Source::new(text, Behavior::of(&PYTHON_BEHAVIOR))
@@ -15,6 +16,16 @@ fn source(text: &str) -> Source {
 fn lower(texts: &[&str]) -> Result<compylr_ir::Unit, compylr_core::LoweringError> {
     let sources: Vec<Source> = texts.iter().map(|text| source(text)).collect();
     PythonFrontend.lower(&sources)
+}
+
+fn emit(text: &str) -> String {
+    let unit = lower(&[text]).expect("source should lower");
+    lookup("rust")
+        .unwrap()
+        .emit(&unit)
+        .expect("unit should emit")
+        .remove("src/generated.rs")
+        .expect("the translated source should exist")
 }
 
 const TALLY: &str = "class Tally:\n\
@@ -177,4 +188,61 @@ fn newly_owned_instance_results_may_be_returned_directly_or_from_a_call() {
          def rebuild(start: int) -> Tally:\n    return build(start)\n"
     );
     lower(&[&text]).expect("constructors and owned-producing calls return owned instances");
+}
+
+#[test]
+fn instance_parameter_signatures_follow_shared_and_mutable_use() {
+    let text = format!(
+        "{TALLY}\ndef read(tally: Tally) -> int:\n    return tally.value\n\n\
+         def mutate(tally: Tally) -> int:\n    tally.value = tally.value + 1\n    return tally.value\n"
+    );
+    let emitted = emit(&text);
+    assert!(emitted.contains("pub fn read(tally: &Tally)"), "{emitted}");
+    assert!(
+        emitted.contains("pub fn mutate(tally: &mut Tally)"),
+        "{emitted}"
+    );
+}
+
+#[test]
+fn mutable_instance_access_propagates_through_methods_and_free_calls() {
+    let text = format!(
+        "{TALLY}\ndef inner(tally: Tally) -> int:\n    tally.bump(1)\n    return tally.value\n\n\
+         def outer(tally: Tally) -> int:\n    return inner(tally)\n"
+    );
+    let emitted = emit(&text);
+    assert!(
+        emitted.contains("pub fn inner(tally: &mut Tally)"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("pub fn outer(tally: &mut Tally)"),
+        "{emitted}"
+    );
+    assert!(emitted.contains("inner(tally)?"), "{emitted}");
+    assert!(
+        !emitted.contains("inner(tally.clone())"),
+        "a forwarded instance must not be cloned:\n{emitted}"
+    );
+}
+
+#[test]
+fn mutable_instance_access_reaches_a_fixpoint_across_mutual_recursion() {
+    let text = format!(
+        "{TALLY}\ndef first(tally: Tally, n: int) -> int:\n\
+         \x20   if n == 0:\n        return tally.value\n\
+         \x20   return second(tally, n - 1)\n\n\
+         def second(tally: Tally, n: int) -> int:\n\
+         \x20   if n == 0:\n        tally.bump(1)\n        return tally.value\n\
+         \x20   return first(tally, n - 1)\n"
+    );
+    let emitted = emit(&text);
+    assert!(
+        emitted.contains("pub fn first(tally: &mut Tally"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("pub fn second(tally: &mut Tally"),
+        "{emitted}"
+    );
 }
