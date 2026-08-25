@@ -1,0 +1,22 @@
+name: Set up Go
+description: >
+  Set up Go with the specified version and configure module caching.
+
+inputs:
+  go-version:
+    description: "Go version (e.g. '1.23')"
+    required: false
+    default: "1.23"
+  cache-dependency-path:
+    description: "Path to go.sum or go.mod for caching"
+    required: false
+    default: "demo-ts/.compylr/go/go.mod"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: true
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}

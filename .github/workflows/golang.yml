@@ -1,0 +1,88 @@
+name: Golang
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: golang-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: gofmt and vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-golang
+        with:
+          go-version: "1.23"
+
+      - name: Verify gofmt formatting
+        working-directory: demo-ts/.compylr/go
+        run: |
+          diffs=$(gofmt -l .)
+          if [ -n "$diffs" ]; then
+            echo "Unformatted files found:"
+            echo "$diffs"
+            exit 1
+          fi
+
+      - name: Go vet
+        working-directory: demo-ts/.compylr/go
+        run: go vet ./...
+
+  test:
+    name: go build & test (${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["1.22", "1.23", "1.24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-golang
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build Go package
+        working-directory: demo-ts/.compylr/go
+        run: go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .
+
+  demo:
+    name: demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-golang
+        with:
+          go-version: "1.23"
+
+      - name: Precompile TypeScript demo to Go crate
+        run: |
+          cargo run -p compylr-cli -- \
+            --frontend typescript \
+            --backend go \
+            --emit crate \
+            --out demo-ts/.compylr/go \
+            demo-ts/src/algorithms/sorting.ts \
+            demo-ts/src/algorithms/arithmetic.ts \
+            demo-ts/src/algorithms/stats.ts \
+            demo-ts/src/algorithms/text.ts \
+            demo-ts/src/algorithms/graphs.ts \
+            demo-ts/src/algorithms/dynamic.ts \
+            demo-ts/src/algorithms/matrices.ts \
+            demo-ts/src/algorithms/structures.ts \
+            demo-ts/src/algorithms/nth_prime/recursive.ts \
+            demo-ts/src/algorithms/nth_prime/iterative.ts \
+            demo-ts/src/algorithms/nth_prime/memoized.ts
+
+      - name: Build compiled shared library
+        working-directory: demo-ts/.compylr/go
+        run: go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .

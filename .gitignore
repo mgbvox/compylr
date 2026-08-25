@@ -58,4 +58,6 @@ __pycache__/
 
 # The demo's own environment. Its .compylr is handled above.
 demo/.venv/
+node_modules/
+demo-ts/dist/
 demo/uv.lock

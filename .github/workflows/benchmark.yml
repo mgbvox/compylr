@@ -20,6 +20,7 @@ on:
       - "crates/**"
       - "python/compylr/**"
       - "demo/src/**"
+      - "demo-ts/src/**"
       - "scripts/update_benchmarks.py"
       - ".github/workflows/benchmark.yml"
   schedule:
@@ -57,12 +58,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python
         with:
           python-version: "3.12"
+      - uses: ./.github/actions/setup-typescript
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/setup-golang
+        with:
+          go-version: "1.23"
 
       # Dispatch inputs reach the shell through the environment and are checked to be integers.
       # They come from someone with write access, but a workflow that interpolates an input
@@ -83,23 +87,23 @@ jobs:
       # checkout already has an artifact that a build will happily reuse. Measuring that would be
       # measuring whichever revision last wrote it. This has cost real time before.
       - name: Measure this revision, not the committed artifact
-        run: rm -rf .compylr demo/.compylr
+        run: rm -rf .compylr demo/.compylr demo-ts/.compylr
 
       - name: Re-measure and rewrite the READMEs
         run: python scripts/update_benchmarks.py --scale "$SCALE" --n "$N"
 
-      # The generated crate under `demo/.compylr/` is committed to be read, and a Linux rebuild of
+      # The generated crate under `demo/.compylr/` and `demo-ts/.compylr/` is committed to be read, and a Linux rebuild of
       # it differs from the macOS one that is checked in -- `.cargo/config.toml` carries the
-      # platform's linker flags. Restore it: this job's output is the two READMEs and nothing else.
+      # platform's linker flags. Restore it: this job's output is the READMEs and nothing else.
       - name: Restore the committed artifact
-        run: git checkout -- demo/.compylr || true
+        run: git checkout -- demo/.compylr demo-ts/.compylr || true
 
       - name: Report
         run: |
           {
             echo "## Benchmarks (scale $SCALE, n $N)"
             echo
-            git --no-pager diff -- README.md demo/README.md || true
+            git --no-pager diff -- README.md demo/README.md demo-ts/README.md || true
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Opened as a pull request rather than pushed. `main` is protected by a ruleset -- "changes
@@ -118,7 +122,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md demo/README.md
+          git add README.md demo/README.md demo-ts/README.md
           if git diff --cached --quiet; then
             echo "the tables did not move; nothing to open"
             exit 0

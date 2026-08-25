@@ -39,6 +39,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DEMO = REPO / "demo"
+DEMO_TS = REPO / "demo-ts"
 
 #: How a generated region is delimited. The name is what makes a region addressable, so a block
 #: can be moved or reordered in the README without this script losing track of it.
@@ -62,8 +63,10 @@ class Region:
 ALGORITHMS = Region("algorithms", DEMO / "README.md")
 NTH_PRIME = Region("nth-prime", DEMO / "README.md")
 SUMMARY = Region("summary", REPO / "README.md")
+TS_ALGORITHMS = Region("ts-algorithms", DEMO_TS / "README.md")
+TS_NTH_PRIME = Region("ts-nth-prime", DEMO_TS / "README.md")
 
-REGIONS = (ALGORITHMS, NTH_PRIME, SUMMARY)
+REGIONS = (ALGORITHMS, NTH_PRIME, SUMMARY, TS_ALGORITHMS, TS_NTH_PRIME)
 
 
 class MarkerError(RuntimeError):
@@ -110,6 +113,13 @@ def provenance(detail: str) -> str:
     return f"_{detail} — measured on {machine}, {interpreter}, {when}._"
 
 
+def ts_provenance(detail: str) -> str:
+    """One line saying what was measured for TypeScript demo, where, and when."""
+    machine = f"{platform.system()} {platform.machine()}"
+    when = datetime.now(UTC).strftime("%Y-%m-%d")
+    return f"_{detail} — measured on {machine}, Node.js 22, {when}._"
+
+
 def run_benchmark(module: str, args: list[str]) -> str:
     """Run one of the demo's benchmarks and return its table.
 
@@ -133,6 +143,22 @@ def run_benchmark(module: str, args: list[str]) -> str:
         # Every timing in the table would be comparing two different computations.
         raise SystemExit(f"the two modes disagreed, so the numbers mean nothing:\n{output}")
     return output
+
+
+def run_ts_benchmark(script: str, args: list[str]) -> str:
+    """Run one of the TypeScript demo's benchmarks and return its table."""
+    completed = subprocess.run(
+        ["node", "--experimental-strip-types", script, *args],
+        cwd=DEMO_TS,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise SystemExit(
+            f"{script} failed ({completed.returncode}):\n{completed.stdout}\n{completed.stderr}"
+        )
+    return completed.stdout.strip()
 
 
 def parse_rows(table: str) -> list[tuple[str, float, float, str]]:
@@ -219,11 +245,15 @@ def main(argv: list[str] | None = None) -> int:
 
     algorithms = run_benchmark("algorithms.benchmark", ["--scale", str(args.scale)])
     nth_prime = run_benchmark("algorithms.nth_prime.benchmark", ["--n", str(args.n)])
+    ts_algorithms = run_ts_benchmark("src/algorithms/benchmark.ts", ["--scale", str(args.scale)])
+    ts_nth_prime = run_ts_benchmark("src/algorithms/nth_prime/benchmark.ts", ["--n", str(args.n)])
 
     bodies = {
         ALGORITHMS: f"{fenced(algorithms)}\n\n{provenance(f'scale {args.scale}')}",
         NTH_PRIME: f"{fenced(nth_prime)}\n\n{provenance(f'n = {args.n}')}",
         SUMMARY: f"{summarise(algorithms)}\n\n{provenance(f'scale {args.scale}')}",
+        TS_ALGORITHMS: f"{fenced(ts_algorithms)}\n\n{ts_provenance(f'scale {args.scale}')}",
+        TS_NTH_PRIME: f"{fenced(ts_nth_prime)}\n\n{ts_provenance(f'n = {args.n}')}",
     }
 
     if args.dry_run:
