@@ -34,22 +34,22 @@
 
 ## 3. The translation tier
 
-- [ ] 3.1 Write the tier's tests first in `crates/compylr-host-python/tests/differential.rs`: for one
+- [x] 3.1 Write the tier's tests first in `crates/compylr-host-python/tests/differential.rs`: for one
       fixture, the transcript from generated Rust equals the transcript CPython produced from the
       same driver; a deliberately corrupted expected transcript fails and the failure names the
       fixture and shows both
-- [ ] 3.2 Add the `Ty`-directed JSON renderer used to build the harness `main` — D3. Table-driven
+- [x] 3.2 Add the `Ty`-directed JSON renderer used to build the harness `main` — D3. Table-driven
       tests over every `Ty`, asserting the Rust rendering of a value matches the Python rendering of
       the same value, in the shape of the existing test that keeps `runtime.rs`'s mirrored
       `IndexOrigin` in step with the IR's
-- [ ] 3.3 Build the harness on `execution.rs`'s existing pattern: emit the whole crate into
+- [x] 3.3 Build the harness on `execution.rs`'s existing pattern: emit the whole crate into
       `$CARGO_TARGET_TMPDIR`, write `src/main.rs` around it, `rustc`, run, capture stdout. Deny
       warnings, and on failure print the generated source as `execution.rs` already does
-- [ ] 3.4 Drive it over the whole accepted corpus, enumerated from the directory. Group fixtures the
+- [x] 3.4 Drive it over the whole accepted corpus, enumerated from the directory. Group fixtures the
       way `emit_quality.rs` already groups them so cross-source calls resolve
-- [ ] 3.5 Make a missing `rustc` the only skip, and make that skip name the missing tool. A fixture
+- [x] 3.5 Make a missing `rustc` the only skip, and make that skip name the missing tool. A fixture
       that fails to translate, build, run, or agree is a failure
-- [ ] 3.6 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 3.6 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`; commit
 
 ## 4. The boundary tier

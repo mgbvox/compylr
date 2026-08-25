@@ -25,7 +25,7 @@ import math
 from collections.abc import Iterable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, get_args, get_origin, get_type_hints
 
 #: How far two floats may differ and still be the same answer.
 #:
@@ -212,6 +212,49 @@ def members_named(calls: list[dict[str, Any]]) -> set[str]:
     return found
 
 
+def _declared_return(member: Any) -> Any:
+    """The return type a member declares, or ``None`` when it declares nothing readable.
+
+    A compiled member is backed by Rust and carries no annotations, in which case there is
+    nothing to coerce to and the value is already at its declared type.
+    """
+    try:
+        annotations = get_type_hints(member)
+    except (TypeError, NameError, AttributeError):
+        # A compiled member is backed by Rust and has no annotations to resolve.
+        return None
+    declared = annotations.get("return")
+    # A spelling that would not resolve is not a type this can coerce to, and guessing is worse
+    # than leaving the value alone.
+    return None if isinstance(declared, str) else declared
+
+
+def coerce_to_declared(value: Any, declared: Any) -> Any:
+    """Bring a value to the type its signature declares.
+
+    Python's annotations do not coerce: `def widen(n: int) -> float: return n` answers the integer
+    3, while the same function translated answers 3.0. The two are the same answer -- the
+    transcript is rendered from the *declared* type on both sides, or the tier would report a
+    difference in Python's runtime typing as a difference in the compiler.
+    """
+    if declared is None or declared is type(None):
+        return value
+    if declared is float and isinstance(value, int) and not isinstance(value, bool):
+        return float(value)
+
+    origin, args = get_origin(declared), get_args(declared)
+    if origin in (list, set, frozenset) and args and isinstance(value, (list, set, frozenset)):
+        items = [coerce_to_declared(item, args[0]) for item in value]
+        return items if origin is list else set(items)
+    if origin is dict and len(args) == 2 and isinstance(value, dict):
+        return {
+            coerce_to_declared(k, args[0]): coerce_to_declared(v, args[1]) for k, v in value.items()
+        }
+    if origin is tuple and args and isinstance(value, tuple):
+        return tuple(coerce_to_declared(item, arg) for item, arg in zip(value, args, strict=False))
+    return value
+
+
 def run_calls(calls: list[dict[str, Any]], module: Any) -> list[Any]:
     """Invoke a driver's calls in order against ``module`` and return their *values*.
 
@@ -230,9 +273,10 @@ def _run_entry(entry: dict[str, Any], module: Any) -> Any:
         instance = _member(module, entry["new"])(*args)
         return [_call_method(instance, name, method_args, module) for name, method_args in methods]
 
-    result = _member(module, entry["call"])(*args)
+    member = _member(module, entry["call"])
+    result = member(*args)
     if not methods:
-        return result
+        return coerce_to_declared(result, _declared_return(member))
     return [_call_method(result, name, method_args, module) for name, method_args in methods]
 
 
@@ -240,7 +284,9 @@ def _call_method(instance: Any, name: str, args: list[Any], module: Any) -> Any:
     method = getattr(instance, name, None)
     if method is None:
         raise DriverError(f"{type(instance).__name__} has no method {name}")
-    return method(*[_realise(argument, module) for argument in args])
+    result = method(*[_realise(argument, module) for argument in args])
+    declared = _declared_return(getattr(type(instance), name, None))
+    return coerce_to_declared(result, declared)
 
 
 def _realise(argument: Any, module: Any) -> Any:
@@ -379,7 +425,9 @@ def fixture_namespace(paths: Iterable[Path]) -> SimpleNamespace:
     namespace: dict[str, Any] = {}
     for path in paths:
         exec(compile(path.read_text(), str(path), "exec"), namespace)  # noqa: S102
-    namespace.pop("__builtins__", None)
+    # `__builtins__` stays. Annotations are evaluated lazily, against the defining module's
+    # globals -- remove it and `-> float` can no longer resolve `float`, so every annotation
+    # degrades to its own spelling and the declared type silently stops being knowable.
     return SimpleNamespace(**namespace)
 
 
@@ -389,3 +437,27 @@ def interpreted_results(accepted_dir: Path, drivers_dir: Path, stem: str) -> lis
     sources = [accepted_dir / f"{name}.py" for name in group_for(stem, stems)]
     calls = load_calls(drivers_dir / f"{stem}.py")
     return run_calls(calls, fixture_namespace(sources))
+
+
+def decode_value(encoded: Any) -> Any:
+    """Undo :func:`encode_calls`'s tagging, so a value can round-trip through JSON."""
+    if isinstance(encoded, list):
+        return [decode_value(item) for item in encoded]
+    if isinstance(encoded, dict):
+        if "$set" in encoded:
+            return {decode_value(item) for item in encoded["$set"]}
+        if "$tuple" in encoded:
+            return tuple(decode_value(item) for item in encoded["$tuple"])
+        if "$dict" in encoded:
+            return {decode_value(k): decode_value(v) for k, v in encoded["$dict"]}
+    return encoded
+
+
+def render_encoded(encoded: Any) -> str:
+    """Render a tagged value the way a transcript renders it.
+
+    The translation tier's renderer is written twice -- once here and once in Rust -- and a
+    renderer written twice is a renderer written wrong. This is the entry point the mirror test
+    uses to hold the two together.
+    """
+    return render_value(decode_value(encoded))
