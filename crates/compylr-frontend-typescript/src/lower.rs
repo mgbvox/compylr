@@ -28,8 +28,15 @@ pub fn to_span(span: OxcSpan) -> Span {
 /// Signatures of top-level functions in a unit.
 pub type Signatures = HashMap<String, (Vec<Param>, Ty)>;
 
-/// Signatures of classes in a unit: class name -> (constructor params, methods).
-pub type ClassSignatures = HashMap<String, (Vec<Param>, HashMap<String, (Vec<Param>, Ty)>)>;
+/// Signatures of classes in a unit: class name -> (attributes, constructor params, methods).
+pub type ClassSignatures = HashMap<
+    String,
+    (
+        HashMap<String, Ty>,
+        Vec<Param>,
+        HashMap<String, (Vec<Param>, Ty)>,
+    ),
+>;
 
 /// Parse TypeScript source into an AST.
 pub fn parse_ts_source<'a>(
@@ -130,10 +137,20 @@ pub fn collect_class_signatures<'a>(
         if let Some(c) = class_decl {
             if let Some(ident) = &c.id {
                 let class_name = ident.name.to_string();
+                let mut attributes = HashMap::new();
                 let mut ctor_params = Vec::new();
                 let mut methods = HashMap::new();
                 for element in &c.body.body {
                     match element {
+                        ClassElement::PropertyDefinition(prop) => {
+                            if let Some(name) = prop.key.name() {
+                                if let Some(annot) = &prop.type_annotation {
+                                    let ty =
+                                        lower_type(&annot.type_annotation, class_names, source)?;
+                                    attributes.insert(name.to_string(), ty);
+                                }
+                            }
+                        }
                         ClassElement::MethodDefinition(m) => {
                             if m.kind.is_constructor() {
                                 ctor_params = lower_params(&m.value.params, class_names, source)?;
@@ -150,7 +167,7 @@ pub fn collect_class_signatures<'a>(
                         _ => {}
                     }
                 }
-                class_sigs.insert(class_name, (ctor_params, methods));
+                class_sigs.insert(class_name, (attributes, ctor_params, methods));
             }
         }
     }
@@ -322,6 +339,8 @@ struct LoweringContext<'a> {
     in_constructor: bool,
     /// Inside class method? (class name if so)
     in_class: Option<String>,
+    /// Expected return type of enclosing function/method
+    expected_ret: Option<Ty>,
 }
 
 impl<'a> LoweringContext<'a> {
@@ -351,6 +370,7 @@ impl<'a> LoweringContext<'a> {
             params: param_names,
             in_constructor,
             in_class,
+            expected_ret: None,
         }
     }
 
@@ -415,6 +435,7 @@ pub fn lower_function<'a>(
         false,
         None,
     );
+    ctx.expected_ret = Some(ret_ty.clone());
 
     let body_stmts = if let Some(body) = &f.body {
         lower_block(body, &mut ctx)?
@@ -522,6 +543,7 @@ pub fn lower_class<'a>(
                         false,
                         Some(name.to_string()),
                     );
+                    ctx.expected_ret = Some(m_ret.clone());
                     let m_body = if let Some(body) = &m.value.body {
                         lower_block(body, &mut ctx)?
                     } else {
@@ -618,6 +640,21 @@ fn lower_statement<'a>(
     match stmt {
         OxcStmt::ReturnStatement(ret) => {
             if let Some(arg) = &ret.argument {
+                if let OxcExpr::ArrayExpression(arr) = arg {
+                    if let Some(expected) = &ctx.expected_ret {
+                        if matches!(expected, Ty::Tuple(_)) {
+                            let mut elements = Vec::new();
+                            for el in &arr.elements {
+                                if let Some(e) = el.as_expression() {
+                                    let (lowered, _) = lower_expr(e, ctx)?;
+                                    elements.push(lowered);
+                                }
+                            }
+                            out.push(Stmt::Return(Expr::TupleLit(elements)));
+                            return Ok(());
+                        }
+                    }
+                }
                 let (expr, _) = lower_expr(arg, ctx)?;
                 out.push(Stmt::Return(expr));
             } else {
@@ -647,7 +684,28 @@ fn lower_statement<'a>(
                     ));
                 };
 
-                let (lowered_init, inferred_ty) = lower_expr(init, ctx)?;
+                let (lowered_init, inferred_ty) =
+                    if let (Some(type_annot), OxcExpr::ArrayExpression(arr)) =
+                        (&decl.type_annotation, init)
+                    {
+                        let annot_ty =
+                            lower_type(&type_annot.type_annotation, ctx.class_names, ctx.source)?;
+                        if matches!(annot_ty, Ty::Tuple(_)) {
+                            let mut elements = Vec::new();
+                            for el in &arr.elements {
+                                if let Some(e) = el.as_expression() {
+                                    let (lowered, _) = lower_expr(e, ctx)?;
+                                    elements.push(lowered);
+                                }
+                            }
+                            (Expr::TupleLit(elements), annot_ty)
+                        } else {
+                            lower_expr(init, ctx)?
+                        }
+                    } else {
+                        lower_expr(init, ctx)?
+                    };
+
                 let ty = if let Some(type_annot) = &decl.type_annotation {
                     lower_type(&type_annot.type_annotation, ctx.class_names, ctx.source)?
                 } else if inferred_ty != Ty::Unit {
@@ -887,10 +945,13 @@ fn lower_expr_statement<'a>(
             }
         }
         OxcExpr::CallExpression(call) => {
-            // Method calls like `xs.push(v)` or `set.add(v)`
+            // Method calls like `xs.push(v)`, `set.add(v)`, or `map.set(k, v)`
             if let OxcExpr::StaticMemberExpression(stat) = &call.callee {
                 let method_name = stat.property.name.as_str();
-                if method_name == "push" || method_name == "add" {
+                let (target_expr, obj_ty) = lower_expr(&stat.object, ctx)?;
+                if (method_name == "push" || method_name == "add")
+                    && matches!(obj_ty, Ty::List(_) | Ty::Set(_))
+                {
                     if let OxcExpr::Identifier(id) = &stat.object {
                         if ctx.params.contains(id.name.as_str()) {
                             return Err(ctx.err(
@@ -900,7 +961,6 @@ fn lower_expr_statement<'a>(
                             ));
                         }
                     }
-                    let (target_expr, _) = lower_expr(&stat.object, ctx)?;
                     if let Some(arg) = call.arguments.first() {
                         if let Argument::NumericLiteral(n) = arg {
                             out.push(Stmt::Append {
@@ -922,6 +982,23 @@ fn lower_expr_statement<'a>(
                             });
                             return Ok(());
                         }
+                    }
+                } else if method_name == "set"
+                    && call.arguments.len() == 2
+                    && matches!(obj_ty, Ty::Dict(_, _))
+                {
+                    if let (Some(k_arg), Some(v_arg)) = (
+                        call.arguments[0].as_expression(),
+                        call.arguments[1].as_expression(),
+                    ) {
+                        let (k_expr, _) = lower_expr(k_arg, ctx)?;
+                        let (v_expr, _) = lower_expr(v_arg, ctx)?;
+                        out.push(Stmt::SetItem {
+                            collection: target_expr,
+                            index: k_expr,
+                            value: v_expr,
+                        });
+                        return Ok(());
                     }
                 }
             }
@@ -1123,6 +1200,22 @@ fn lower_expr<'a>(
             }
         }
         OxcExpr::ParenthesizedExpression(p) => lower_expr(&p.expression, ctx),
+        OxcExpr::TSNonNullExpression(non_null) => lower_expr(&non_null.expression, ctx),
+        OxcExpr::TSAsExpression(as_expr) => lower_expr(&as_expr.expression, ctx),
+        OxcExpr::TSSatisfiesExpression(sat) => lower_expr(&sat.expression, ctx),
+        OxcExpr::TSTypeAssertion(type_assert) => lower_expr(&type_assert.expression, ctx),
+        OxcExpr::LogicalExpression(log) => {
+            let (left_expr, left_ty) = lower_expr(&log.left, ctx)?;
+            let (_, right_ty) = lower_expr(&log.right, ctx)?;
+            let ty = if left_ty == Ty::Bool && right_ty == Ty::Bool {
+                Ty::Bool
+            } else if left_ty != Ty::Unit {
+                left_ty
+            } else {
+                right_ty
+            };
+            Ok((left_expr, ty))
+        }
         OxcExpr::ArrayExpression(arr) => {
             let mut elements = Vec::new();
             let mut elem_ty = Ty::Int;
@@ -1143,6 +1236,19 @@ fn lower_expr<'a>(
         }
         OxcExpr::ComputedMemberExpression(comp) => {
             let (obj_expr, obj_ty) = lower_expr(&comp.object, ctx)?;
+            if let Ty::Tuple(ref elems) = obj_ty {
+                if let OxcExpr::NumericLiteral(num) = &comp.expression {
+                    let pos = num.value as usize;
+                    let elem_ty = elems.get(pos).cloned().unwrap_or(Ty::Int);
+                    return Ok((
+                        Expr::TupleIndex {
+                            base: Box::new(obj_expr),
+                            position: pos,
+                        },
+                        elem_ty,
+                    ));
+                }
+            }
             let (idx_expr, _) = lower_expr(&comp.expression, ctx)?;
             let elem_ty = match obj_ty {
                 Ty::List(inner) => *inner,
@@ -1163,7 +1269,7 @@ fn lower_expr<'a>(
             ))
         }
         OxcExpr::StaticMemberExpression(stat) => {
-            let (obj_expr, _) = lower_expr(&stat.object, ctx)?;
+            let (obj_expr, obj_ty) = lower_expr(&stat.object, ctx)?;
             let prop = stat.property.name.as_str();
             if prop == "length" || prop == "size" {
                 Ok((
@@ -1174,12 +1280,31 @@ fn lower_expr<'a>(
                     Ty::Int,
                 ))
             } else {
+                let attr_ty = if let Some(class_name) = &ctx.in_class {
+                    ctx.class_signatures
+                        .get(class_name)
+                        .and_then(|(attrs, _, _)| attrs.get(prop))
+                        .cloned()
+                        .unwrap_or(Ty::Int)
+                } else if let Ty::Instance(class_name) = &obj_ty {
+                    ctx.class_signatures
+                        .get(class_name)
+                        .and_then(|(attrs, _, _)| attrs.get(prop))
+                        .cloned()
+                        .unwrap_or(Ty::Int)
+                } else {
+                    ctx.class_signatures
+                        .values()
+                        .find_map(|(attrs, _, _)| attrs.get(prop))
+                        .cloned()
+                        .unwrap_or(Ty::Int)
+                };
                 Ok((
                     Expr::Attribute {
                         object: Box::new(obj_expr),
                         name: prop.to_string(),
                     },
-                    Ty::Int,
+                    attr_ty,
                 ))
             }
         }
@@ -1204,6 +1329,9 @@ fn lower_expr<'a>(
             match &call.callee {
                 OxcExpr::Identifier(id) => {
                     let callee_name = id.name.as_str();
+                    if callee_name == "String" && !args.is_empty() {
+                        return Ok((args.remove(0), Ty::Str));
+                    }
                     let ret_ty = ctx
                         .signatures
                         .get(callee_name)
@@ -1218,8 +1346,60 @@ fn lower_expr<'a>(
                     ))
                 }
                 OxcExpr::StaticMemberExpression(stat) => {
-                    let (obj_expr, _) = lower_expr(&stat.object, ctx)?;
                     let method_name = stat.property.name.as_str();
+                    if let OxcExpr::Identifier(obj_id) = &stat.object {
+                        if obj_id.name.as_str() == "Math"
+                            && method_name == "floor"
+                            && !args.is_empty()
+                        {
+                            return Ok((args.remove(0), Ty::Int));
+                        }
+                    }
+                    let (obj_expr, obj_ty) = lower_expr(&stat.object, ctx)?;
+                    if method_name == "get" && !args.is_empty() {
+                        let elem_ty = match &obj_ty {
+                            Ty::Dict(_, v) => (**v).clone(),
+                            _ => Ty::Int,
+                        };
+                        return Ok((
+                            Expr::Subscript {
+                                base: Box::new(obj_expr),
+                                index: Box::new(args.remove(0)),
+                                origin: ctx.behavior.index_origin(),
+                                checked: ctx.behavior.index_checked(),
+                            },
+                            elem_ty,
+                        ));
+                    } else if method_name == "has" && !args.is_empty() {
+                        return Ok((
+                            Expr::Contains {
+                                container: Box::new(obj_expr),
+                                value: Box::new(args.remove(0)),
+                            },
+                            Ty::Bool,
+                        ));
+                    } else if method_name == "keys" {
+                        return Ok((obj_expr, obj_ty));
+                    }
+                    let ret_ty = if let Some(class_name) = &ctx.in_class {
+                        ctx.class_signatures
+                            .get(class_name)
+                            .and_then(|(_, _, methods)| methods.get(method_name))
+                            .map(|(_, ret)| ret.clone())
+                            .unwrap_or(Ty::Int)
+                    } else if let Ty::Instance(class_name) = &obj_ty {
+                        ctx.class_signatures
+                            .get(class_name)
+                            .and_then(|(_, _, methods)| methods.get(method_name))
+                            .map(|(_, ret)| ret.clone())
+                            .unwrap_or(Ty::Int)
+                    } else {
+                        ctx.class_signatures
+                            .values()
+                            .find_map(|(_, _, methods)| methods.get(method_name))
+                            .map(|(_, ret)| ret.clone())
+                            .unwrap_or(Ty::Int)
+                    };
                     Ok((
                         Expr::MethodCall {
                             receiver: Box::new(obj_expr),
@@ -1227,7 +1407,7 @@ fn lower_expr<'a>(
                             method: method_name.to_string(),
                             args,
                         },
-                        Ty::Int,
+                        ret_ty,
                     ))
                 }
                 _ => Err(ctx.err(
@@ -1240,6 +1420,18 @@ fn lower_expr<'a>(
         OxcExpr::NewExpression(new_expr) => {
             if let OxcExpr::Identifier(id) = &new_expr.callee {
                 let class_name = id.name.as_str();
+                if class_name == "Map" {
+                    return Ok((
+                        Expr::DictLit(Vec::new()),
+                        Ty::Dict(Box::new(Ty::Int), Box::new(Ty::Int)),
+                    ));
+                }
+                if class_name == "Set" {
+                    return Ok((Expr::SetLit(Vec::new()), Ty::Set(Box::new(Ty::Int))));
+                }
+                if class_name == "Array" {
+                    return Ok((Expr::ListLit(Vec::new()), Ty::List(Box::new(Ty::Int))));
+                }
                 let mut args = Vec::new();
                 for arg in &new_expr.arguments {
                     if let Some(e) = arg.as_expression() {

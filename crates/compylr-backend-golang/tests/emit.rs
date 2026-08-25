@@ -38,6 +38,6 @@ fn emits_valid_go_package_and_function() {
 
     let text = files.get("generated.go").expect("generated.go missing");
     assert!(text.contains("package main"));
-    assert!(text.contains("func Add(a int64, b int64) (int64, error) {"));
-    assert!(text.contains("return (a + b), nil"));
+    assert!(text.contains("func Add(a int64, b int64) int64 {"));
+    assert!(text.contains("return (a + b)"));
 }

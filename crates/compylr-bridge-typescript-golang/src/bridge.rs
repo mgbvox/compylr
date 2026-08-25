@@ -56,9 +56,7 @@ fn emit_cgo_bindings(unit: &Unit) -> String {
     writeln!(out, "/*").unwrap();
     writeln!(out, "#include <stdlib.h>").unwrap();
     writeln!(out, "*/").unwrap();
-    writeln!(out, "import \"C\"").unwrap();
-    writeln!(out, "import \"unsafe\"").unwrap();
-    writeln!(out, "import \"fmt\"\n").unwrap();
+    writeln!(out, "import \"C\"\n").unwrap();
 
     for func in unit.functions() {
         emit_cgo_function(func, &mut out);
@@ -68,28 +66,56 @@ fn emit_cgo_bindings(unit: &Unit) -> String {
     out
 }
 
+fn is_scalar(ty: &Ty) -> bool {
+    matches!(ty, Ty::Int | Ty::Float | Ty::Bool | Ty::Unit)
+}
+
 fn emit_cgo_function(func: &Function, out: &mut String) {
+    if !func.params.iter().all(|p| is_scalar(&p.ty)) || !is_scalar(&func.ret) {
+        return;
+    }
     let fn_name = &func.name;
     let cgo_name = format!("Call_{}", fn_name);
 
     let mut c_params = Vec::new();
+    let mut call_args = Vec::new();
     for p in &func.params {
-        c_params.push(format!("{} C.longlong", p.name));
+        match &p.ty {
+            Ty::Int => {
+                c_params.push(format!("{} C.longlong", p.name));
+                call_args.push(format!("int64({})", p.name));
+            }
+            Ty::Float => {
+                c_params.push(format!("{} C.double", p.name));
+                call_args.push(format!("float64({})", p.name));
+            }
+            Ty::Bool => {
+                c_params.push(format!("{} C.longlong", p.name));
+                call_args.push(format!("{} != 0", p.name));
+            }
+            _ => {}
+        }
     }
     let c_params_str = c_params.join(", ");
 
+    let ret_type = match &func.ret {
+        Ty::Float => "C.double",
+        _ => "C.longlong",
+    };
+
     writeln!(out, "//export {}", cgo_name).unwrap();
-    writeln!(out, "func {}({}) C.longlong {{", cgo_name, c_params_str).unwrap();
-    let call_args: Vec<String> = func
-        .params
-        .iter()
-        .map(|p| format!("int64({})", p.name))
-        .collect();
-    writeln!(out, "\tres, err := {}({})", fn_name, call_args.join(", ")).unwrap();
-    writeln!(out, "\tif err != nil {{ return -1 }}").unwrap();
+    writeln!(out, "func {}({}) {} {{", cgo_name, c_params_str, ret_type).unwrap();
     if func.ret == Ty::Unit {
+        writeln!(out, "\t{}({})", fn_name, call_args.join(", ")).unwrap();
         writeln!(out, "\treturn 0").unwrap();
+    } else if func.ret == Ty::Bool {
+        writeln!(out, "\tres := {}({})", fn_name, call_args.join(", ")).unwrap();
+        writeln!(out, "\tif res {{ return 1 }} else {{ return 0 }}").unwrap();
+    } else if func.ret == Ty::Float {
+        writeln!(out, "\tres := {}({})", fn_name, call_args.join(", ")).unwrap();
+        writeln!(out, "\treturn C.double(res)").unwrap();
     } else {
+        writeln!(out, "\tres := {}({})", fn_name, call_args.join(", ")).unwrap();
         writeln!(out, "\treturn C.longlong(res)").unwrap();
     }
     writeln!(out, "}}\n").unwrap();

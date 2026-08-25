@@ -1,6 +1,4 @@
-//! Runtime helper functions embedded into generated Go packages.
-
-pub const GO_COMPAT_SOURCE: &str = r#"package main
+package main
 
 import (
 	"unicode/utf8"
@@ -67,4 +65,3 @@ func GoSetKeys[K comparable](s map[K]struct{}) []K {
 func GoRuneLen(s string) int64 {
 	return int64(utf8.RuneCountInString(s))
 }
-"#;
