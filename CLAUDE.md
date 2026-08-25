@@ -220,6 +220,22 @@ Known gaps worth knowing before you trip on them:
   `tests/fixtures.rs` enumerate `python/fixtures/accepted/`. They were once lists, drifted, and
   hid a real defect: tuple indexing emitted a `py_subscript` call with no tuple impl, so
   `collections.py` had been producing code that did not compile. Keep them derived.
+* **Every accepted fixture owes a driver**, in `python/fixtures/drivers/<name>.py`, naming the
+  calls that exercise it as literal data. Both differential tiers read the same driver, and
+  `fixtures.rs` fails when a fixture has none or when a driver does not reach every member the
+  fixture defines. A driver carries **no expected values**: what a call should answer is what
+  CPython answers. Unlike the corpora, `drivers/` is linted and type-checked.
+* **The rejection corpus has an inverted guard.** A program in `python/fixtures/rejected/` that
+  *starts* lowering fails the suite. Clear it by moving the program into `accepted/` and giving it
+  a driver — never by adding an allowance, which turns a change in the language into a change in a
+  test. `python/fixtures/rejected/README.md` says so where someone hitting the failure will look.
+* **A member name must be unique across the whole accepted corpus.** The boundary tier builds
+  every fixture into one unit, as a real project is built, and `Unit::add_function` refuses a
+  duplicate. Four fixtures carry a header saying why a name is what it is; renaming one back
+  breaks that build rather than any rule the fixture tests.
+* **`class_valued_signatures.py` is excluded from the boundary tier by name.** The Python bridge
+  has no `Ty::Instance` handling, so a function whose signature names a class emits bindings that
+  do not compile. The translation tier covers it in full. See `HANDOFF.md`.
 
 # Two PyO3 roles
 
@@ -286,6 +302,13 @@ silently was the first.
   `.github/workflows/benchmark.yml` runs it and opens a pull request with the result. Editing a table by hand is
   editing output: the next run overwrites it. Moving or renaming a marker is what breaks the job,
   so the script's `--check` mode runs in CI and on commit.
+* **The README's subset matrix is generated too.** `scripts/update_subset.py` rewrites the block
+  between `<!-- subset:matrix -->` markers from the corpus, and a form is listed **only because a
+  fixture exercising it translated, built, ran, and agreed with CPython** — so the documentation
+  cannot overstate the implementation. Editing the table by hand is editing output. Its `--check`
+  mode runs in the Makefile, the hooks, and CI. Both scripts share `scripts/_regions.py`; they are
+  deliberately separate scripts, because folding a documentation check into a benchmark would put
+  it on the benchmark's timescale.
 * **CI, the Makefile and the pre-commit hooks run the same commands.** `make check` is what the
   workflows do; `.pre-commit-config.yaml` is the subset fast enough to run on a commit. When you
   add a check, add it in all three, or it is a check people discover in a pull request instead.

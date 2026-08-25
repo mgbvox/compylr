@@ -719,14 +719,14 @@ Planning goes through [OpenSpec](https://github.com/Fission-AI/OpenSpec) before 
 Conventions: tests before implementation; `cargo fmt`, `cargo clippy --workspace --all-targets --
 -D warnings`, and `cargo test --workspace` green before committing; commit at each checkpoint.
 
-Three tests exist to stop documentation and structure drifting apart, and they are worth knowing
-about before a change surprises you:
+Several tests exist to stop documentation, structure, and behaviour drifting apart, and they are
+worth knowing about before a change surprises you. All but one live in
+`crates/compylr-host-python/tests/`, which is where the workspace's integration suite sits.
 
-The three live in `crates/compylr-host-python/tests/`, which is where the workspace's integration
-suite sits.
+**That the code does what this file says:**
 
 * `readme.rs` checks this file against the code, so the type table, operator list, crate layout,
-  and referenced paths cannot drift silently.
+  capability list, subset matrix, and referenced paths cannot drift silently.
 * `crate_boundaries.rs` reads the manifests, so an edge that would let a backend name Python, the
   IR reach a parser, or a non-host crate link a host runtime fails the suite rather than passing
   review.
@@ -734,3 +734,22 @@ suite sits.
   implemented, and fails if any IR node form is unexercised in a position it is legal in. It is
   authored as IR rather than as Python on purpose: a tree Python cannot express is a tree the
   fixtures can never contain, and that is exactly where a backend can be silently wrong.
+
+**That a compiled function answers what the same Python answers.** CPython is the oracle: no
+expected value is written anywhere, so there is nothing for anyone to type incorrectly. Each
+accepted fixture has a *driver* in `python/fixtures/drivers/` naming the calls that exercise it,
+and the same driver runs both ways.
+
+* `differential.rs` — the **translation tier**. Emits the crate, writes a `main` around it,
+  compiles, runs, and compares transcripts as text. Seconds, no maturin, on every `cargo test`.
+* `python/tests/test_differential.py` — the **boundary tier**. The same corpus through PyO3, as a
+  user reaches it, comparing *values* rather than text. `slow`, one build for the whole corpus.
+  The two fail differently on purpose: a program can be translated correctly and converted wrongly
+  at the boundary, and only the second sees that.
+* `corpus.rs` — the frontend over Python nobody wrote for this compiler: this repository's own,
+  the demo, the scripts, and the standard library of whichever interpreter is installed. Every
+  outcome must be a lowered unit or a diagnostic carrying a source position; a panic fails.
+* `fixtures.rs` — every accepted fixture has exactly one driver and that driver reaches every
+  member it defines, and every rejected fixture is *still* rejected. That last one is inverted on
+  purpose: a refused construct that starts compiling fails the suite, so growing the subset is a
+  decision rather than something that happens quietly.

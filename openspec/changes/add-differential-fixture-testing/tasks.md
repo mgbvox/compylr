@@ -114,12 +114,12 @@
 
 ## 8. Close out
 
-- [ ] 8.1 Update `README.md`'s prose where it describes how the repository verifies itself, so the
+- [x] 8.1 Update `README.md`'s prose where it describes how the repository verifies itself, so the
       two tiers and the robustness walk are named alongside `conformance.rs` and `crate_boundaries.rs`
-- [ ] 8.2 Update `CLAUDE.md` **and its identical `AGENTS.md` copy**: drivers are required for new
+- [x] 8.2 Update `CLAUDE.md` **and its identical `AGENTS.md` copy**: drivers are required for new
       fixtures; the rejection corpus has an
       inverted guard; the subset matrix is generated and editing it by hand is editing output
-- [ ] 8.3 Run `make demo` and confirm nothing moved — this change alters no answer, so any movement
+- [x] 8.3 Run `make demo` and confirm nothing moved — this change alters no answer, so any movement
       is a defect in it
-- [ ] 8.4 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
+- [x] 8.4 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
       `cargo test --workspace`, `make check`; commit

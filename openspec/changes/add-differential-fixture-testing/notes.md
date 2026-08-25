@@ -69,3 +69,11 @@ carry them; what makes it useful is watching it move as the subset grows.
 
 Task 6.5 asked for whatever panics or unlocated errors this found to be fixed. There were none, so
 nothing was changed — the frontend already held the property over inputs nobody wrote for it.
+
+## The demo did not move
+
+`make demo` reports **"Both modes returned the same answer for every workload"** and all three
+behavior modes still answer 118 for `arithmetic.collatz_length(97)`.
+
+That was the check worth running: this change alters no compiler code, so any movement in a demo
+answer would have been a defect in the change itself rather than a measurement.
