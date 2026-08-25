@@ -51,22 +51,22 @@
 
 ## 4. Stable Python Wrapper Conversion
 
-- [ ] 4.1 Write bridge generation tests first for deterministic class-name-to-wrapper lookup,
+- [x] 4.1 Write bridge generation tests first for deterministic class-name-to-wrapper lookup,
   shared `PyRef`, mutable `PyRefMut`, compatible forwarding, newly owned class-valued result
   wrapping, missing wrapper-map entries, no borrowed-inner clone, and unchanged scalar/collection
   signatures.
-- [ ] 4.2 Build the stable wrapper map once from the unit's deterministic class order and route
+- [x] 4.2 Build the stable wrapper map once from the unit's deterministic class order and route
   free-function boundary parameter, call-argument, and return spelling through pair-specific
   helpers rather than the backend's generic owned `rust_ty` spelling.
-- [ ] 4.3 Pass `PyRef`/`PyRefMut` inner values to generated functions by shared/mutable borrow and
+- [x] 4.3 Pass `PyRef`/`PyRefMut` inner values to generated functions by shared/mutable borrow and
   wrap successful newly owned instance results in the mapped `#[pyclass]` wrapper before returning
   them; keep existing runtime-error-to-Python-exception conversion unchanged and provide no clone
   fallback for invalid ownership escapes.
-- [ ] 4.4 Add extension-level tests showing `read(t: Tally)` observes current state, a free function
+- [x] 4.4 Add extension-level tests showing `read(t: Tally)` observes current state, a free function
   that mutates directly, through a mutating method, or through compatible forwarding changes the
   same Python object, and `build(...) -> Tally` returns a newly owned exposed class with independent
   persistent state across calls.
-- [ ] 4.5 Run the focused bridge, build-pipeline, PyO3 boundary, and end-to-end tests and commit the
+- [x] 4.5 Run the focused bridge, build-pipeline, PyO3 boundary, and end-to-end tests and commit the
   wrapper-conversion checkpoint.
 
 ## 5. Differential Corpus and Documentation

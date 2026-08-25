@@ -4,9 +4,12 @@
 //! diagnostics are exercised together. The pure lowering tests cover class bodies separately;
 //! this file owns the whole-unit boundary policy added for Python-callable free functions.
 
+use compylr_bridge_python_rust::bindings::emit_extension;
 use compylr_core::{Frontend, Source};
+use compylr_core::{backend::BackendError, bridge::BuildKey};
+use compylr_diagnostics::span::Span;
 use compylr_frontend_python::component::{PYTHON_BEHAVIOR, PythonFrontend};
-use compylr_ir::{Behavior, Ty};
+use compylr_ir::{Behavior, Expr, Function, Literal, Param, Stmt, Ty, Unit};
 use compylr_registry::backends::lookup;
 
 fn source(text: &str) -> Source {
@@ -26,6 +29,19 @@ fn emit(text: &str) -> String {
         .expect("unit should emit")
         .remove("src/generated.rs")
         .expect("the translated source should exist")
+}
+
+fn binding_layer(unit: &Unit) -> Result<String, BackendError> {
+    let key = BuildKey {
+        fingerprint: unit.fingerprint(),
+        target: "rust".to_string(),
+        passes: "default".to_string(),
+    };
+    emit_extension(unit, &key).map(|mut files| {
+        files
+            .remove("src/bindings.rs")
+            .expect("the extension must include bindings")
+    })
 }
 
 const TALLY: &str = "class Tally:\n\
@@ -245,4 +261,96 @@ fn mutable_instance_access_reaches_a_fixpoint_across_mutual_recursion() {
         emitted.contains("pub fn second(tally: &mut Tally"),
         "{emitted}"
     );
+}
+
+#[test]
+fn bridge_borrows_stable_wrappers_and_wraps_owned_results() {
+    let text = format!(
+        "{TALLY}\ndef read(tally: Tally) -> int:\n    return tally.value\n\n\
+         def mutate(tally: Tally) -> int:\n    tally.bump(1)\n    return tally.value\n\n\
+         def forward(tally: Tally) -> int:\n    return mutate(tally)\n\n\
+         def build(start: int) -> Tally:\n    return Tally(start)\n"
+    );
+    let unit = lower(&[&text]).expect("source should lower");
+    let bindings = binding_layer(&unit).expect("bridge should support direct instances");
+
+    assert!(
+        bindings.contains("tally: PyRef<'_, __compylr_class_0>"),
+        "{bindings}"
+    );
+    assert!(
+        bindings.contains("mut tally: PyRefMut<'_, __compylr_class_0>"),
+        "{bindings}"
+    );
+    assert!(
+        bindings.contains("generated::read(&tally.inner)"),
+        "{bindings}"
+    );
+    assert!(
+        bindings.contains("generated::mutate(&mut tally.inner)"),
+        "{bindings}"
+    );
+    assert!(
+        bindings.contains("generated::forward(&mut tally.inner)"),
+        "{bindings}"
+    );
+    assert!(
+        bindings.contains("-> PyResult<__compylr_class_0>"),
+        "{bindings}"
+    );
+    assert!(
+        bindings.contains(".map(|inner| __compylr_class_0 { inner })"),
+        "{bindings}"
+    );
+    assert!(
+        !bindings.contains("tally.inner.clone()"),
+        "the bridge must borrow the inner struct rather than cloning it:\n{bindings}"
+    );
+}
+
+#[test]
+fn wrapper_lookup_and_binding_output_are_deterministic() {
+    let functions = "def read(tally: Tally) -> int:\n    return tally.value\n";
+    let first = lower(&[TALLY, functions]).expect("source should lower");
+    let second = lower(&[functions, TALLY]).expect("source should lower");
+    assert_eq!(
+        binding_layer(&first).unwrap(),
+        binding_layer(&second).unwrap()
+    );
+}
+
+#[test]
+fn scalar_bridge_signatures_are_unchanged() {
+    let unit = lower(&["def scalar(value: int) -> int:\n    return value\n"])
+        .expect("source should lower");
+    let bindings = binding_layer(&unit).unwrap();
+    assert!(
+        bindings.contains("fn __compylr_export_0(value: i64) -> PyResult<i64>"),
+        "{bindings}"
+    );
+    assert!(bindings.contains("generated::scalar(value)"), "{bindings}");
+}
+
+#[test]
+fn a_missing_wrapper_map_entry_is_a_bridge_error() {
+    let mut unit = Unit::new();
+    unit.add_function(Function {
+        name: "missing".to_string(),
+        params: vec![Param {
+            name: "value".to_string(),
+            ty: Ty::Instance("Missing".to_string()),
+        }],
+        ret: Ty::Int,
+        body: vec![Stmt::Return(Expr::Literal(Literal::Int(1)))],
+        doc: None,
+        span: Span::default(),
+    })
+    .unwrap();
+
+    let error = binding_layer(&unit).expect_err("an instance needs an exposed wrapper");
+    let BackendError::Unsupported { detail } = error else {
+        panic!("expected an unsupported bridge shape")
+    };
+    assert!(detail.contains("Missing"), "{detail}");
+    assert!(detail.contains("wrapper"), "{detail}");
 }
