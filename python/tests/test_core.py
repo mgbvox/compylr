@@ -177,10 +177,13 @@ class TestValidateSource:
 class TestBackendRegistry:
     def test_reserved_backends_are_named_but_not_implemented(self) -> None:
         assert set(_core.backend_names()) >= {"rust", "typescript", "go", "cpp"}
-        assert _core.implemented_backends() == ["rust"]
+        assert set(_core.implemented_backends()) == {"rust", "go"}
 
     def test_rust_is_usable(self) -> None:
         _core.check_backend("rust")
+
+    def test_go_is_usable(self) -> None:
+        _core.check_backend("go")
 
     def test_a_reserved_backend_says_it_is_planned(self) -> None:
         with pytest.raises(_core.BackendNotAvailableError, match="not implemented yet"):
