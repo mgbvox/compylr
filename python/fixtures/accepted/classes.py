@@ -30,12 +30,3 @@ class Cache:
     def size(self) -> int:
         return len(self.entries)
 
-
-def build(start: int) -> Counter:
-    c = Counter(start)
-    c.bump(1)
-    return c
-
-
-def read(c: Counter) -> int:
-    return c.count

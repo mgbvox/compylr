@@ -54,21 +54,21 @@
 
 ## 4. The boundary tier
 
-- [ ] 4.1 Write the tier's tests first in `python/tests/test_differential.py`, marked `slow` and
+- [x] 4.1 Write the tier's tests first in `python/tests/test_differential.py`, marked `slow` and
       toolchain-gated, following `test_end_to_end.py`'s existing `pytestmark`
-- [ ] 4.2 Build the whole accepted corpus as **one** unit and one extension, as a real project is
+- [x] 4.2 Build the whole accepted corpus as **one** unit and one extension, as a real project is
       built — not one build per fixture. Resolve any name collision by renaming inside the fixture
       and note it in the fixture
-- [ ] 4.3 Produce the interpreted results in a separate process with `COMPYLR_DISABLE=1`, so a
+- [x] 4.3 Produce the interpreted results in a separate process with `COMPYLR_DISABLE=1`, so a
       marked member calling another marked member is interpreted all the way down
-- [ ] 4.4 Compare *values*, not text — D2: `==` for everything but floats, the named tolerance for
+- [x] 4.4 Compare *values*, not text — D2: `==` for everything but floats, the named tolerance for
       floats. Assert explicitly that a mapping and a set compare equal regardless of iteration order,
       so nobody later "fixes" this into a text comparison
-- [ ] 4.5 Report a disagreement naming the fixture, the call, and both values
-- [ ] 4.6 Measure what the tier adds to `make check` and record the number in this change's notes. If
+- [x] 4.5 Report a disagreement naming the fixture, the call, and both values
+- [x] 4.6 Measure what the tier adds to `make check` and record the number in this change's notes. If
       it is intolerable, give it its own Makefile target rather than dropping it — the decision and
       the measurement both go in the notes
-- [ ] 4.7 `pytest`, `make check`; commit
+- [x] 4.7 `pytest`, `make check`; commit
 
 ## 5. The inverted guard over the rejection corpus
 

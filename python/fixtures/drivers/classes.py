@@ -35,7 +35,4 @@ CALLS = [
             ["has", [3]],
         ],
     },
-    # `build` bumps the counter it returns, so a dropped mutation shows here too.
-    {"call": "build", "args": [7], "methods": [["get", []]]},
-    {"call": "read", "args": [{"new": "Counter", "args": [3]}]},
 ]

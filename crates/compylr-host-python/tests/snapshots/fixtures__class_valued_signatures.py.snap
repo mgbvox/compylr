@@ -1,0 +1,89 @@
+---
+source: crates/compylr-host-python/tests/fixtures.rs
+expression: functions
+---
+[
+    Function {
+        name: "build",
+        params: [
+            Param {
+                name: "start",
+                ty: Int,
+            },
+        ],
+        ret: Instance(
+            "Tally",
+        ),
+        body: [
+            Bind {
+                name: "t",
+                ty: Instance(
+                    "Tally",
+                ),
+                value: Construct {
+                    class: "Tally",
+                    args: [
+                        Name(
+                            "start",
+                        ),
+                    ],
+                },
+            },
+            Effect(
+                MethodCall {
+                    receiver: Name(
+                        "t",
+                    ),
+                    class: Some(
+                        "Tally",
+                    ),
+                    method: "bump",
+                    args: [
+                        Literal(
+                            Int(
+                                1,
+                            ),
+                        ),
+                    ],
+                },
+            ),
+            Return(
+                Name(
+                    "t",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 892,
+            end: 971,
+        },
+    },
+    Function {
+        name: "read",
+        params: [
+            Param {
+                name: "t",
+                ty: Instance(
+                    "Tally",
+                ),
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Attribute {
+                    object: Name(
+                        "t",
+                    ),
+                    name: "count",
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 974,
+            end: 1019,
+        },
+    },
+]

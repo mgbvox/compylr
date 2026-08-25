@@ -180,20 +180,25 @@ def _encode_argument(argument: Any) -> Any:
     # A mapping naming a class is a call, not data -- the same rule the validator applies.
     if isinstance(argument, dict) and "new" in argument:
         return _encode_entry(argument)
-    return _encode_value(argument)
+    return encode_value(argument)
 
 
-def _encode_value(value: Any) -> Any:
+def encode_value(value: Any) -> Any:
+    """Re-express a value so JSON can carry it without losing a type.
+
+    Used for arguments on the way to the translation tier, and for results on the way back from
+    the separate process that produces the interpreted side.
+    """
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, list):
-        return [_encode_value(item) for item in value]
+        return [encode_value(item) for item in value]
     if isinstance(value, tuple):
-        return {"$tuple": [_encode_value(item) for item in value]}
+        return {"$tuple": [encode_value(item) for item in value]}
     if isinstance(value, (set, frozenset)):
-        return {"$set": [_encode_value(item) for item in sorted(value)]}
+        return {"$set": [encode_value(item) for item in sorted(value)]}
     if isinstance(value, dict):
-        return {"$dict": [[_encode_value(k), _encode_value(v)] for k, v in value.items()]}
+        return {"$dict": [[encode_value(k), encode_value(v)] for k, v in value.items()]}
     raise DriverError(f"no JSON encoding for a {type(value).__name__}")
 
 
