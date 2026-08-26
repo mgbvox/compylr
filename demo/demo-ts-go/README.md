@@ -60,27 +60,27 @@ every algorithm, scale=1, per call, best of 5 batches
 
 workload                           compiled    interpreted   speedup
 --------------------------------------------------------------------
-arithmetic.collatz_length            0.25us         5.29us     21.5x
-dynamic.knapsack                     1.36us        15.19us     11.2x
-matrices.multiply                   36.02us       306.18us      8.5x
-arithmetic.sieve                     4.04us        28.65us      7.1x
-stats.standard_deviation             4.37us        14.86us      3.4x
-sorting.merge_sort                  11.57us        32.40us      2.8x
-sorting.insertion_sort               3.17us         8.25us      2.6x
-dynamic.edit_distance                0.51us         1.18us      2.3x
-stats.normalize                      4.76us         9.51us      2.0x
-graphs.topological_order             4.29us         6.01us      1.4x
-reference (never compiled)           1.41us         1.43us      1.0x
-matrices.transpose                   7.92us         7.92us      1.0x
-text.is_palindrome                   0.11us         0.10us      0.9x
-graphs.bfs_distances                 1.22us         0.73us      0.6x
-text.word_count                      0.52us         0.21us      0.4x
+arithmetic.collatz_length               0.23us         5.02us     21.5x
+dynamic.knapsack                        1.35us        15.07us     11.2x
+matrices.multiply                      36.10us       306.89us      8.5x
+arithmetic.sieve                        4.39us        31.14us      7.1x
+stats.standard_deviation                4.92us        16.72us      3.4x
+sorting.merge_sort                     13.81us        38.67us      2.8x
+sorting.insertion_sort                  3.35us         8.72us      2.6x
+dynamic.edit_distance                   0.52us         1.19us      2.3x
+stats.normalize                         3.52us         7.04us      2.0x
+graphs.topological_order                3.91us         5.48us      1.4x
+reference (never compiled)              1.41us         1.44us      1.0x
+matrices.transpose                      8.47us         8.47us      1.0x
+text.is_palindrome                      0.18us         0.16us      0.9x
+graphs.bfs_distances                    1.23us         0.74us      0.6x
+text.word_count                         0.53us         0.21us      0.4x
 
 The reference is never compiled, so its 1.00x is this run's noise floor — read every other row against that, not against 1.0.
 Both modes returned the same answer for every workload.
 ```
 
-_scale 1 — measured on Darwin arm64, Node.js 22, 2026-08-25._
+_scale 1 — measured on Darwin arm64, Node.js 22, 2026-08-26._
 <!-- /benchmark:algorithms -->
 
 ### The nth prime, three ways
@@ -95,14 +95,14 @@ nth prime, n=500, per call, best of 5 batches
 
 workload                           compiled    interpreted   speedup
 --------------------------------------------------------------------
-recursive                            50.43us       776.80us     15.4x
-iterative                            29.76us       376.54us     12.7x
-memoized (cold cache)                52.13us       555.09us     10.6x
-reference (never compiled)           44.36us        44.08us      1.0x
+recursive                              54.92us       782.56us     14.2x
+iterative                              38.97us       494.46us     12.7x
+memoized (cold cache)                  45.82us       552.02us     12.0x
+reference (never compiled)             43.53us        43.02us      1.0x
 
 The reference is never compiled, so its 1.00x is this run's noise floor — read every other row against that, not against 1.0.
 Both modes returned the same answer for every workload.
 ```
 
-_n = 500 — measured on Darwin arm64, Node.js 22, 2026-08-25._
+_n = 500 — measured on Darwin arm64, Node.js 22, 2026-08-26._
 <!-- /benchmark:nth-prime -->
