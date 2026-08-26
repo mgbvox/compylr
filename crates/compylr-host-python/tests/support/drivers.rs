@@ -2,7 +2,7 @@
 //!
 //! A driver is literal data so that both differential tiers can consume the same declaration. The
 //! declaration's *meaning* -- what shapes are legal, which members a call reaches -- is defined
-//! once, in `python/fixtures/drivers/_runner.py`. Rather than restate it here in a second parser
+//! once, in `frontends/python/fixtures/drivers/_runner.py`. Rather than restate it here in a second parser
 //! that would be free to disagree, this asks that module to read the corpus and hand back JSON.
 //! D1 sanctions exactly this: "the Rust harness reads it with `ast.literal_eval` via one `python3`
 //! invocation".
@@ -32,11 +32,11 @@ pub fn workspace_root() -> PathBuf {
 }
 
 pub fn accepted_dir() -> PathBuf {
-    workspace_root().join("python/fixtures/accepted")
+    workspace_root().join("frontends/python/fixtures/accepted")
 }
 
 pub fn drivers_dir() -> PathBuf {
-    workspace_root().join("python/fixtures/drivers")
+    workspace_root().join("frontends/python/fixtures/drivers")
 }
 
 /// Every accepted fixture's stem, read from the directory rather than listed.
@@ -270,8 +270,8 @@ print(json.dumps({"files": files, "unparsed": unparsed}))
     let output = Command::new(interpreter)
         .arg("-c")
         .arg(script)
-        .arg(root.join("python/compylr"))
-        .arg(root.join("demo/src"))
+        .arg(root.join("frontends/python/compylr"))
+        .arg(root.join("demo/demo-python-rust/src"))
         .arg(root.join("scripts"))
         .output()
         .expect("running the interpreter must not fail once it has been located");

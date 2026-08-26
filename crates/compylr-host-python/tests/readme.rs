@@ -179,7 +179,7 @@ fn readme_layout_covers_every_crate() {
 #[test]
 fn readme_references_only_paths_that_exist() {
     let text = readme();
-    let roots = ["crates/", "scripts/", "python/", "openspec/", "vendored/"];
+    let roots = ["crates/", "scripts/", "frontends/python/", "openspec/", "vendored/"];
     let mut checked = 0;
 
     for raw in text.split(|c: char| c.is_whitespace() || c == '`' || c == '(' || c == ')') {
@@ -246,7 +246,7 @@ fn readme_status_matches_reality() {
 fn readme_does_not_promise_a_python_package_that_does_not_exist() {
     let text = readme();
     let package_exists = repo_root().join("pyproject.toml").exists()
-        && repo_root().join("python/compylr/__init__.py").exists();
+        && repo_root().join("frontends/python/compylr/__init__.py").exists();
 
     if !package_exists {
         assert!(
@@ -292,7 +292,7 @@ fn readme_carries_a_generated_subset_matrix() {
 
     // Every fixture the table names must still be in the corpus. A renamed fixture would
     // otherwise leave the README pointing at a file nobody can open.
-    let accepted = repo_root().join("python/fixtures/accepted");
+    let accepted = repo_root().join("frontends/python/fixtures/accepted");
     for line in block.lines().filter(|line| line.starts_with("| `")) {
         let named = line
             .rsplit('|')
@@ -302,7 +302,7 @@ fn readme_carries_a_generated_subset_matrix() {
             .trim_matches('`');
         assert!(
             accepted.join(named).exists(),
-            "the subset matrix names {named}, which is not in python/fixtures/accepted/"
+            "the subset matrix names {named}, which is not in frontends/python/fixtures/accepted/"
         );
     }
 }

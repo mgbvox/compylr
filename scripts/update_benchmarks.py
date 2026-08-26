@@ -39,8 +39,8 @@ from pathlib import Path
 from _regions import MarkerError, Region, find_region, replace_region
 
 REPO = Path(__file__).resolve().parents[1]
-DEMO = REPO / "demo"
-DEMO_TS = REPO / "demo-ts"
+DEMO = REPO / "demo/demo-python-rust"
+DEMO_TS = REPO / "demo/demo-ts-go"
 
 #: How a generated region is delimited. The name is what makes a region addressable, so a block
 #: can be moved or reordered in the README without this script losing track of it.

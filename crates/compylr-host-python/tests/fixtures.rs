@@ -29,7 +29,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn fixtures_dir() -> PathBuf {
-    workspace_root().join("python/fixtures")
+    workspace_root().join("frontends/python/fixtures")
 }
 
 fn lower_fixture(path: &Path) -> Result<Vec<Function>, compylr_diagnostics::error::LowerError> {
@@ -106,7 +106,7 @@ fn default_behavior_fixture_fingerprints_are_stable() {
 
 /// What the corpus records each rejected program is refused *for*.
 ///
-/// Every file in `python/fixtures/rejected/` appears here, and
+/// Every file in `frontends/python/fixtures/rejected/` appears here, and
 /// `every_rejected_fixture_is_covered_by_the_table` derives that requirement from the directory
 /// rather than from a count. It used to be a count, and twelve fixtures had drifted out of the
 /// table without anything noticing -- a fixture with no recorded rejection is one whose refusal
@@ -303,8 +303,8 @@ fn every_rejected_fixture_is_still_refused() {
     assert!(
         lowered.is_empty(),
         "these programs are in the rejected corpus but now lower successfully: {lowered:?}\n\
-         if a construct became supported, move its program into python/fixtures/accepted/ and \
-         give it a driver -- see python/fixtures/rejected/README.md"
+         if a construct became supported, move its program into frontends/python/fixtures/accepted/ and \
+         give it a driver -- see frontends/python/fixtures/rejected/README.md"
     );
 }
 
@@ -347,12 +347,12 @@ fn rejected_names() -> Vec<String> {
 
 #[test]
 fn entrypoint_is_rejected() {
-    // python/entrypoint.py sits outside the subset twice over: `def main():` carries no return
+    // frontends/python/entrypoint.py sits outside the subset twice over: `def main():` carries no return
     // annotation, and the file ends in an `if __name__ == '__main__':` guard. Because
     // diagnostics report the first violation in source order, the missing annotation is what
     // surfaces -- the guard is never reached. Asserting the earlier one keeps this test honest
     // about ordering; main_guard.py covers the guard rule on its own.
-    let path = workspace_root().join("python/entrypoint.py");
+    let path = workspace_root().join("frontends/python/entrypoint.py");
     let error = lower_fixture(&path).expect_err("entrypoint.py should be rejected");
     assert_eq!(error.kind(), LowerErrorKind::MissingAnnotation);
     assert!(error.message().contains("main"));
@@ -443,7 +443,7 @@ fn every_accepted_fixture_has_exactly_one_driver() {
     assert!(
         undriven.is_empty(),
         "these accepted fixtures have no driver, so they prove nothing: {undriven:?}\n\
-         add python/fixtures/drivers/<name>.py for each"
+         add frontends/python/fixtures/drivers/<name>.py for each"
     );
 
     let orphaned: Vec<&String> = declared.iter().filter(|d| !fixtures.contains(d)).collect();

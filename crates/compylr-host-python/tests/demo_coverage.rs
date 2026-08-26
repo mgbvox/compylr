@@ -1,6 +1,6 @@
 //! Keeps the demo's coverage claim honest as the IR grows.
 //!
-//! `demo/src/algorithms/ir_coverage.py` walks the IR compylr writes and reports which statement
+//! `demo/demo-python-rust/src/algorithms/ir_coverage.py` walks the IR compylr writes and reports which statement
 //! forms, expression forms, types, and operators the demo exercises, and the demo's own suite
 //! fails when one stops being covered. That is one half of the guarantee, and on its own it is
 //! the weaker half: those tables are written down in Python, so adding a form to the IR would
@@ -68,7 +68,7 @@ fn variants_of(enum_name: &str) -> BTreeSet<String> {
 
 /// The entries of one tuple constant in the demo's coverage tables.
 fn table(name: &str) -> BTreeSet<String> {
-    let source = std::fs::read_to_string(repo_root().join("demo/src/algorithms/ir_coverage.py"))
+    let source = std::fs::read_to_string(repo_root().join("demo/demo-python-rust/src/algorithms/ir_coverage.py"))
         .expect("the demo must have an ir_coverage.py");
     let header = format!("{name} = (");
     let start = source
@@ -92,7 +92,7 @@ fn assert_matches(enum_name: &str, table_name: &str, extra: &[&str]) {
     assert!(
         unlisted.is_empty(),
         "{enum_name} has variants the demo's {table_name} table does not know about: {unlisted:?}.\n\
-         Either add an algorithm to demo/src/algorithms/ that uses them and list them there, or \
+         Either add an algorithm to demo/demo-python-rust/src/algorithms/ that uses them and list them there, or \
          narrow the claim in demo/README.md -- but do not leave the demo reporting full coverage \
          of a subset that grew."
     );
@@ -101,7 +101,7 @@ fn assert_matches(enum_name: &str, table_name: &str, extra: &[&str]) {
     assert!(
         unknown.is_empty(),
         "the demo's {table_name} table lists forms {enum_name} no longer has: {unknown:?}.\n\
-         Remove them from demo/src/algorithms/ir_coverage.py."
+         Remove them from demo/demo-python-rust/src/algorithms/ir_coverage.py."
     );
 }
 

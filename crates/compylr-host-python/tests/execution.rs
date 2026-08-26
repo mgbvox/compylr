@@ -1851,7 +1851,7 @@ mod modes_python_cannot_write {
 /// Programs the conformance corpus found the backend rendering wrongly.
 ///
 /// Every case here is ordinary Python that produced generated Rust which did not compile, or in
-/// one case a program that ran forever. None was reachable from `python/fixtures/accepted/`,
+/// one case a program that ran forever. None was reachable from `frontends/python/fixtures/accepted/`,
 /// because a fixture only covers a form *somewhere* and every one of these is about a form's
 /// behaviour in a particular **position**. They are executed rather than emitted, because for the
 /// loop case reading the text is what missed it in the first place.

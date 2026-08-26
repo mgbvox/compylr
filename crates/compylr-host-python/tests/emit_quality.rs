@@ -26,7 +26,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn fixtures_dir() -> PathBuf {
-    workspace_root().join("python/fixtures/accepted")
+    workspace_root().join("frontends/python/fixtures/accepted")
 }
 
 /// Build a unit from one or more fixtures.
