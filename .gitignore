@@ -2,7 +2,7 @@ context/
 .codex/
 .agent/
 .agents/
-.claude/worktrees/
+.claude/
 worktrees/
 /scratch
 # Build output
