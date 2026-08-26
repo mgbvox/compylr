@@ -131,6 +131,13 @@ SHALL carry a stable diagnostic category and the source location of the consumin
 occur before target source is emitted. Lowering SHALL follow direct aliases when necessary so an
 escape cannot be hidden behind another local name.
 
+The borrow SHALL extend to instances reached *through* the parameter. An attribute of a borrowed
+instance whose declared type is a class, and an element of a collection held in one, SHALL be
+rejected in the same ownership positions and with the same category, because the caller still holds
+the container and would otherwise receive a detached copy of an instance CPython would return by
+identity. Reading such an instance, and passing it to a position that borrows it, SHALL remain
+permitted.
+
 A free function with an instance return type SHALL remain valid when its result is newly owned by
 the call, including an instance constructed in the function or returned by another function that
 produces an owned instance. The compiler SHALL NOT make a borrowed parameter satisfy such a return
@@ -164,6 +171,19 @@ by cloning it.
 - **WHEN** a function binds `same = t` from a direct instance parameter and later returns `same`
 - **THEN** lowering fails with a located borrowed-instance-escape diagnostic rather than cloning
   the instance
+
+#### Scenario: An instance reached through a borrow cannot be consumed
+
+- **WHEN** a function returns `holder.item` or `holder.items[0]`, where `holder` is a direct
+  instance parameter and the attribute or element is class-typed
+- **THEN** lowering fails at that expression with the borrowed-instance-escape category, rather
+  than emitting a clone whose later mutation the caller never observes
+
+#### Scenario: An instance reached through a borrow may still be read and forwarded
+
+- **WHEN** a function reads `holder.item.value`, or passes `holder.item` to a function whose
+  corresponding parameter is a borrow-only direct instance parameter
+- **THEN** lowering succeeds and the instance is borrowed rather than copied
 
 #### Scenario: Storing a borrowed parameter is rejected
 

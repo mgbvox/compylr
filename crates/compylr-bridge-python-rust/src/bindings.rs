@@ -94,7 +94,7 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
     let instance_accesses = instance_parameter_accesses(unit);
 
     for (index, class) in unit.classes().enumerate() {
-        out.push_str(&emit_class_binding(index, class));
+        out.push_str(&emit_class_binding(index, class, &instance_accesses));
     }
 
     for (index, function) in unit.functions().enumerate() {
@@ -241,11 +241,11 @@ fn emit_function_arg(
 /// Rust value, and a method borrows it from there — so a mutated attribute is exactly what the
 /// caller sees on the next call. That asymmetry is why an attribute can be a cache while a
 /// parameter cannot be mutated.
-fn emit_class_binding(index: usize, class: &Class) -> String {
+fn emit_class_binding(index: usize, class: &Class, accesses: &InstanceParameterAccesses) -> String {
     let mut out = String::new();
     let wrapper = format!("__compylr_class_{index}");
     let translated = rust_ident(&class.name);
-    let mutating = compylr_backend_rust::rust::mutating_methods(class);
+    let mutating = compylr_backend_rust::rust::mutating_methods(class, accesses);
 
     if let Some(doc) = &class.doc {
         for line in doc.lines() {

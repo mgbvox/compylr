@@ -1448,8 +1448,9 @@ fn the_corpus_covers_both_method_receivers() {
     let mut shared = 0;
     let mut mutable = 0;
     for (_, unit) in corpus() {
+        let accesses = compylr_backend_rust::instance_parameter_accesses(&unit);
         for class in unit.classes() {
-            let mutating = compylr_backend_rust::rust::mutating_methods(class);
+            let mutating = compylr_backend_rust::rust::mutating_methods(class, &accesses);
             for name in class.methods.keys() {
                 if mutating.contains(name) {
                     mutable += 1;

@@ -354,3 +354,137 @@ fn a_missing_wrapper_map_entry_is_a_bridge_error() {
     assert!(detail.contains("Missing"), "{detail}");
     assert!(detail.contains("wrapper"), "{detail}");
 }
+
+/// A borrow reaches further than the parameter name.
+///
+/// `holder.item` is an instance the caller still owns through `holder`, so handing it back as a
+/// value gives them a detached copy of it: mutating the result would be lost, and CPython would
+/// have returned the very object `holder` holds. The emitted Rust compiles either way, which is
+/// exactly why this has to be a diagnostic rather than something the backend discovers.
+#[test]
+fn an_instance_reached_through_a_borrow_cannot_be_consumed_as_a_value() {
+    let holder = "class Holder:\n\
+                  \x20   def __init__(self) -> None:\n\
+                  \x20       self.item: Tally = Tally(0)\n\
+                  \x20       self.items: list[Tally] = []\n";
+    let cases = [
+        (
+            "def steal(holder: Holder) -> Tally:\n    return holder.item\n",
+            2,
+            12,
+        ),
+        (
+            "def steal_indexed(holder: Holder) -> Tally:\n    return holder.items[0]\n",
+            2,
+            12,
+        ),
+        (
+            "def stash(holder: Holder) -> int:\n    item: Tally = holder.item\n    return item.value\n",
+            2,
+            19,
+        ),
+    ];
+    for (function, relative_line, column) in cases {
+        let text = format!("{TALLY}\n{holder}\n{function}");
+        let error =
+            lower(&[&text]).expect_err("an instance reached through a borrow stays borrowed");
+        assert_eq!(error.code(), Some("borrowed_instance_escape"), "{function}");
+        assert_eq!(
+            (error.line(), error.column()),
+            (12 + relative_line, column),
+            "{function}"
+        );
+    }
+}
+
+/// Reading such an instance, and passing it on by borrow, both stay legal.
+#[test]
+fn an_instance_reached_through_a_borrow_may_still_be_read_and_forwarded() {
+    let holder = "class Holder:\n\
+                  \x20   def __init__(self) -> None:\n\
+                  \x20       self.item: Tally = Tally(0)\n";
+    let text = format!(
+        "{TALLY}\n{holder}\n\
+         def read(holder: Holder) -> int:\n    return holder.item.value\n\n\
+         def forward(holder: Holder) -> int:\n    return observe(holder.item)\n\n\
+         def observe(tally: Tally) -> int:\n    return tally.value\n"
+    );
+    lower(&[&text]).expect("a borrowed inner instance may be read and forwarded by borrow");
+}
+
+/// A method that hands `self` to a mutating free function mutates through that call.
+///
+/// The receiver has to be derived from where `self` *goes*, not only from what the method body
+/// writes to. A shared receiver here is a borrow-checker error about generated code rather than a
+/// diagnostic about the user's program, which is the failure mode this whole analysis exists to
+/// avoid.
+#[test]
+fn a_method_forwarding_self_to_a_mutating_free_function_takes_a_mutable_receiver() {
+    let text = "class Counter:\n\
+                \x20   def __init__(self) -> None:\n\
+                \x20       self.value: int = 0\n\
+                \n\
+                \x20   def delegate(self) -> int:\n\
+                \x20       return raise_it(self)\n\
+                \n\
+                def raise_it(counter: Counter) -> int:\n\
+                \x20   counter.value = counter.value + 1\n\
+                \x20   return counter.value\n";
+    let emitted = emit(text);
+    assert!(
+        emitted.contains("pub fn raise_it(counter: &mut Counter)"),
+        "{emitted}"
+    );
+    assert!(emitted.contains("pub fn delegate(&mut self)"), "{emitted}");
+}
+
+/// The same edge, one hop longer, and in both directions.
+#[test]
+fn receiver_mutability_and_parameter_access_reach_a_joint_fixpoint() {
+    let text = "class Counter:\n\
+                \x20   def __init__(self) -> None:\n\
+                \x20       self.value: int = 0\n\
+                \n\
+                \x20   def raise_directly(self) -> int:\n\
+                \x20       self.value = self.value + 1\n\
+                \x20       return self.value\n\
+                \n\
+                \x20   def delegate(self) -> int:\n\
+                \x20       return through(self)\n\
+                \n\
+                def through(counter: Counter) -> int:\n\
+                \x20   return counter.raise_directly()\n\
+                \n\
+                def outer(counter: Counter) -> int:\n\
+                \x20   return counter.delegate()\n";
+    let emitted = emit(text);
+    assert!(
+        emitted.contains("pub fn through(counter: &mut Counter)"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("pub fn outer(counter: &mut Counter)"),
+        "{emitted}"
+    );
+    assert!(emitted.contains("pub fn delegate(&mut self)"), "{emitted}");
+}
+
+/// A method forwarding `self` to a function that only reads keeps a shared receiver.
+#[test]
+fn a_method_forwarding_self_to_a_reading_free_function_keeps_a_shared_receiver() {
+    let text = "class Counter:\n\
+                \x20   def __init__(self) -> None:\n\
+                \x20       self.value: int = 0\n\
+                \n\
+                \x20   def delegate(self) -> int:\n\
+                \x20       return observe(self)\n\
+                \n\
+                def observe(counter: Counter) -> int:\n\
+                \x20   return counter.value\n";
+    let emitted = emit(text);
+    assert!(
+        emitted.contains("pub fn observe(counter: &Counter)"),
+        "{emitted}"
+    );
+    assert!(emitted.contains("pub fn delegate(&self)"), "{emitted}");
+}

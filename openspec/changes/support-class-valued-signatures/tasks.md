@@ -92,14 +92,14 @@
 
 ## 6. Full Verification
 
-- [ ] 6.1 Run `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, and
+- [x] 6.1 Run `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, and
   `cargo test --workspace` with the vendored Ruff submodule initialized.
-- [ ] 6.2 With the project venv active and the host extension rebuilt, run Python tests with
+- [x] 6.2 With the project venv active and the host extension rebuilt, run Python tests with
   `pytest-cov` enforcing at least 80% coverage, `ruff check python/ scripts/`,
   `ruff format --check python/ scripts/`, and `ty check python/compylr`, never linting fixtures.
-- [ ] 6.3 With the venv deactivated, run workspace `cargo llvm-cov` excluding vendored code and
+- [x] 6.3 With the venv deactivated, run workspace `cargo llvm-cov` excluding vendored code and
   `main.rs`, and confirm the changed non-trivial paths remain covered.
-- [ ] 6.4 Clear generated compylr caches required after emission changes, run `make demo`, and verify
+- [x] 6.4 Clear generated compylr caches required after emission changes, run `make demo`, and verify
   compiled and interpreted answers still agree with no unexplained performance regression.
 - [ ] 6.5 Run `make check`, review the final diff for generated-file drift or accidental project
   changes, and commit the verified implementation checkpoint.

@@ -211,6 +211,14 @@ const REJECTIONS: &[(&str, LowerErrorKind)] = &[
         LowerErrorKind::BorrowedInstanceEscape,
     ),
     (
+        "borrowed_instance_element.py",
+        LowerErrorKind::BorrowedInstanceEscape,
+    ),
+    (
+        "borrowed_instance_inner.py",
+        LowerErrorKind::BorrowedInstanceEscape,
+    ),
+    (
         "borrowed_instance_owned_call.py",
         LowerErrorKind::BorrowedInstanceEscape,
     ),
@@ -250,6 +258,8 @@ fn borrowed_instance_escape_fixtures_keep_their_locations() {
         ("borrowed_instance_alias.py", 7, 12),
         ("borrowed_instance_attribute.py", 12, 19),
         ("borrowed_instance_collection.py", 7, 28),
+        ("borrowed_instance_element.py", 12, 12),
+        ("borrowed_instance_inner.py", 12, 12),
         ("borrowed_instance_owned_call.py", 7, 21),
         ("borrowed_instance_rebind.py", 7, 5),
         ("borrowed_instance_return.py", 7, 12),

@@ -592,8 +592,11 @@ def new_cache() -> PrimeCache:
 An instance parameter is borrow-only. The compiler derives a shared or mutable borrow from the
 whole unit, so mutation—direct, through a method, or through another generated function—changes the
 same Python object. Returning, storing, aliasing, or rebinding that borrowed instance is rejected
-with the located `borrowed_instance_escape` diagnostic. An instance return must instead be newly
-owned, produced by a constructor or by another function returning an owned instance.
+with the located `borrowed_instance_escape` diagnostic. So is consuming an instance reached
+*through* it — `holder.item`, or `holder.items[0]` — because the caller still holds `holder` and
+would get a detached copy of an object CPython returns by identity; reading it, or passing it on to
+something that borrows it, stays fine. An instance return must instead be newly owned, produced by
+a constructor or by another function returning an owned instance.
 
 The computational type in `generated.rs` remains an ordinary Rust `struct` with an `impl`; the
 `#[pyclass]` proc macro is confined to the thin wrapper in `bindings.rs`. Free-function parameters

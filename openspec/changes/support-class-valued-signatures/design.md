@@ -89,6 +89,13 @@ to owned positions consume or change ownership and are rejected with a dedicated
 itself rejected, an escape cannot be hidden behind a local name; the diagnostic remains at the
 first operation that would require a stored owner.
 
+A borrow reaches further than the parameter name, and the validator follows it. `holder.item` and
+`holder.items[0]` name instances the caller still owns through `holder`, so consuming either as a
+value is the same escape and carries the same diagnostic. Nothing in the generated Rust says so --
+reading a field clones it, because reading must not consume the object -- which is precisely why
+this is a located rejection rather than something a backend could discover. Reading such an
+instance, and passing it to a function that borrows it, both stay legal.
+
 An instance-valued return is accepted only when its provenance is owned: a constructor expression,
 an owned local initialized from construction, or a call whose validated class-valued return is
 owned. A direct instance parameter is borrowed provenance and cannot become owned by assignment or
@@ -106,12 +113,21 @@ would conceal the loss of identity the borrowed ABI exists to prevent.
 
 ### D3. Derive a whole-unit borrowed Rust ABI by fixpoint
 
-Compute access mode per direct instance parameter across the assembled unit. Seed a parameter as
-mutable when its body assigns through a place rooted at that parameter or calls a method classified
-mutable by the existing method fixpoint; otherwise seed it shared. Then propagate mutability across
-free-function call edges: when caller parameter `t` is passed to callee parameter `u` and `u` is
-mutable, `t` becomes mutable too. Iterate until stable so forward calls, mutual recursion, and a
-chain whose only mutation is several functions away all receive the right signature.
+Compute access mode per borrowed instance across the assembled unit, where a *borrowed instance* is
+both a free function's direct instance parameter and every method's receiver. `self` is an instance
+parameter of its method: borrowed from the caller for the call, mutable exactly when the body needs
+it. Seed everything shared. Then raise to mutable whatever assigns through a place rooted at that
+name, calls a method already classified mutable on it, or passes it to a parameter already
+classified mutable. Iterate until stable so forward calls, mutual recursion, and a chain whose only
+mutation is several functions away all receive the right signature.
+
+Receivers and parameters must be settled by **one** fixpoint rather than two, because each can make
+the other mutable: a method whose body is `return record(self)` mutates through that call, its
+receiver becomes `&mut self`, and any function calling that method now needs its own parameter
+mutable in turn. Two analyses would be free to disagree, and a disagreement here is not a wrong
+answer but generated Rust that does not compile -- a borrow-checker error about code the user never
+wrote. Starting from shared is also what stays correct under recursion: two methods that only call
+each other mutate nothing, and seeding them mutable would claim they did.
 
 The generated function signature uses `&T` for shared access and `&mut T` for mutable access, while
 scalar and collection parameters keep their existing owned ABI. Generated call emission consults

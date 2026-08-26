@@ -227,8 +227,13 @@ struct Ctx<'a> {
     /// Needed because mutation is confined to locals, and a parameter shares a scope frame with
     /// the body's own top-level bindings — so the scope alone cannot tell them apart.
     params: &'a HashSet<String>,
-    /// Direct instance parameters borrowed from the Python-visible wrapper for this call.
-    borrowed_params: &'a HashSet<String>,
+    /// Direct instance parameters borrowed from the Python-visible wrapper for this call, with
+    /// the class each names.
+    ///
+    /// The class is carried because the borrow reaches further than the parameter: `holder.item`
+    /// is an instance the caller still owns through `holder`, and deciding that needs the type of
+    /// what the attribute holds.
+    borrowed_params: &'a HashMap<String, Ty>,
     /// Whether a loop encloses this statement. Conditionals do not reset it, so `break` inside an
     /// `if` inside a loop is fine — which is the common case.
     in_loop: bool,
@@ -847,14 +852,14 @@ pub fn lower_function_in(
 
     let mut scope = Scope::function(&params);
     let param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
-    let borrowed_params: HashSet<String> = if enclosing.is_none() {
+    let borrowed_params: HashMap<String, Ty> = if enclosing.is_none() {
         params
             .iter()
             .filter(|param| matches!(param.ty, Ty::Instance(_)))
-            .map(|param| param.name.clone())
+            .map(|param| (param.name.clone(), param.ty.clone()))
             .collect()
     } else {
-        HashSet::new()
+        HashMap::new()
     };
     // `self` is visible but is not a parameter for the mutation rule: an instance is not converted
     // at the boundary, so mutating through it is exactly what the caller observes.
@@ -1987,6 +1992,86 @@ fn borrowed_escape(name: &str, node: &impl Ranged) -> LowerError {
     )
 }
 
+/// The declared type of a place rooted at a borrow-only instance parameter, if it is one.
+///
+/// Only the shapes that reach *through* a borrow are followed — an attribute of an instance and an
+/// element of a collection held in one. Anything else has produced a fresh value, so there is no
+/// borrow to escape from.
+fn borrowed_place_ty(expr: &PyExpr, ctx: Ctx<'_>) -> Option<Ty> {
+    match expr {
+        PyExpr::Name(name) => ctx.borrowed_params.get(name.id.as_str()).cloned(),
+        PyExpr::Attribute(attribute) => {
+            let Ty::Instance(class) = borrowed_place_ty(&attribute.value, ctx)? else {
+                return None;
+            };
+            ctx.lowering
+                .names
+                .classes
+                .get(&class)?
+                .attributes
+                .iter()
+                .find(|declared| declared.name == attribute.attr.as_str())
+                .map(|declared| declared.ty.clone())
+        }
+        PyExpr::Subscript(subscript) => match borrowed_place_ty(&subscript.value, ctx)? {
+            Ty::List(element) => Some(*element),
+            Ty::Dict(_, value) => Some(*value),
+            // A tuple carries a type per position, so only a literal index names one.
+            Ty::Tuple(types) => match subscript.slice.as_ref() {
+                PyExpr::NumberLiteral(literal) => literal
+                    .value
+                    .as_int()
+                    .and_then(|index| index.as_usize())
+                    .and_then(|index| types.get(index).cloned()),
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The name of the borrow-only parameter a place is rooted at.
+fn borrowed_root(expr: &PyExpr) -> Option<&str> {
+    match expr {
+        PyExpr::Name(name) => Some(name.id.as_str()),
+        PyExpr::Attribute(attribute) => borrowed_root(&attribute.value),
+        PyExpr::Subscript(subscript) => borrowed_root(&subscript.value),
+        _ => None,
+    }
+}
+
+/// Reject reading an instance *out of* a borrow into a position that owns it.
+///
+/// `return holder.item` and `return holder.items[0]` both compile: the backend clones what it
+/// reads, because reading a field must not consume the object. That is the problem. The caller
+/// still holds `holder`, so CPython would have handed back the very instance it holds, and the
+/// compiled program hands back a detached copy — a later mutation of the result is simply lost,
+/// and every answer in between is plausible. Nothing about the generated Rust says so, which is
+/// why this has to be a diagnostic here rather than something the backend discovers.
+fn reject_borrowed_instance_read(
+    expr: &PyExpr,
+    ctx: Ctx<'_>,
+    usage: InstanceUse,
+) -> Result<(), LowerError> {
+    if !matches!(usage, InstanceUse::Own) {
+        return Ok(());
+    }
+    if !matches!(borrowed_place_ty(expr, ctx), Some(Ty::Instance(_))) {
+        return Ok(());
+    }
+    let root = borrowed_root(expr).unwrap_or("the parameter");
+    Err(err(
+        LowerErrorKind::BorrowedInstanceEscape,
+        format!(
+            "this names an instance held inside '{root}', which is borrowed for this call; it can \
+             be read and passed on to another function, which borrows it too, but consuming it as \
+             an owned value would hand back a copy rather than the instance '{root}' holds"
+        ),
+        expr,
+    ))
+}
+
 /// Validate ownership-sensitive uses while source spans are still available.
 fn validate_borrowed_expr(
     expr: &PyExpr,
@@ -1996,7 +2081,7 @@ fn validate_borrowed_expr(
     match expr {
         PyExpr::Name(name)
             if matches!(usage, InstanceUse::Own)
-                && ctx.borrowed_params.contains(name.id.as_str()) =>
+                && ctx.borrowed_params.contains_key(name.id.as_str()) =>
         {
             Err(borrowed_escape(name.id.as_str(), expr))
         }
@@ -2062,9 +2147,11 @@ fn validate_borrowed_expr(
             Ok(())
         }
         PyExpr::Attribute(attribute) => {
+            reject_borrowed_instance_read(expr, ctx, usage)?;
             validate_borrowed_expr(&attribute.value, ctx, InstanceUse::Borrow)
         }
         PyExpr::Subscript(subscript) => {
+            reject_borrowed_instance_read(expr, ctx, usage)?;
             validate_borrowed_expr(&subscript.value, ctx, InstanceUse::Borrow)?;
             validate_borrowed_expr(&subscript.slice, ctx, InstanceUse::Borrow)
         }
@@ -2088,7 +2175,7 @@ fn reject_borrowed_rebinding(target: &PyExpr, ctx: Ctx<'_>) -> Result<(), LowerE
     let PyExpr::Name(name) = target else {
         return Ok(());
     };
-    if ctx.borrowed_params.contains(name.id.as_str()) {
+    if ctx.borrowed_params.contains_key(name.id.as_str()) {
         return Err(borrowed_escape(name.id.as_str(), target));
     }
     Ok(())

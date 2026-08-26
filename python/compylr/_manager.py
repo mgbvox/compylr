@@ -233,9 +233,14 @@ class Manager:
         # order. The build sees every source at once, so nothing goes unchecked -- both categories
         # are checked once there is enough information to decide them.
         #
-        # The cost, stated plainly: if that callee is never marked, the failure arrives at the
-        # first call rather than here. That is the same lateness unresolved callees already have,
-        # since they are likewise only resolvable across the assembled unit.
+        # The cost, stated plainly, and it is larger than it looks: validation reports the first
+        # problem it finds, so deferring one defers everything behind it in the same source. A
+        # function whose annotation is deferred and whose body is also outside the subset says
+        # nothing here; both arrive at the build. And if that callee is never marked, the failure
+        # arrives at the first call rather than here -- the same lateness unresolved callees
+        # already have, since they are likewise only resolvable across the assembled unit. What
+        # makes this safe rather than merely late is that the whole-unit check runs before
+        # anything is built, so no unchecked source reaches the pipeline.
         try:
             _core.validate_source(source)
         except _core.UnsupportedProgramError as error:
