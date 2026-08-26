@@ -54,7 +54,7 @@ Timings are the best of several batches per call, comparing compiled Go executio
 npm run benchmark
 ```
 
-<!-- benchmark:ts-algorithms -->
+<!-- benchmark:algorithms -->
 ```
 every algorithm, scale=1, per call, best of 5 batches
 
@@ -81,7 +81,7 @@ Both modes returned the same answer for every workload.
 ```
 
 _scale 1 — measured on Darwin arm64, Node.js 22, 2026-08-25._
-<!-- /benchmark:ts-algorithms -->
+<!-- /benchmark:algorithms -->
 
 ### The nth prime, three ways
 
@@ -89,7 +89,7 @@ _scale 1 — measured on Darwin arm64, Node.js 22, 2026-08-25._
 node --experimental-strip-types src/algorithms/nth_prime/benchmark.ts --n 500
 ```
 
-<!-- benchmark:ts-nth-prime -->
+<!-- benchmark:nth-prime -->
 ```
 nth prime, n=500, per call, best of 5 batches
 
@@ -105,4 +105,4 @@ Both modes returned the same answer for every workload.
 ```
 
 _n = 500 — measured on Darwin arm64, Node.js 22, 2026-08-25._
-<!-- /benchmark:ts-nth-prime -->
+<!-- /benchmark:nth-prime -->
