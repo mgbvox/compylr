@@ -1,15 +1,18 @@
 # Handoff
 
-Work queued behind the change that surfaced it. Each entry says what is wrong, how to see it, and
-what the fix has to decide — so the next session starts from evidence rather than from a summary.
+Historical record of the defect that the differential fixture change surfaced. The
+`support-class-valued-signatures` change resolves it with borrowed direct parameters, owned
+wrapper returns, located escape diagnostics, and decorator deferral. The evidence and rejected
+alternatives remain below so the ownership decision is not rediscovered.
 
 ---
 
-## Propose: the Python bridge cannot express a class-valued signature
+## Resolved: the Python bridge could not express a class-valued signature
 
-**Next action:** `/opsx:propose` on a branch stacked above `apply/add-differential-fixture-testing`.
+**Resolution:** `support-class-valued-signatures`, stacked above
+`apply/add-differential-fixture-testing`.
 
-### What is wrong
+### Original defect
 
 A free function whose signature names a class generates PyO3 bindings that do not compile.
 
@@ -90,7 +93,7 @@ runs it and it agrees with CPython — and it is unreachable from Python.
   build time the way an unresolved callee does, and how that stays distinguishable from a typo.
   A proposal could take both or leave the decorator to a third.
 
-### What to remove when it lands
+### Cleanup completed with the fix
 
 - `BOUNDARY_EXCLUDED` in `python/tests/test_differential.py`, and the test
   `test_the_exclusion_stays_one_fixture_wide` that keeps the hole one fixture wide.

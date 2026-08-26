@@ -579,8 +579,30 @@ method borrows it from there. That asymmetry is exactly why an attribute can be 
 A method taking a mutable receiver is derived, including through calls — a method whose body is only
 `self.bump()` mutates too.
 
+Top-level free functions may also name a class directly in a parameter or return annotation:
+
+```python
+def read(cache: PrimeCache, n: int) -> bool:
+    return cache.is_prime(n)
+
+def new_cache() -> PrimeCache:
+    return PrimeCache()
+```
+
+An instance parameter is borrow-only. The compiler derives a shared or mutable borrow from the
+whole unit, so mutation—direct, through a method, or through another generated function—changes the
+same Python object. Returning, storing, aliasing, or rebinding that borrowed instance is rejected
+with the located `borrowed_instance_escape` diagnostic. An instance return must instead be newly
+owned, produced by a constructor or by another function returning an owned instance.
+
+The computational type in `generated.rs` remains an ordinary Rust `struct` with an `impl`; the
+`#[pyclass]` proc macro is confined to the thin wrapper in `bindings.rs`. Free-function parameters
+enter that wrapper as `PyRef` or `PyRefMut` and borrow its inner struct, while owned results are
+placed into a new wrapper.
+
 Not supported: inheritance, `@property`, class attributes, `@dataclass`, and any dunder but
-`__init__`.
+`__init__`. Class values nested inside collection/tuple boundary types, and explicit class-valued
+parameters or returns on methods and constructors, are also not supported yet.
 
 Not supported yet: imports, generics, `try`, `with`, and `for`/`else`.
 

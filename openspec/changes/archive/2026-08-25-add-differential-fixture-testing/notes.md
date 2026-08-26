@@ -16,22 +16,6 @@ The proposal said: *if it is intolerable the tier becomes its own target rather 
 dropped.* Twelve seconds is not intolerable, so it stays inside `make check`, marked `slow` and
 toolchain-gated like `test_end_to_end.py`. Revisit if the corpus grows by an order of magnitude.
 
-## A narrowing, recorded
-
-`openspec/specs/fixture-corpus/spec.md` requires the boundary tier to cover the **whole** accepted
-corpus. It currently covers all of it **except `class_valued_signatures.py`**, which is named in
-`BOUNDARY_EXCLUDED` and guarded by `test_the_exclusion_stays_one_fixture_wide` so the hole cannot
-widen quietly.
-
-The reason is a defect this tier found on its first run: the Python bridge has no `Ty::Instance`
-handling, so a function whose signature names a class emits bindings that do not compile. The
-translation tier covers that fixture in full, so what goes untested is the *conversion* and
-nothing else — which is exactly the split the two tiers exist to make visible.
-
-Full detail, reproduction, and the design question the fix has to settle are in `HANDOFF.md` at
-the repository root. The follow-up is to be proposed on a branch stacked above this one; when it
-lands, the exclusion and this note come out together.
-
 ## Two smaller findings, already fixed here
 
 * **Only the declared type decides how a value renders.** `def widen(n: int) -> float: return n`

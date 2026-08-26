@@ -1,12 +1,5 @@
-# A free function whose signature names a class: one returning an instance, one taking it.
-#
-# Kept apart from `classes.py` because the Python bridge cannot express this shape. It generates
-# `-> PyResult<Counter>` naming the *inner* struct, where PyO3 needs the `#[pyclass]` wrapper the
-# bridge built around it, and the generated crate does not compile. Nothing had ever built such a
-# function through the bridge, so nothing caught it -- the differential boundary tier did, on its
-# first run, and excludes this one fixture by name until the bridge learns the shape.
-#
-# The translation tier covers it in full: the defect is in the *boundary*, not in the translation.
+# Free functions whose direct signatures name a class. Parameters borrow the instance held by the
+# Python wrapper; returned instances are newly owned values wrapped at the boundary.
 
 
 class Tally:
@@ -28,3 +21,24 @@ def build(start: int) -> Tally:
 
 def read(t: Tally) -> int:
     return t.count
+
+
+def mutate(t: Tally, by: int) -> int:
+    t.count = t.count + by
+    return t.count
+
+
+def mutate_method(t: Tally, by: int) -> int:
+    t.bump(by)
+    return read(t)
+
+
+def forward_tally(t: Tally, by: int) -> int:
+    return mutate_method(t, by)
+
+
+def build_and_forward(start: int, by: int) -> Tally:
+    t = Tally(start)
+    changed = forward_tally(t, by)
+    t.count = changed
+    return t

@@ -1,7 +1,7 @@
 """Calls that exercise `class_valued_signatures.py`.
 
-`build` bumps the instance it returns, so a mutation dropped on the way out changes an answer,
-and `read` receives an instance built as an argument.
+The calls cover direct reads, direct and method-driven mutation, compatible forwarding, and newly
+owned returned instances whose state remains observable through later method calls.
 """
 
 CALLS = [
@@ -10,4 +10,12 @@ CALLS = [
     {"call": "build", "args": [-1], "methods": [["get", []]]},
     {"call": "read", "args": [{"new": "Tally", "args": [3]}]},
     {"call": "read", "args": [{"new": "Tally", "args": [-3]}]},
+    {"call": "mutate", "args": [{"new": "Tally", "args": [3]}, 4]},
+    {"call": "mutate_method", "args": [{"new": "Tally", "args": [5]}, 2]},
+    {"call": "forward_tally", "args": [{"new": "Tally", "args": [8]}, 3]},
+    {
+        "call": "build_and_forward",
+        "args": [10, 4],
+        "methods": [["get", []], ["bump", [2]], ["get", []]],
+    },
 ]

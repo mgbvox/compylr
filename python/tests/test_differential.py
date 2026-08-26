@@ -34,16 +34,7 @@ pytestmark = [pytest.mark.slow, needs_toolchain]
 ACCEPTED = Path(__file__).resolve().parents[1] / "fixtures" / "accepted"
 DRIVERS = Path(__file__).resolve().parents[1] / "fixtures" / "drivers"
 STEMS = sorted(path.stem for path in ACCEPTED.glob("*.py"))
-
-#: The one fixture this tier cannot build, named rather than filtered by a rule.
-#:
-#: A free function whose signature names a class generates PyO3 bindings that do not compile: the
-#: bridge spells the boundary type with the backend's `rust_ty`, which gives the inner struct where
-#: PyO3 needs the `#[pyclass]` wrapper. The translation tier covers this fixture in full, so what
-#: is untested is the *conversion* and nothing else. Naming it keeps the hole one fixture wide --
-#: a predicate would quietly swallow the next one.
-BOUNDARY_EXCLUDED = frozenset({"class_valued_signatures"})
-BOUNDARY_STEMS = [stem for stem in STEMS if stem not in BOUNDARY_EXCLUDED]
+BOUNDARY_STEMS = STEMS
 
 
 @pytest.fixture(scope="module")
@@ -54,14 +45,9 @@ def compiled(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
     every marked member in a project shares a single artifact, and it is what keeps this tier's
     cost a single build rather than eighteen.
 
-    Each fixture is handed over as a **whole source** rather than marked member by member. The
-    decorator captures one member's source at a time and validates it on its own, which cannot
-    accept `def build(start: int) -> Counter` -- `Counter` is defined in the same file but not in
-    the same *source*, so the annotation is rejected before the unit that would resolve it is
-    assembled. The manager already defers one such category, an unresolved callee, and a
-    class-typed annotation is not in it. Compiling the file as one source is the same unit the
-    decorator would have produced, and it is what lets this tier cover the whole corpus; the gap
-    is recorded in this change's notes.
+    Each fixture is handed over as a **whole source** rather than marked member by member, keeping
+    its classes and functions together exactly as whole-project compilation eventually assembles
+    them. The boundary tier covers every accepted fixture without exclusions.
     """
     behavior = Behavior.from_language("python").to_core()
     sources = [((ACCEPTED / f"{stem}.py").read_text(), behavior) for stem in BOUNDARY_STEMS]
@@ -140,15 +126,6 @@ class TestTheCorpusAgrees:
         # an oracle that quietly produced nothing for a fixture would make its row vacuous.
         assert set(interpreted) == set(STEMS)
         assert all(interpreted[stem] for stem in STEMS)
-
-    def test_the_exclusion_stays_one_fixture_wide(self) -> None:
-        # The hole is recorded, so it cannot grow quietly. Widening it is a deliberate edit to
-        # this set and to the fixture that explains why it is there.
-        assert {"class_valued_signatures"} == BOUNDARY_EXCLUDED
-        assert set(BOUNDARY_STEMS) == set(STEMS) - BOUNDARY_EXCLUDED
-        for stem in BOUNDARY_EXCLUDED:
-            assert (ACCEPTED / f"{stem}.py").exists()
-            assert (DRIVERS / f"{stem}.py").exists()
 
 
 class TestTheComparisonIsNotTextual:

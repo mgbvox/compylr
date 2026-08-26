@@ -71,22 +71,22 @@
 
 ## 5. Differential Corpus and Documentation
 
-- [ ] 5.1 On top of the differential-fixture change, verify or add only the accepted
+- [x] 5.1 On top of the differential-fixture change, verify or add only the accepted
   `class_valued_signatures.py` fixture and its shared driver, extending them as needed to exercise
   direct reads, persistent mutation, compatible forwarding, and newly owned returned instances
   without copying unrelated harness code.
-- [ ] 5.2 Add rejected-corpus fixtures for direct and aliased borrowed returns, collection/attribute
+- [x] 5.2 Add rejected-corpus fixtures for direct and aliased borrowed returns, collection/attribute
   storage, rebinding, and other owned consumption, each asserting the stable located
   borrowed-instance-escape diagnostic; do not add allowances to the inverted rejection guard.
-- [ ] 5.3 Remove `BOUNDARY_EXCLUDED`, `test_the_exclusion_stays_one_fixture_wide`, and the fixture
+- [x] 5.3 Remove `BOUNDARY_EXCLUDED`, `test_the_exclusion_stays_one_fixture_wide`, and the fixture
   header's exclusion note so the boundary tier derives and exercises the complete accepted corpus.
-- [ ] 5.4 Remove the temporary class-signature narrowing from the differential change's `notes.md`
+- [x] 5.4 Remove the temporary class-signature narrowing from the differential change's `notes.md`
   while preserving its unrelated measurements and findings.
-- [ ] 5.5 Update README prose for borrow-only direct parameters, newly owned class-valued returns,
+- [x] 5.5 Update README prose for borrow-only direct parameters, newly owned class-valued returns,
   the borrowed-escape diagnostic, and the explicit nested-boundary limitation; regenerate the
   subset matrix with `scripts/update_subset.py`, and run its `--check` mode rather than editing
   generated tables by hand.
-- [ ] 5.6 Run both differential tiers, the inverted rejection guard, and fixture/driver completeness
+- [x] 5.6 Run both differential tiers, the inverted rejection guard, and fixture/driver completeness
   checks; confirm the accepted class-valued fixture agrees with CPython through the real bridge and
   every ownership escape fails before emission, then commit the corpus and documentation checkpoint.
 

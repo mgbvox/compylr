@@ -55,8 +55,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 892,
-            end: 971,
+            start: 404,
+            end: 483,
         },
     },
     Function {
@@ -82,8 +82,212 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 974,
-            end: 1019,
+            start: 486,
+            end: 531,
+        },
+    },
+    Function {
+        name: "mutate",
+        params: [
+            Param {
+                name: "t",
+                ty: Instance(
+                    "Tally",
+                ),
+            },
+            Param {
+                name: "by",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            SetAttr {
+                object: Name(
+                    "t",
+                ),
+                name: "count",
+                ty: Int,
+                value: Binary {
+                    op: Add {
+                        checked: Reported,
+                    },
+                    left: Attribute {
+                        object: Name(
+                            "t",
+                        ),
+                        name: "count",
+                    },
+                    right: Name(
+                        "by",
+                    ),
+                },
+            },
+            Return(
+                Attribute {
+                    object: Name(
+                        "t",
+                    ),
+                    name: "count",
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 534,
+            end: 617,
+        },
+    },
+    Function {
+        name: "mutate_method",
+        params: [
+            Param {
+                name: "t",
+                ty: Instance(
+                    "Tally",
+                ),
+            },
+            Param {
+                name: "by",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Effect(
+                MethodCall {
+                    receiver: Name(
+                        "t",
+                    ),
+                    class: Some(
+                        "Tally",
+                    ),
+                    method: "bump",
+                    args: [
+                        Name(
+                            "by",
+                        ),
+                    ],
+                },
+            ),
+            Return(
+                Call {
+                    callee: "read",
+                    args: [
+                        Name(
+                            "t",
+                        ),
+                    ],
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 620,
+            end: 698,
+        },
+    },
+    Function {
+        name: "forward_tally",
+        params: [
+            Param {
+                name: "t",
+                ty: Instance(
+                    "Tally",
+                ),
+            },
+            Param {
+                name: "by",
+                ty: Int,
+            },
+        ],
+        ret: Int,
+        body: [
+            Return(
+                Call {
+                    callee: "mutate_method",
+                    args: [
+                        Name(
+                            "t",
+                        ),
+                        Name(
+                            "by",
+                        ),
+                    ],
+                },
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 701,
+            end: 777,
+        },
+    },
+    Function {
+        name: "build_and_forward",
+        params: [
+            Param {
+                name: "start",
+                ty: Int,
+            },
+            Param {
+                name: "by",
+                ty: Int,
+            },
+        ],
+        ret: Instance(
+            "Tally",
+        ),
+        body: [
+            Bind {
+                name: "t",
+                ty: Instance(
+                    "Tally",
+                ),
+                value: Construct {
+                    class: "Tally",
+                    args: [
+                        Name(
+                            "start",
+                        ),
+                    ],
+                },
+            },
+            Bind {
+                name: "changed",
+                ty: Int,
+                value: Call {
+                    callee: "forward_tally",
+                    args: [
+                        Name(
+                            "t",
+                        ),
+                        Name(
+                            "by",
+                        ),
+                    ],
+                },
+            },
+            SetAttr {
+                object: Name(
+                    "t",
+                ),
+                name: "count",
+                ty: Int,
+                value: Name(
+                    "changed",
+                ),
+            },
+            Return(
+                Name(
+                    "t",
+                ),
+            ),
+        ],
+        doc: None,
+        span: Span {
+            start: 780,
+            end: 923,
         },
     },
 ]

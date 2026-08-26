@@ -199,6 +199,30 @@ const REJECTIONS: &[(&str, LowerErrorKind)] = &[
     ("mutate_alias.py", LowerErrorKind::UnsupportedConstruct),
     ("mutate_parameter.py", LowerErrorKind::UnsupportedConstruct),
     (
+        "borrowed_instance_alias.py",
+        LowerErrorKind::BorrowedInstanceEscape,
+    ),
+    (
+        "borrowed_instance_attribute.py",
+        LowerErrorKind::BorrowedInstanceEscape,
+    ),
+    (
+        "borrowed_instance_collection.py",
+        LowerErrorKind::BorrowedInstanceEscape,
+    ),
+    (
+        "borrowed_instance_owned_call.py",
+        LowerErrorKind::BorrowedInstanceEscape,
+    ),
+    (
+        "borrowed_instance_rebind.py",
+        LowerErrorKind::BorrowedInstanceEscape,
+    ),
+    (
+        "borrowed_instance_return.py",
+        LowerErrorKind::BorrowedInstanceEscape,
+    ),
+    (
         "unannotated_attribute.py",
         LowerErrorKind::MissingAnnotation,
     ),
@@ -217,6 +241,29 @@ fn every_rejected_fixture_fails_with_the_expected_kind() {
             *expected,
             "wrong diagnostic kind for {name}"
         );
+    }
+}
+
+#[test]
+fn borrowed_instance_escape_fixtures_keep_their_locations() {
+    for (name, line, column) in [
+        ("borrowed_instance_alias.py", 7, 12),
+        ("borrowed_instance_attribute.py", 12, 19),
+        ("borrowed_instance_collection.py", 7, 28),
+        ("borrowed_instance_owned_call.py", 7, 21),
+        ("borrowed_instance_rebind.py", 7, 5),
+        ("borrowed_instance_return.py", 7, 12),
+    ] {
+        let path = fixtures_dir().join("rejected").join(name);
+        let source = std::fs::read_to_string(&path).expect("fixture source");
+        let error = lower_fixture(&path).expect_err("borrowed instance use must be rejected");
+        assert_eq!(
+            error.kind(),
+            LowerErrorKind::BorrowedInstanceEscape,
+            "{name}"
+        );
+        let position = error.span().line_column(&source);
+        assert_eq!((position.line, position.column), (line, column), "{name}");
     }
 }
 
