@@ -43,7 +43,8 @@ pub enum InstanceAccess {
 
 /// Borrowing mode keyed by generated function and parameter name.
 ///
-/// A method's receiver is in here too, under [`receiver_key`]. `self` *is* an instance parameter:
+/// A method's receiver is in here too, keyed as `("Class::method", "self")`. `self` *is* an
+/// instance parameter:
 /// it is borrowed from the caller for the duration of the call and is mutable exactly when the
 /// body needs it to be. Deriving it in the same map as a free function's instance parameter is not
 /// tidiness — each can make the other mutable, so one fixpoint has to settle both or the two

@@ -101,5 +101,5 @@
   `main.rs`, and confirm the changed non-trivial paths remain covered.
 - [x] 6.4 Clear generated compylr caches required after emission changes, run `make demo`, and verify
   compiled and interpreted answers still agree with no unexplained performance regression.
-- [ ] 6.5 Run `make check`, review the final diff for generated-file drift or accidental project
+- [x] 6.5 Run `make check`, review the final diff for generated-file drift or accidental project
   changes, and commit the verified implementation checkpoint.

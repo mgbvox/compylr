@@ -237,9 +237,16 @@ Known gaps worth knowing before you trip on them:
   every fixture into one unit, as a real project is built, and `Unit::add_function` refuses a
   duplicate. Four fixtures carry a header saying why a name is what it is; renaming one back
   breaks that build rather than any rule the fixture tests.
-* **`class_valued_signatures.py` is excluded from the boundary tier by name.** The Python bridge
-  has no `Ty::Instance` handling, so a function whose signature names a class emits bindings that
-  do not compile. The translation tier covers it in full. See `HANDOFF.md`.
+* **`class_valued_signatures.py` runs through both differential tiers.** Direct class-valued free
+  parameters borrow the inner Rust struct through `PyRef`/`PyRefMut`; newly owned returns are put
+  into the stable `#[pyclass]` wrapper. Borrowed instances may be read, mutated, or compatibly
+  forwarded, but may not escape into owned returns or storage.
+* **A borrow reaches further than the parameter name.** `return holder.item` is refused for the
+  same reason `return holder` is: the caller still holds `holder`, so it would get a detached copy
+  of an instance CPython returns by identity, and every later mutation of it would be silently
+  lost. The generated Rust compiles either way -- reading a field clones it -- which is why this is
+  a located diagnostic rather than something the backend discovers. Reading such an instance, and
+  passing it on to something that borrows it, stay legal.
 
 # Two PyO3 roles
 

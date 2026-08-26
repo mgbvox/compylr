@@ -103,8 +103,12 @@ refusing — a rule without its reason leaves the user no workaround. `append` i
 **Classes** hold state that outlives a call. Attributes are declared in `__init__` with mandatory
 annotations and nowhere else, or the struct's fields would depend on which methods ran. A method's
 receiver is derived by fixpoint: it is mutable when the method assigns an attribute, mutates a
-collection attribute, **or calls a method that does** — the transitive case is the likeliest bug,
-and its failure mode is a borrow-checker error about generated code rather than a diagnostic.
+collection attribute, **calls a method that does, or hands `self` to a function whose instance
+parameter is mutable** — the transitive cases are the likeliest bugs, and their failure mode is a
+borrow-checker error about generated code rather than a diagnostic. That fixpoint is the *same* one
+that decides a free function's instance parameters, deliberately: `self` is an instance the method
+borrows from its caller, each side can make the other mutable, and two analyses would be free to
+disagree.
 
 The contrast that matters, and that people get wrong: a collection **parameter** crosses by value
 and may not be mutated; an **instance** is not converted at all — the Python object holds the Rust
@@ -237,6 +241,12 @@ Known gaps worth knowing before you trip on them:
   parameters borrow the inner Rust struct through `PyRef`/`PyRefMut`; newly owned returns are put
   into the stable `#[pyclass]` wrapper. Borrowed instances may be read, mutated, or compatibly
   forwarded, but may not escape into owned returns or storage.
+* **A borrow reaches further than the parameter name.** `return holder.item` is refused for the
+  same reason `return holder` is: the caller still holds `holder`, so it would get a detached copy
+  of an instance CPython returns by identity, and every later mutation of it would be silently
+  lost. The generated Rust compiles either way -- reading a field clones it -- which is why this is
+  a located diagnostic rather than something the backend discovers. Reading such an instance, and
+  passing it on to something that borrows it, stay legal.
 
 # Two PyO3 roles
 
