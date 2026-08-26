@@ -47,6 +47,13 @@ pub enum LowerErrorKind {
     /// assembled. Callers that will later see the whole program can defer it; callers that will
     /// not must report it.
     UndeterminedBinding,
+    /// A bare annotation may name a class supplied by another source in the complete unit.
+    ///
+    /// Single-source validation may defer this category. Complete-unit lowering never does: the
+    /// same category then identifies an unknown or misspelled class at its original annotation.
+    UnresolvedClassAnnotation,
+    /// A borrow-only instance parameter was used where an owned value would be required.
+    BorrowedInstanceEscape,
     /// `break` or `continue` appeared with no enclosing loop.
     ///
     /// Distinct from [`Self::UnsupportedConstruct`]: the construct is supported, it is only in the
@@ -78,6 +85,8 @@ impl LowerErrorKind {
             Self::LiteralOutOfRange => "literal_out_of_range",
             Self::DuplicateFunction => "duplicate_function",
             Self::UndeterminedBinding => "undetermined_binding",
+            Self::UnresolvedClassAnnotation => "unresolved_class_annotation",
+            Self::BorrowedInstanceEscape => "borrowed_instance_escape",
             Self::LoopControlOutsideLoop => "loop_control_outside_loop",
             Self::MissingReturn => "missing_return",
         }
@@ -97,6 +106,8 @@ impl LowerErrorKind {
             Self::LoopControlOutsideLoop => "loop control outside a loop",
             Self::MissingReturn => "missing return",
             Self::UndeterminedBinding => "undetermined binding type",
+            Self::UnresolvedClassAnnotation => "unresolved class annotation",
+            Self::BorrowedInstanceEscape => "borrowed instance escape",
             Self::DuplicateFunction => "duplicate function",
         }
     }
@@ -203,6 +214,11 @@ mod tests {
             LowerErrorKind::Reassignment,
             LowerErrorKind::LiteralOutOfRange,
             LowerErrorKind::DuplicateFunction,
+            LowerErrorKind::UndeterminedBinding,
+            LowerErrorKind::UnresolvedClassAnnotation,
+            LowerErrorKind::BorrowedInstanceEscape,
+            LowerErrorKind::LoopControlOutsideLoop,
+            LowerErrorKind::MissingReturn,
         ];
         let mut labels: Vec<&str> = kinds.iter().map(|k| k.label()).collect();
         labels.sort_unstable();

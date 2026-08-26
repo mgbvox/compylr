@@ -40,7 +40,7 @@ repos:
         additional_dependencies: ["ruff>=0.6"]
         pass_filenames: false
         files: ^(python|scripts)/.*\.py$
-        exclude: ^python/fixtures/
+        exclude: ^python/fixtures/(accepted|rejected)/
 
       - id: ruff-format
         name: ruff format --check (python/, scripts/)
@@ -49,15 +49,15 @@ repos:
         additional_dependencies: ["ruff>=0.6"]
         pass_filenames: false
         files: ^(python|scripts)/.*\.py$
-        exclude: ^python/fixtures/
+        exclude: ^python/fixtures/(accepted|rejected)/
 
       - id: ty
-        name: ty check (python/compylr)
-        entry: ty check python/compylr
+        name: ty check (python/compylr, python/fixtures/drivers)
+        entry: ty check python/compylr python/fixtures/drivers
         language: python
         additional_dependencies: ["ty>=0.0.74"]
         pass_filenames: false
-        files: ^python/compylr/.*\.pyi?$|^pyproject\.toml$
+        files: ^python/(compylr|fixtures/drivers)/.*\.pyi?$|^pyproject\.toml$
 
       # The demo is a separate project with its own environment. Its lint rules are the same, so
       # ruff runs here; `ty check` needs compylr installed and importable, which is a build rather
@@ -109,3 +109,12 @@ repos:
         language: system
         pass_filenames: false
         files: ^(README\.md|demo/README\.md|scripts/update_benchmarks\.py)$
+
+      # Marker-presence only, for the same reason as the benchmark hook above: regenerating the
+      # matrix runs the compiler over the whole corpus, which is a CI job rather than a commit.
+      - id: subset-markers
+        name: subset matrix block is still addressable
+        entry: python3 scripts/update_subset.py --markers
+        language: system
+        pass_filenames: false
+        files: ^(README\.md|scripts/update_subset\.py|scripts/_regions\.py|python/fixtures/accepted/.*\.py)$

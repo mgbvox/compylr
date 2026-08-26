@@ -33,9 +33,10 @@ import platform
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+from _regions import MarkerError, Region, find_region, replace_region
 
 REPO = Path(__file__).resolve().parents[1]
 DEMO = REPO / "demo"
@@ -43,21 +44,11 @@ DEMO_TS = REPO / "demo-ts"
 
 #: How a generated region is delimited. The name is what makes a region addressable, so a block
 #: can be moved or reordered in the README without this script losing track of it.
-OPEN = "<!-- benchmark:{name} -->"
-CLOSE = "<!-- /benchmark:{name} -->"
 
 #: One row of a printed table: label, compiled µs, interpreted µs, ratio.
 ROW = re.compile(
     r"^(?P<label>\S.*?)\s{2,}(?P<fast>[\d.]+)us\s+(?P<slow>[\d.]+)us\s+(?P<ratio>\S+)$"
 )
-
-
-@dataclass(frozen=True)
-class Region:
-    """A generated block: which file it lives in, and what produces its contents."""
-
-    name: str
-    path: Path
 
 
 ALGORITHMS = Region("algorithms", DEMO / "README.md")
@@ -67,38 +58,6 @@ TS_ALGORITHMS = Region("ts-algorithms", DEMO_TS / "README.md")
 TS_NTH_PRIME = Region("ts-nth-prime", DEMO_TS / "README.md")
 
 REGIONS = (ALGORITHMS, NTH_PRIME, SUMMARY, TS_ALGORITHMS, TS_NTH_PRIME)
-
-
-class MarkerError(RuntimeError):
-    """A region is missing, duplicated, or malformed.
-
-    Raised rather than silently skipped: a rewrite that quietly writes nothing is how a table
-    goes stale while the job that was supposed to keep it fresh reports success.
-    """
-
-
-def find_region(text: str, name: str) -> tuple[int, int]:
-    """Return the character span *between* a region's markers.
-
-    The markers themselves are left in place, so rewriting a region cannot lose it.
-    """
-    opening, closing = OPEN.format(name=name), CLOSE.format(name=name)
-    if text.count(opening) != 1 or text.count(closing) != 1:
-        raise MarkerError(
-            f"expected exactly one {opening} and one {closing}; "
-            f"found {text.count(opening)} and {text.count(closing)}"
-        )
-    start = text.index(opening) + len(opening)
-    end = text.index(closing)
-    if end < start:
-        raise MarkerError(f"{closing} appears before {opening}")
-    return start, end
-
-
-def replace_region(text: str, name: str, body: str) -> str:
-    """Return `text` with the named region's contents replaced by `body`."""
-    start, end = find_region(text, name)
-    return f"{text[:start]}\n{body.strip()}\n{text[end:]}"
 
 
 def provenance(detail: str) -> str:
@@ -211,7 +170,7 @@ def check_markers() -> int:
     """Verify every region is addressable. Measures nothing."""
     for region in REGIONS:
         text = region.path.read_text()
-        find_region(text, region.name)
+        find_region(text, region)
         print(f"ok  {region.path.relative_to(REPO)}  {region.name}")
     return 0
 
@@ -265,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         text = path.read_text()
         for region, body in bodies.items():
             if region.path == path:
-                text = replace_region(text, region.name, body)
+                text = replace_region(text, region, body)
         path.write_text(text)
         print(f"wrote {path.relative_to(REPO)}")
     return 0

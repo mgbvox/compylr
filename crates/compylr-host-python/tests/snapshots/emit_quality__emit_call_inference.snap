@@ -28,9 +28,9 @@ pub fn later(a: i64) -> Result<i64, RuntimeError> {
 }
 
 pub fn promoted(a: i64) -> Result<f64, RuntimeError> {
-    Ok(scale(((a) as f64))?)
+    Ok(scale_float(((a) as f64))?)
 }
 
-pub fn scale(x: f64) -> Result<f64, RuntimeError> {
+pub fn scale_float(x: f64) -> Result<f64, RuntimeError> {
     Ok(PyNum::py_mul(&(x), &(2.0f64))?)
 }

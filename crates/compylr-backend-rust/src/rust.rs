@@ -20,18 +20,47 @@
 //! Expressions are emitted fully parenthesized. Preserving the IR's grouping through a precedence
 //! table would mean keeping that table correct forever; parentheses make it true by construction.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use compylr_core::backend::{Backend, BackendError, GeneratedFiles, format_source};
 use compylr_core::negotiation::TargetOption;
 use compylr_ir::Guarantee;
-use std::collections::BTreeSet;
-
 use compylr_ir::{
     BinOp, Checked, Class, DivMode, Expr, Function, IndexOrigin, IntegerDivision, LanguageBehavior,
-    Literal, RemSign, Remainder, Rounding, SequenceIndex, Stmt, TextUnits, Ty, Unit,
+    Literal, Param, RemSign, Remainder, Rounding, SequenceIndex, Stmt, TextUnits, Ty, Unit,
     returns_on_all_paths,
 };
+
+/// How a direct instance parameter is borrowed by generated Rust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceAccess {
+    /// The function only observes the instance.
+    Shared,
+    /// The function may mutate the instance directly or through another call.
+    Mutable,
+}
+
+/// Borrowing mode keyed by generated function and parameter name.
+///
+/// A method's receiver is in here too, keyed as `("Class::method", "self")`. `self` *is* an
+/// instance parameter:
+/// it is borrowed from the caller for the duration of the call and is mutable exactly when the
+/// body needs it to be. Deriving it in the same map as a free function's instance parameter is not
+/// tidiness — each can make the other mutable, so one fixpoint has to settle both or the two
+/// answers disagree and the disagreement surfaces as generated Rust that does not compile.
+pub type InstanceParameterAccesses = BTreeMap<(String, String), InstanceAccess>;
+
+/// The receiver's name in every generated method.
+const RECEIVER: &str = "self";
+
+/// Where a method's receiver appears in [`InstanceParameterAccesses`].
+///
+/// The qualified spelling cannot collide with a free function's name, since a Python identifier
+/// has no `::` in it.
+fn receiver_key(class: &str, method: &str) -> (String, String) {
+    (format!("{class}::{method}"), RECEIVER.to_string())
+}
 
 /// The runtime helpers, embedded verbatim into generated crates.
 ///
@@ -255,14 +284,15 @@ impl Backend for RustBackend {
 
     fn emit(&self, unit: &Unit) -> Result<GeneratedFiles, BackendError> {
         let mut functions = String::new();
+        let instance_accesses = instance_parameter_accesses(unit);
         // Classes first: a reader opening this file wants the shapes before the operations, and a
         // free function may well take one as a parameter.
         for class in unit.classes() {
-            functions.push_str(&emit_class(class, unit)?);
+            functions.push_str(&emit_class(class, unit, &instance_accesses)?);
             functions.push('\n');
         }
         for function in unit.functions() {
-            functions.push_str(&emit_function(function, unit)?);
+            functions.push_str(&emit_function(function, unit, &instance_accesses)?);
             functions.push('\n');
         }
 
@@ -365,7 +395,11 @@ fn doc_comment(doc: &str) -> String {
 }
 
 /// Emit one function, including its fallible signature.
-fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendError> {
+fn emit_function(
+    function: &Function,
+    unit: &Unit,
+    instance_accesses: &InstanceParameterAccesses,
+) -> Result<String, BackendError> {
     let mut out = String::new();
     if let Some(doc) = &function.doc {
         out.push_str(&doc_comment(doc));
@@ -377,7 +411,18 @@ fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendErro
         .params
         .iter()
         .map(|p| {
-            let mutable = if is_assigned(&function.body, &p.name, unit) {
+            if matches!(p.ty, Ty::Instance(_)) {
+                let borrow = match instance_accesses
+                    .get(&(function.name.clone(), p.name.clone()))
+                    .copied()
+                    .unwrap_or(InstanceAccess::Shared)
+                {
+                    InstanceAccess::Shared => "&",
+                    InstanceAccess::Mutable => "&mut ",
+                };
+                return format!("{}: {borrow}{}", rust_ident(&p.name), rust_ty(&p.ty));
+            }
+            let mutable = if is_assigned(&function.body, &p.name, instance_accesses) {
                 "mut "
             } else {
                 ""
@@ -395,21 +440,25 @@ fn emit_function(function: &Function, unit: &Unit) -> Result<String, BackendErro
         rust_ty(&function.ret)
     );
 
-    let body = emit_body(function, unit)?;
+    let body = emit_body(function, unit, instance_accesses)?;
     out.push_str(&body);
     out.push_str("}\n");
     Ok(out)
 }
 
 /// Emit a class: a struct of its attributes and one implementation block of its methods.
-fn emit_class(class: &Class, unit: &Unit) -> Result<String, BackendError> {
+fn emit_class(
+    class: &Class,
+    unit: &Unit,
+    instance_accesses: &InstanceParameterAccesses,
+) -> Result<String, BackendError> {
     let mut out = String::new();
     if let Some(doc) = &class.doc {
         out.push_str(&doc_comment(doc));
     }
     let name = rust_ident(&class.name);
-    // `Clone` so an instance can be passed to a free function without being consumed, on the same
-    // terms as every other non-copyable value here.
+    // Instances remain cloneable for ordinary owned-value operations inside generated code. A
+    // direct instance parameter uses the borrowed ABI below and never reaches that fallback.
     out.push_str("#[derive(Clone)]\n");
     let _ = writeln!(out, "pub struct {name} {{");
     for attribute in &class.attributes {
@@ -422,18 +471,19 @@ fn emit_class(class: &Class, unit: &Unit) -> Result<String, BackendError> {
     }
     out.push_str("}\n\n");
 
-    let mutating = mutating_methods(class);
+    let mutating = mutating_methods(class, instance_accesses);
 
     let _ = writeln!(out, "impl {name} {{");
     // The constructor is named rather than spelled `new`, so a class with a method called `new`
     // cannot collide with it.
-    out.push_str(&emit_constructor(class, unit)?);
+    out.push_str(&emit_constructor(class, unit, instance_accesses)?);
     for method in class.methods.values() {
         out.push('\n');
         out.push_str(&emit_method(
             method,
             class,
             unit,
+            instance_accesses,
             mutating.contains(&method.name),
         )?);
     }
@@ -442,7 +492,11 @@ fn emit_class(class: &Class, unit: &Unit) -> Result<String, BackendError> {
 }
 
 /// Emit `__init__` as an associated constructor.
-fn emit_constructor(class: &Class, unit: &Unit) -> Result<String, BackendError> {
+fn emit_constructor(
+    class: &Class,
+    unit: &Unit,
+    instance_accesses: &InstanceParameterAccesses,
+) -> Result<String, BackendError> {
     let mut out = String::new();
     if let Some(doc) = &class.init.doc {
         out.push_str(&indent(&doc_comment(doc)));
@@ -473,6 +527,7 @@ fn emit_constructor(class: &Class, unit: &Unit) -> Result<String, BackendError> 
     let mut emitter = Emitter {
         function: &class.init,
         unit,
+        instance_accesses,
         out: String::new(),
     };
     // The whole body in one call, never a statement at a time. `Stmt::Bind` decides `mut` by
@@ -689,6 +744,7 @@ fn emit_method(
     method: &Function,
     class: &Class,
     unit: &Unit,
+    instance_accesses: &InstanceParameterAccesses,
     mutates: bool,
 ) -> Result<String, BackendError> {
     let mut out = String::new();
@@ -700,7 +756,7 @@ fn emit_method(
         .params
         .iter()
         .map(|p| {
-            let mutable = if is_assigned(&method.body, &p.name, unit) {
+            let mutable = if is_assigned(&method.body, &p.name, instance_accesses) {
                 "mut "
             } else {
                 ""
@@ -717,7 +773,7 @@ fn emit_method(
         rust_ty(&method.ret)
     );
     let _ = class;
-    out.push_str(&indent(&emit_body(method, unit)?));
+    out.push_str(&indent(&emit_body(method, unit, instance_accesses)?));
     out.push_str("    }\n");
     Ok(out)
 }
@@ -739,37 +795,23 @@ fn indent(block: &str) -> String {
 
 /// Which methods need a mutable receiver.
 ///
-/// A method mutates when it assigns an attribute, mutates a collection attribute, **or calls a
-/// method that does**. The transitive case is the one that will be got wrong: a method whose body
-/// is only `self.record(x)` mutates through the call, and a shared receiver there produces a
-/// borrow-checker error about generated code rather than a diagnostic about the user's program.
+/// A method mutates when it assigns an attribute, mutates a collection attribute, calls a method
+/// that does, **or hands `self` to a function whose instance parameter is mutable**. The last two
+/// are the ones that will be got wrong: a method whose body is only `self.record(x)` mutates
+/// through the call, and so does one whose body is only `return record(self)`. A shared receiver
+/// in either case produces a borrow-checker error about generated code rather than a diagnostic
+/// about the user's program.
 ///
-/// So this is a fixpoint: mark the directly-mutating methods, then repeatedly mark any method
-/// calling a marked one until nothing changes. A class has few methods, so it converges in a
-/// handful of passes over a small set.
-pub fn mutating_methods(class: &Class) -> BTreeSet<String> {
-    let mut mutating: BTreeSet<String> = class
+/// This is a projection of [`instance_parameter_accesses`] rather than an analysis of its own,
+/// because the answer depends on the borrow mode of every parameter `self` reaches and those in
+/// turn depend on this. One fixpoint settles both; two would be free to disagree.
+pub fn mutating_methods(class: &Class, accesses: &InstanceParameterAccesses) -> BTreeSet<String> {
+    class
         .methods
-        .values()
-        .filter(|method| mutates_self_directly(&method.body))
-        .map(|method| method.name.clone())
-        .collect();
-
-    loop {
-        let mut added = false;
-        for method in class.methods.values() {
-            if mutating.contains(&method.name) {
-                continue;
-            }
-            if calls_any_of(&method.body, &mutating) {
-                mutating.insert(method.name.clone());
-                added = true;
-            }
-        }
-        if !added {
-            return mutating;
-        }
-    }
+        .keys()
+        .filter(|method| method_mutates(Some(&class.name), method, accesses))
+        .cloned()
+        .collect()
 }
 
 /// Whether an expression names `self`, directly or through an attribute of it.
@@ -787,101 +829,6 @@ fn targets_self(expr: &Expr) -> bool {
             targets_self(object)
         }
         _ => false,
-    }
-}
-
-/// Whether a body assigns an attribute of `self`, or mutates a collection held in one.
-fn mutates_self_directly(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(|stmt| match stmt {
-        Stmt::SetAttr { object, .. } => targets_self(object),
-        Stmt::SetItem { collection, .. } => targets_self(collection),
-        Stmt::Append { sequence, .. } => targets_self(sequence),
-        Stmt::If {
-            then, otherwise, ..
-        } => mutates_self_directly(then) || mutates_self_directly(otherwise),
-        Stmt::While { body, .. } | Stmt::For { body, .. } => mutates_self_directly(body),
-        _ => false,
-    })
-}
-
-/// Whether a body calls any of the named methods on `self`.
-///
-/// Only calls on `self` count. A call on some *other* instance mutates that object, which the
-/// receiver of the enclosing method has nothing to do with.
-fn calls_any_of(stmts: &[Stmt], named: &BTreeSet<String>) -> bool {
-    stmts.iter().any(|stmt| match stmt {
-        Stmt::Return(expr) | Stmt::Effect(expr) => expr_calls_any_of(expr, named),
-        Stmt::Bind { value, .. } | Stmt::Assign { value, .. } => expr_calls_any_of(value, named),
-        Stmt::SetAttr { object, value, .. } => {
-            expr_calls_any_of(object, named) || expr_calls_any_of(value, named)
-        }
-        Stmt::SetItem {
-            collection,
-            index,
-            value,
-        } => {
-            expr_calls_any_of(collection, named)
-                || expr_calls_any_of(index, named)
-                || expr_calls_any_of(value, named)
-        }
-        Stmt::Append { sequence, value } => {
-            expr_calls_any_of(sequence, named) || expr_calls_any_of(value, named)
-        }
-        Stmt::If {
-            test,
-            then,
-            otherwise,
-        } => {
-            expr_calls_any_of(test, named)
-                || calls_any_of(then, named)
-                || calls_any_of(otherwise, named)
-        }
-        Stmt::While { test, body } => expr_calls_any_of(test, named) || calls_any_of(body, named),
-        Stmt::For { iter, body, .. } => expr_calls_any_of(iter, named) || calls_any_of(body, named),
-        Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => false,
-    })
-}
-
-/// Whether an expression calls any of the named methods on `self`.
-fn expr_calls_any_of(expr: &Expr, named: &BTreeSet<String>) -> bool {
-    let mut found = false;
-    let recurse = |children: &[&Expr]| children.iter().any(|c| expr_calls_any_of(c, named));
-    match expr {
-        Expr::MethodCall {
-            receiver,
-            method,
-            args,
-            ..
-        } => {
-            if matches!(receiver.as_ref(), Expr::Name(name) if name == "self")
-                && named.contains(method.as_str())
-            {
-                found = true;
-            }
-            found
-                || expr_calls_any_of(receiver, named)
-                || args.iter().any(|a| expr_calls_any_of(a, named))
-        }
-        Expr::Literal(_) | Expr::Name(_) => false,
-        Expr::Neg { value: inner, .. } | Expr::ToFloat(inner) | Expr::Not(inner) => {
-            expr_calls_any_of(inner, named)
-        }
-        Expr::Len { value, .. } => expr_calls_any_of(value, named),
-        Expr::Attribute { object, .. } => expr_calls_any_of(object, named),
-        Expr::TupleIndex { base, .. } => expr_calls_any_of(base, named),
-        Expr::Binary { left, right, .. } => recurse(&[left, right]),
-        Expr::Subscript { base, index, .. } => recurse(&[base, index]),
-        Expr::Contains { value, container } => recurse(&[value, container]),
-        Expr::Range { start, stop, step } => recurse(&[start, stop, step]),
-        Expr::ListLit(items) | Expr::SetLit(items) | Expr::TupleLit(items) => {
-            items.iter().any(|i| expr_calls_any_of(i, named))
-        }
-        Expr::DictLit(pairs) => pairs
-            .iter()
-            .any(|(k, v)| expr_calls_any_of(k, named) || expr_calls_any_of(v, named)),
-        Expr::Call { args, .. } | Expr::Construct { args, .. } => {
-            args.iter().any(|a| expr_calls_any_of(a, named))
-        }
     }
 }
 
@@ -1082,7 +1029,11 @@ fn origin_expr(origin: IndexOrigin) -> &'static str {
 ///
 /// The final statement becomes the tail so the generated function has no unreachable trailing
 /// expression, which would be a warning in code that must compile clean.
-fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
+fn emit_body(
+    function: &Function,
+    unit: &Unit,
+    instance_accesses: &InstanceParameterAccesses,
+) -> Result<String, BackendError> {
     // A `return` in final position is emitted as a tail expression instead. Rust reads it as the
     // same thing, and a straight-line function — still the common case — is left looking like
     // idiomatic Rust rather than like Python transliterated into it.
@@ -1093,6 +1044,7 @@ fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
     let mut emitter = Emitter {
         function,
         unit,
+        instance_accesses,
         out: String::new(),
     };
     emitter.stmts(leading, 1)?;
@@ -1113,7 +1065,15 @@ fn emit_body(function: &Function, unit: &Unit) -> Result<String, BackendError> {
             let value = match expr {
                 // `self` is the receiver, a borrow, and never movable.
                 Expr::Name(name) if name != "self" => rust_ident(name),
-                _ => emit_expr(expr, unit, &function.ret)?,
+                _ => emit_expr(
+                    expr,
+                    EmissionContext {
+                        function,
+                        unit,
+                        instance_accesses,
+                    },
+                    &function.ret,
+                )?,
             };
             let _ = writeln!(out, "    Ok({value})");
         }
@@ -1146,29 +1106,58 @@ struct Emitter<'a> {
     function: &'a Function,
     /// The unit, for resolving callees.
     unit: &'a Unit,
+    /// Whole-unit direct-instance borrowing modes.
+    instance_accesses: &'a InstanceParameterAccesses,
     /// The source being built up.
     out: String,
 }
 
 impl Emitter<'_> {
+    fn context(&self) -> EmissionContext<'_> {
+        EmissionContext {
+            function: self.function,
+            unit: self.unit,
+            instance_accesses: self.instance_accesses,
+        }
+    }
+
+    fn expr(&self, expr: &Expr, expected: &Ty) -> Result<String, BackendError> {
+        emit_expr(expr, self.context(), expected)
+    }
+
+    fn place(&self, expr: &Expr, access: Access) -> Result<String, BackendError> {
+        emit_place(expr, self.context(), access)
+    }
+
+    fn owned(&self, expr: &Expr) -> Result<String, BackendError> {
+        emit_owned_operand(expr, self.context())
+    }
+
     /// Emit a sequence of statements at a given indentation depth.
     fn stmts(&mut self, stmts: &[Stmt], depth: usize) -> Result<(), BackendError> {
         let pad = "    ".repeat(depth);
         for (position, stmt) in stmts.iter().enumerate() {
             match stmt {
                 Stmt::Bind { name, ty, value } => {
-                    let value =
-                        known_capacity_initializer(stmts, position, name, ty, value, self.unit)
-                            .unwrap_or(emit_expr(value, self.unit, ty)?);
+                    let value = known_capacity_initializer(
+                        stmts,
+                        position,
+                        name,
+                        ty,
+                        value,
+                        self.instance_accesses,
+                    )
+                    .unwrap_or(self.expr(value, ty)?);
                     // `mut` only when something assigns to it later, so generated code carries no
                     // avoidable warning. Scanning the enclosing block rather than the whole
                     // function: lowering scopes a binding to the block that introduced it, so
                     // nothing outside it can assign to the name.
-                    let mutable = if is_assigned(stmts, name, self.unit) {
-                        "mut "
-                    } else {
-                        ""
-                    };
+                    let mutable =
+                        if requires_mut_binding(stmts, name, self.unit, self.instance_accesses) {
+                            "mut "
+                        } else {
+                            ""
+                        };
                     let _ = writeln!(
                         self.out,
                         "{pad}let {mutable}{}: {} = {value};",
@@ -1187,7 +1176,7 @@ impl Emitter<'_> {
                         // One append per operand, left to right: the same additions the rebuild
                         // form performed, in the same order, without the intermediate values.
                         for expr in operands {
-                            let rhs = emit_expr(expr, self.unit, &operand)?;
+                            let rhs = self.expr(expr, &operand)?;
                             let _ = writeln!(
                                 self.out,
                                 "{pad}PyAddAssign::py_add_assign(&mut {}, &({rhs}))?;",
@@ -1195,19 +1184,19 @@ impl Emitter<'_> {
                             );
                         }
                     } else {
-                        let value = emit_expr(value, self.unit, ty)?;
+                        let value = self.expr(value, ty)?;
                         let _ = writeln!(self.out, "{pad}{} = {value};", rust_ident(name));
                     }
                 }
                 Stmt::Return(expr) => {
-                    let value = emit_expr(expr, self.unit, &self.function.ret)?;
+                    let value = self.expr(expr, &self.function.ret)?;
                     let _ = writeln!(self.out, "{pad}return Ok({value});");
                 }
                 Stmt::ReturnUnit => {
                     let _ = writeln!(self.out, "{pad}return Ok(());");
                 }
                 Stmt::Effect(expr) => {
-                    let value = emit_expr(expr, self.unit, &Ty::Unit)?;
+                    let value = self.expr(expr, &Ty::Unit)?;
                     let _ = writeln!(self.out, "{pad}{value};");
                 }
                 Stmt::SetAttr {
@@ -1216,8 +1205,8 @@ impl Emitter<'_> {
                     ty,
                     value,
                 } => {
-                    let object = emit_place(object, self.unit, Access::Mutable)?;
-                    let value = emit_expr(value, self.unit, ty)?;
+                    let object = self.place(object, Access::Mutable)?;
+                    let value = self.expr(value, ty)?;
                     let _ = writeln!(self.out, "{pad}({object}).{} = {value};", rust_ident(name));
                 }
                 Stmt::SetItem {
@@ -1239,10 +1228,10 @@ impl Emitter<'_> {
                     // is the most common thing anyone does with a mapping, and it paid for that
                     // once per element.
                     let fused = indexed_accumulation(collection, index, value);
-                    let place = emit_place(collection, self.unit, Access::Mutable)?;
-                    let index = emit_owned_operand(index, self.unit)?;
+                    let place = self.place(collection, Access::Mutable)?;
+                    let index = self.owned(index)?;
                     if let Some((delta, origin)) = fused {
-                        let delta = emit_owned_operand(delta, self.unit)?;
+                        let delta = self.owned(delta)?;
                         let _ = writeln!(self.out, "{pad}{{");
                         let _ = writeln!(self.out, "{pad}    let __compylr_delta = {delta};");
                         let _ = writeln!(self.out, "{pad}    let __compylr_index = {index};");
@@ -1253,7 +1242,7 @@ impl Emitter<'_> {
                         );
                         let _ = writeln!(self.out, "{pad}}}");
                     } else {
-                        let value = emit_owned_operand(value, self.unit)?;
+                        let value = self.owned(value)?;
                         let _ = writeln!(self.out, "{pad}{{");
                         let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
                         let _ = writeln!(self.out, "{pad}    let __compylr_index = {index};");
@@ -1266,8 +1255,8 @@ impl Emitter<'_> {
                 }
                 Stmt::Append { sequence, value } => {
                     // Bound first for the same reason: `xs.append(xs[0])` reads what it extends.
-                    let sequence = emit_place(sequence, self.unit, Access::Mutable)?;
-                    let value = emit_owned_operand(value, self.unit)?;
+                    let sequence = self.place(sequence, Access::Mutable)?;
+                    let value = self.owned(value)?;
                     let _ = writeln!(self.out, "{pad}{{");
                     let _ = writeln!(self.out, "{pad}    let __compylr_value = {value};");
                     let _ = writeln!(self.out, "{pad}    ({sequence}).push(__compylr_value);");
@@ -1284,7 +1273,7 @@ impl Emitter<'_> {
                     then,
                     otherwise,
                 } => {
-                    let test = emit_expr(test, self.unit, &Ty::Bool)?;
+                    let test = self.expr(test, &Ty::Bool)?;
                     let _ = writeln!(self.out, "{pad}if {test} {{");
                     self.stmts(then, depth + 1)?;
                     if !otherwise.is_empty() {
@@ -1294,7 +1283,7 @@ impl Emitter<'_> {
                     let _ = writeln!(self.out, "{pad}}}");
                 }
                 Stmt::While { test, body } => {
-                    let test = emit_expr(test, self.unit, &Ty::Bool)?;
+                    let test = self.expr(test, &Ty::Bool)?;
                     let _ = writeln!(self.out, "{pad}while {test} {{");
                     self.stmts(body, depth + 1)?;
                     let _ = writeln!(self.out, "{pad}}}");
@@ -1332,14 +1321,14 @@ impl Emitter<'_> {
     ) -> Result<(), BackendError> {
         let pad = "    ".repeat(depth);
         let bound = rust_ident(name);
-        let mutable = if is_assigned(body, name, self.unit) {
+        let mutable = if requires_mut_binding(body, name, self.unit, self.instance_accesses) {
             "mut "
         } else {
             ""
         };
-        let start = emit_expr(start, self.unit, &Ty::Int)?;
-        let stop = emit_expr(stop, self.unit, &Ty::Int)?;
-        let step = emit_expr(step, self.unit, &Ty::Int)?;
+        let start = self.expr(start, &Ty::Int)?;
+        let stop = self.expr(stop, &Ty::Int)?;
+        let step = self.expr(step, &Ty::Int)?;
 
         let _ = writeln!(self.out, "{pad}{{");
         let _ = writeln!(self.out, "{pad}    let __compylr_stop: i64 = {stop};");
@@ -1391,7 +1380,7 @@ impl Emitter<'_> {
     ) -> Result<(), BackendError> {
         let pad = "    ".repeat(depth);
         let bound = rust_ident(name);
-        let mutable = if is_assigned(body, name, self.unit) {
+        let mutable = if requires_mut_binding(body, name, self.unit, self.instance_accesses) {
             "mut "
         } else {
             ""
@@ -1410,17 +1399,17 @@ impl Emitter<'_> {
         // `for v in m[i]` holds a borrow of `m` for the length of the body, so a body that writes
         // to `m` has to walk a snapshot instead. Anything not rooted at a name is already a
         // temporary and nothing can alias it.
-        let disturbed =
-            place_root(iterable).is_some_and(|target| is_assigned(body, target, self.unit));
+        let disturbed = place_root(iterable)
+            .is_some_and(|target| is_assigned(body, target, self.instance_accesses));
 
         let _ = writeln!(self.out, "{pad}{{");
         if disturbed {
             // Bound behind a reference like the borrowed case, because `py_iter` takes `&self`.
             // The temporary lives as long as the binding does, so the snapshot survives the loop.
-            let owned = emit_owned_operand(iterable, self.unit)?;
+            let owned = self.owned(iterable)?;
             let _ = writeln!(self.out, "{pad}    let __compylr_iter = &{owned};");
         } else {
-            let place = emit_place(iterable, self.unit, Access::Shared)?;
+            let place = self.place(iterable, Access::Shared)?;
             let _ = writeln!(self.out, "{pad}    let __compylr_iter = &{place};");
         }
         // A body that never writes the loop variable has no use for its own copy of each element.
@@ -1475,7 +1464,7 @@ fn known_capacity_initializer(
     name: &str,
     ty: &Ty,
     value: &Expr,
-    unit: &Unit,
+    accesses: &InstanceParameterAccesses,
 ) -> Option<String> {
     let empty = matches!((ty, value), (Ty::List(_), Expr::ListLit(items)) if items.is_empty())
         || matches!((ty, value), (Ty::Dict(_, _), Expr::DictLit(items)) if items.is_empty());
@@ -1491,12 +1480,12 @@ fn known_capacity_initializer(
             continue;
         }
         let leading = &stmts[position + 1..position + 1 + offset];
-        if is_assigned(leading, name, unit) {
+        if is_assigned(leading, name, accesses) {
             return None;
         }
 
         let capacity = match iter {
-            Expr::Name(iterable) if !is_assigned(leading, iterable, unit) => {
+            Expr::Name(iterable) if !is_assigned(leading, iterable, accesses) => {
                 format!(
                     "PyLen::py_len(&({}), TextUnits::CodePoints) as usize",
                     rust_ident(iterable)
@@ -1507,7 +1496,7 @@ fn known_capacity_initializer(
                     && matches!(&**step, Expr::Literal(Literal::Int(1))) =>
             {
                 let stop = match &**stop {
-                    Expr::Name(stop) if !is_assigned(leading, stop, unit) => rust_ident(stop),
+                    Expr::Name(stop) if !is_assigned(leading, stop, accesses) => rust_ident(stop),
                     Expr::Literal(Literal::Int(stop)) => int_literal(*stop),
                     _ => continue,
                 };
@@ -1561,13 +1550,17 @@ fn collection_insertions(stmts: &[Stmt], name: &str, ty: &Ty) -> usize {
 ///
 /// Only the two shapes a mutation target can take are places. Anything else is a value, and
 /// lowering has already refused to mutate one.
-fn emit_place(expr: &Expr, unit: &Unit, access: Access) -> Result<String, BackendError> {
+fn emit_place(
+    expr: &Expr,
+    context: EmissionContext<'_>,
+    access: Access,
+) -> Result<String, BackendError> {
     match expr {
         Expr::Name(name) if name == "self" => Ok("self".to_string()),
         Expr::Name(name) => Ok(rust_ident(name)),
         Expr::Attribute { object, name } => Ok(format!(
             "({}).{}",
-            emit_place(object, unit, access)?,
+            emit_place(object, context, access)?,
             rust_ident(name)
         )),
         // A subscript is a place too, and this is the case whose absence was silent: reading the
@@ -1592,8 +1585,8 @@ fn emit_place(expr: &Expr, unit: &Unit, access: Access) -> Result<String, Backen
             if *checked == Checked::Unchecked && *origin == IndexOrigin::FromStart {
                 return Ok(format!(
                     "({})[{} as usize]",
-                    emit_place(base, unit, access)?,
-                    emit_expr(index, unit, &Ty::Unit)?
+                    emit_place(base, context, access)?,
+                    emit_expr(index, context, &Ty::Unit)?
                 ));
             }
             let (helper, borrow) = match access {
@@ -1602,12 +1595,12 @@ fn emit_place(expr: &Expr, unit: &Unit, access: Access) -> Result<String, Backen
             };
             Ok(format!(
                 "(*{helper}({borrow}({}), &({}), {})?)",
-                emit_place(base, unit, access)?,
-                emit_expr(index, unit, &Ty::Unit)?,
+                emit_place(base, context, access)?,
+                emit_expr(index, context, &Ty::Unit)?,
                 rust_index_origin(*origin)
             ))
         }
-        other => emit_expr(other, unit, &Ty::Unit),
+        other => emit_expr(other, context, &Ty::Unit),
     }
 }
 
@@ -1637,10 +1630,11 @@ enum Access {
 ///
 /// An unknown class means the receiver came from another source, which lowering resolves at the
 /// unit. Assuming it mutates is the safe direction: a needless `mut` is a warning at worst, and a
-/// missing one does not compile.
-fn method_mutates(class: Option<&str>, method: &str, unit: &Unit) -> bool {
-    match class.and_then(|name| unit.class(name)) {
-        Some(class) => mutating_methods(class).contains(method),
+/// missing one does not compile. An absent entry says exactly that, since every method of every
+/// class in the unit is seeded into the map before the fixpoint runs.
+fn method_mutates(class: Option<&str>, method: &str, accesses: &InstanceParameterAccesses) -> bool {
+    match class {
+        Some(class) => accesses.get(&receiver_key(class, method)) != Some(&InstanceAccess::Shared),
         None => true,
     }
 }
@@ -1668,10 +1662,10 @@ fn place_root(expr: &Expr) -> Option<&str> {
 /// `expected` is unavailable at these sites (the IR does not annotate expressions with their
 /// types), so the name check stands in for it. Cloning a `Copy` type is free enough that being
 /// wrong in that direction costs nothing.
-fn emit_owned_operand(expr: &Expr, unit: &Unit) -> Result<String, BackendError> {
+fn emit_owned_operand(expr: &Expr, context: EmissionContext<'_>) -> Result<String, BackendError> {
     match expr {
         Expr::Name(name) => Ok(format!("{}.clone()", rust_ident(name))),
-        other => emit_expr(other, unit, &Ty::Unit),
+        other => emit_expr(other, context, &Ty::Unit),
     }
 }
 
@@ -1763,33 +1757,70 @@ fn compared_in(stmts: &[Stmt], name: &str) -> bool {
     })
 }
 
-fn is_assigned(stmts: &[Stmt], name: &str, unit: &Unit) -> bool {
+fn is_assigned(stmts: &[Stmt], name: &str, accesses: &InstanceParameterAccesses) -> bool {
     let names_it = |expr: &Expr| place_root(expr) == Some(name);
     stmts.iter().any(|stmt| match stmt {
         Stmt::Assign { name: target, .. } => target == name,
         Stmt::SetItem { collection, .. } => names_it(collection),
         Stmt::Append { sequence, .. } => names_it(sequence),
         Stmt::SetAttr { object, .. } => names_it(object),
-        Stmt::Effect(expr) => mutating_call_on(expr, name, unit),
+        Stmt::Effect(expr) => mutating_call_on(expr, name, accesses),
         Stmt::If {
             test,
             then,
             otherwise,
         } => {
-            mutating_call_on(test, name, unit)
-                || is_assigned(then, name, unit)
-                || is_assigned(otherwise, name, unit)
+            mutating_call_on(test, name, accesses)
+                || is_assigned(then, name, accesses)
+                || is_assigned(otherwise, name, accesses)
         }
         Stmt::While { test, body } => {
-            mutating_call_on(test, name, unit) || is_assigned(body, name, unit)
+            mutating_call_on(test, name, accesses) || is_assigned(body, name, accesses)
         }
         Stmt::For { iter, body, .. } => {
-            mutating_call_on(iter, name, unit) || is_assigned(body, name, unit)
+            mutating_call_on(iter, name, accesses) || is_assigned(body, name, accesses)
         }
-        Stmt::Return(expr) => mutating_call_on(expr, name, unit),
-        Stmt::Bind { value, .. } => mutating_call_on(value, name, unit),
+        Stmt::Return(expr) => mutating_call_on(expr, name, accesses),
+        Stmt::Bind { value, .. } => mutating_call_on(value, name, accesses),
         _ => false,
     })
+}
+
+/// Whether a borrowed or owned instance named `name` is used mutably by `stmts`.
+///
+/// Direct writes are covered by [`is_assigned`]. Passing the name to a generated function whose
+/// instance parameter is mutable also creates a mutable borrow, so that call edge must count even
+/// though the source-level name is never assigned.
+///
+/// One predicate answers three questions deliberately: whether a generated local needs `mut`,
+/// whether a free function's instance parameter is `&mut T`, and whether a method's receiver is
+/// `&mut self`. They are the same question about different bindings, and answering them apart is
+/// how the three drift into disagreeing.
+fn requires_mut_binding(
+    stmts: &[Stmt],
+    name: &str,
+    unit: &Unit,
+    instance_accesses: &InstanceParameterAccesses,
+) -> bool {
+    if is_assigned(stmts, name, instance_accesses) {
+        return true;
+    }
+
+    let mut required = false;
+    visit_body_exprs(stmts, &mut |expr| {
+        let Expr::Call { callee, args } = expr else {
+            return;
+        };
+        let Some(signature) = unit.get(callee) else {
+            return;
+        };
+        required |= args.iter().zip(&signature.params).any(|(argument, param)| {
+            place_root(argument) == Some(name)
+                && instance_accesses.get(&(callee.clone(), param.name.clone()))
+                    == Some(&InstanceAccess::Mutable)
+        });
+    });
+    required
 }
 
 /// Whether an expression calls a mutating method on the local named `name`.
@@ -1799,7 +1830,7 @@ fn is_assigned(stmts: &[Stmt], name: &str, unit: &Unit) -> bool {
 /// classes may both define `get`, so the receiver's class is carried on the node. When lowering
 /// could not determine it the call is assumed to mutate: a spurious `mut` is a warning, and a
 /// missing one is code that does not compile.
-fn mutating_call_on(expr: &Expr, name: &str, unit: &Unit) -> bool {
+fn mutating_call_on(expr: &Expr, name: &str, accesses: &InstanceParameterAccesses) -> bool {
     let mut found = false;
     visit_exprs(expr, &mut |node| {
         if let Expr::MethodCall {
@@ -1810,7 +1841,7 @@ fn mutating_call_on(expr: &Expr, name: &str, unit: &Unit) -> bool {
         } = node
             && place_root(receiver) == Some(name)
         {
-            found |= method_mutates(class.as_deref(), method, unit);
+            found |= method_mutates(class.as_deref(), method, accesses);
         }
     });
     found
@@ -1869,12 +1900,187 @@ fn visit_exprs(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
     }
 }
 
+/// Visit every expression in a statement body, including nested control flow.
+fn visit_body_exprs(stmts: &[Stmt], visit: &mut impl FnMut(&Expr)) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Return(expr) | Stmt::Effect(expr) => visit_exprs(expr, visit),
+            Stmt::Bind { value, .. } | Stmt::Assign { value, .. } => visit_exprs(value, visit),
+            Stmt::SetAttr { object, value, .. } => {
+                visit_exprs(object, visit);
+                visit_exprs(value, visit);
+            }
+            Stmt::SetItem {
+                collection,
+                index,
+                value,
+            } => {
+                visit_exprs(collection, visit);
+                visit_exprs(index, visit);
+                visit_exprs(value, visit);
+            }
+            Stmt::Append { sequence, value } => {
+                visit_exprs(sequence, visit);
+                visit_exprs(value, visit);
+            }
+            Stmt::If {
+                test,
+                then,
+                otherwise,
+            } => {
+                visit_exprs(test, visit);
+                visit_body_exprs(then, visit);
+                visit_body_exprs(otherwise, visit);
+            }
+            Stmt::While { test, body } => {
+                visit_exprs(test, visit);
+                visit_body_exprs(body, visit);
+            }
+            Stmt::For { iter, body, .. } => {
+                visit_exprs(iter, visit);
+                visit_body_exprs(body, visit);
+            }
+            Stmt::ReturnUnit | Stmt::Break | Stmt::Continue => {}
+        }
+    }
+}
+
+/// Raise one borrowed instance to a mutable borrow if its body uses it that way.
+///
+/// Reports whether that changed anything, which is what drives the fixpoint below.
+fn raise_to_mutable(
+    accesses: &mut InstanceParameterAccesses,
+    key: (String, String),
+    body: &[Stmt],
+    name: &str,
+    unit: &Unit,
+) -> bool {
+    if accesses.get(&key) == Some(&InstanceAccess::Mutable) {
+        return false;
+    }
+    if !requires_mut_binding(body, name, unit, accesses) {
+        return false;
+    }
+    accesses.insert(key, InstanceAccess::Mutable);
+    true
+}
+
+/// Derive the borrow mode of every borrowed instance across the complete unit.
+///
+/// That means both a free function's direct instance parameters and every method's receiver, in
+/// one map and one fixpoint — see [`InstanceParameterAccesses`] for why they cannot be separated.
+/// A method handing `self` to a mutating free function makes its own receiver mutable, which can
+/// make a caller's parameter mutable, which can make another receiver mutable, and so on.
+///
+/// Everything starts shared and only ever rises, so the fixpoint climbs a finite lattice and
+/// terminates. Starting from shared is also the answer that stays correct under recursion: two
+/// methods that only call each other mutate nothing, and seeding them mutable would say they did.
+pub fn instance_parameter_accesses(unit: &Unit) -> InstanceParameterAccesses {
+    let mut accesses = InstanceParameterAccesses::new();
+    for function in unit.functions() {
+        for param in &function.params {
+            if matches!(param.ty, Ty::Instance(_)) {
+                accesses.insert(
+                    (function.name.clone(), param.name.clone()),
+                    InstanceAccess::Shared,
+                );
+            }
+        }
+    }
+    // Seeded even though a receiver is never absent from its own class, because `method_mutates`
+    // reads an absent entry as an unknown class and therefore as mutating.
+    for class in unit.classes() {
+        for method in class.methods.values() {
+            accesses.insert(
+                receiver_key(&class.name, &method.name),
+                InstanceAccess::Shared,
+            );
+        }
+    }
+
+    loop {
+        let mut changed = false;
+        for function in unit.functions() {
+            for param in &function.params {
+                if !matches!(param.ty, Ty::Instance(_)) {
+                    continue;
+                }
+                changed |= raise_to_mutable(
+                    &mut accesses,
+                    (function.name.clone(), param.name.clone()),
+                    &function.body,
+                    &param.name,
+                    unit,
+                );
+            }
+        }
+        for class in unit.classes() {
+            for method in class.methods.values() {
+                changed |= raise_to_mutable(
+                    &mut accesses,
+                    receiver_key(&class.name, &method.name),
+                    &method.body,
+                    RECEIVER,
+                    unit,
+                );
+            }
+        }
+        if !changed {
+            return accesses;
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct EmissionContext<'a> {
+    function: &'a Function,
+    unit: &'a Unit,
+    instance_accesses: &'a InstanceParameterAccesses,
+}
+
+fn emit_call_argument(
+    argument: &Expr,
+    callee: &str,
+    param: &Param,
+    context: EmissionContext<'_>,
+) -> Result<String, BackendError> {
+    if !matches!(param.ty, Ty::Instance(_)) {
+        return emit_expr(argument, context, &param.ty);
+    }
+
+    let access = context
+        .instance_accesses
+        .get(&(callee.to_string(), param.name.clone()))
+        .copied()
+        .unwrap_or(InstanceAccess::Shared);
+    let place_access = match access {
+        InstanceAccess::Shared => Access::Shared,
+        InstanceAccess::Mutable => Access::Mutable,
+    };
+    let place = emit_place(argument, context, place_access)?;
+    let already_borrowed = matches!(argument, Expr::Name(name) if name == "self"
+    || context.function.params.iter().any(|candidate| {
+        candidate.name == *name && matches!(candidate.ty, Ty::Instance(_))
+    }));
+    if already_borrowed {
+        return Ok(place);
+    }
+    Ok(match access {
+        InstanceAccess::Shared => format!("&({place})"),
+        InstanceAccess::Mutable => format!("&mut ({place})"),
+    })
+}
+
 /// Emit an expression, fully parenthesized.
 ///
 /// `expected` is the type the surrounding context wants. It is used for exactly one thing:
 /// deciding whether an owned `String` has to be produced where a value is consumed, so that a
 /// string parameter used twice is not moved on first use.
-fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendError> {
+fn emit_expr(
+    expr: &Expr,
+    context: EmissionContext<'_>,
+    expected: &Ty,
+) -> Result<String, BackendError> {
     Ok(match expr {
         Expr::Literal(literal) => match literal {
             Literal::Int(value) => int_literal(*value),
@@ -1901,23 +2107,23 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             }
         }
         Expr::Neg { value, checked } => {
-            let inner = emit_expr(value, unit, expected)?;
+            let inner = emit_expr(value, context, expected)?;
             emit_neg(&inner, *checked, expected)
         }
         Expr::ToFloat(inner) => {
             // The operand is an integer expression; `expected` describes the float context it is
             // being widened into, so it must not be propagated inward.
-            let inner = emit_expr(inner, unit, &Ty::Int)?;
+            let inner = emit_expr(inner, context, &Ty::Int)?;
             format!("(({inner}) as f64)")
         }
         Expr::ListLit(items) => {
             let element = element_ty(expected);
-            let rendered = render_all(items, unit, &element)?;
+            let rendered = render_all(items, context, &element)?;
             format!("vec![{}]", rendered.join(", "))
         }
         Expr::SetLit(items) => {
             let element = element_ty(expected);
-            let rendered = render_all(items, unit, &element)?;
+            let rendered = render_all(items, context, &element)?;
             format!("FastSet::from_iter([{}])", rendered.join(", "))
         }
         Expr::TupleLit(items) => {
@@ -1928,7 +2134,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             };
             let mut rendered = Vec::with_capacity(items.len());
             for (item, ty) in items.iter().zip(&types) {
-                rendered.push(emit_expr(item, unit, ty)?);
+                rendered.push(emit_expr(item, context, ty)?);
             }
             // A one-element tuple needs the trailing comma to be a tuple at all.
             if rendered.len() == 1 {
@@ -1946,8 +2152,8 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             for (key, value) in pairs {
                 rendered.push(format!(
                     "({}, {})",
-                    emit_expr(key, unit, &key_ty)?,
-                    emit_expr(value, unit, &value_ty)?
+                    emit_expr(key, context, &key_ty)?,
+                    emit_expr(value, context, &value_ty)?
                 ));
             }
             format!("FastMap::from_iter([{}])", rendered.join(", "))
@@ -1955,17 +2161,20 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
         Expr::Attribute { object, name } => {
             // Cloned rather than moved: reading one field must not consume the object, and the
             // object may well be `self`.
-            let object = emit_expr(object, unit, &Ty::Unit)?;
+            let object = emit_expr(object, context, &Ty::Unit)?;
             format!("({object}).{}.clone()", rust_ident(name))
         }
         Expr::Construct { class, args } => {
-            let class_def = unit.class(class).ok_or_else(|| BackendError::Unsupported {
-                detail: format!("class '{class}' is not in this unit"),
-            })?;
+            let class_def = context
+                .unit
+                .class(class)
+                .ok_or_else(|| BackendError::Unsupported {
+                    detail: format!("class '{class}' is not in this unit"),
+                })?;
             let rendered = args
                 .iter()
                 .zip(class_def.init.params.iter())
-                .map(|(arg, param)| emit_expr(arg, unit, &param.ty))
+                .map(|(arg, param)| emit_expr(arg, context, &param.ty))
                 .collect::<Result<Vec<_>, _>>()?;
             format!(
                 "{}::__compylr_new({})?",
@@ -1985,13 +2194,13 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             //
             // Asked for mutably only when the method actually mutates, so `items[0].get()` still
             // borrows the list the way a read does.
-            let access = if method_mutates(class.as_deref(), method, unit) {
+            let access = if method_mutates(class.as_deref(), method, context.instance_accesses) {
                 Access::Mutable
             } else {
                 Access::Shared
             };
-            let receiver = emit_place(receiver, unit, access)?;
-            let rendered = render_all(args, unit, &Ty::Unit)?;
+            let receiver = emit_place(receiver, context, access)?;
+            let rendered = render_all(args, context, &Ty::Unit)?;
             format!(
                 "({receiver}).{}({})?",
                 rust_ident(method),
@@ -1999,20 +2208,20 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             )
         }
         Expr::Not(inner) => {
-            let inner = emit_expr(inner, unit, &Ty::Bool)?;
+            let inner = emit_expr(inner, context, &Ty::Bool)?;
             format!("!({inner})")
         }
         Expr::Contains { value, container } => {
             // Borrowed, so a container can be tested and then still read or iterated.
-            let value = emit_expr(value, unit, &Ty::Unit)?;
-            let container = emit_expr(container, unit, &Ty::Unit)?;
+            let value = emit_expr(value, context, &Ty::Unit)?;
+            let container = emit_expr(container, context, &Ty::Unit)?;
             format!("PyContains::py_contains(&({container}), &({value}))")
         }
         Expr::TupleIndex { base, position } => {
             // A field access rather than a call: the result type differs per position, so no
             // single lookup operation could have the right signature. Cloned rather than moved,
             // since the tuple may be read again.
-            let base = emit_expr(base, unit, &Ty::Unit)?;
+            let base = emit_expr(base, context, &Ty::Unit)?;
             format!("({base}).{position}.clone()")
         }
         Expr::Subscript {
@@ -2033,8 +2242,8 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             // it is what the *value* form means in this subset regardless of the mode, and
             // dropping it would move a value out of a collection that may be read again. The
             // bounds check is what the mode removes, not the copy.
-            let base = emit_place(base, unit, Access::Shared)?;
-            let index = emit_expr(index, unit, &Ty::Unit)?;
+            let base = emit_place(base, context, Access::Shared)?;
+            let index = emit_expr(index, context, &Ty::Unit)?;
             if *checked == Checked::Unchecked && *origin == IndexOrigin::FromStart {
                 format!("({base})[{index} as usize].clone()")
             } else {
@@ -2051,7 +2260,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             // wrong for nothing, while the backend cannot see which of the two it has without
             // re-deriving the type. The dispatch costs a call that inlines away; guessing costs
             // a wrong answer.
-            let value = emit_place(value, unit, Access::Shared)?;
+            let value = emit_place(value, context, Access::Shared)?;
             format!("PyLen::py_len(&({value}), {})", rust_text_units(*units))
         }
         Expr::Range { .. } => {
@@ -2061,11 +2270,14 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
                 detail: "a range cannot be evaluated outside a loop".to_string(),
             });
         }
-        Expr::Binary { op, left, right } => emit_binary(*op, left, right, unit, expected)?,
+        Expr::Binary { op, left, right } => emit_binary(*op, left, right, context, expected)?,
         Expr::Call { callee, args } => {
-            let signature = unit.get(callee).ok_or_else(|| BackendError::Unsupported {
-                detail: format!("call to '{callee}', which is not in the unit"),
-            })?;
+            let signature = context
+                .unit
+                .get(callee)
+                .ok_or_else(|| BackendError::Unsupported {
+                    detail: format!("call to '{callee}', which is not in the unit"),
+                })?;
             if signature.params.len() != args.len() {
                 return Err(BackendError::Unsupported {
                     detail: format!(
@@ -2081,7 +2293,7 @@ fn emit_expr(expr: &Expr, unit: &Unit, expected: &Ty) -> Result<String, BackendE
             let rendered = args
                 .iter()
                 .zip(&signature.params)
-                .map(|(arg, param)| emit_expr(arg, unit, &param.ty))
+                .map(|(arg, param)| emit_call_argument(arg, callee, param, context))
                 .collect::<Result<Vec<_>, _>>()?;
             format!("{}({})?", rust_ident(callee), rendered.join(", "))
         }
@@ -2111,10 +2323,14 @@ fn element_ty(expected: &Ty) -> Ty {
 }
 
 /// Render every expression against one expected type.
-fn render_all(items: &[Expr], unit: &Unit, expected: &Ty) -> Result<Vec<String>, BackendError> {
+fn render_all(
+    items: &[Expr],
+    context: EmissionContext<'_>,
+    expected: &Ty,
+) -> Result<Vec<String>, BackendError> {
     items
         .iter()
-        .map(|item| emit_expr(item, unit, expected))
+        .map(|item| emit_expr(item, context, expected))
         .collect()
 }
 
@@ -2123,15 +2339,15 @@ fn emit_binary(
     op: BinOp,
     left: &Expr,
     right: &Expr,
-    unit: &Unit,
+    context: EmissionContext<'_>,
     expected: &Ty,
 ) -> Result<String, BackendError> {
     // Comparisons yield a bool regardless of operand type, so the expected type says nothing
     // about the operands. They are emitted by reference, which both avoids moving a string and
     // works uniformly for every comparable type.
     if op.is_comparison() {
-        let left = emit_expr(left, unit, &Ty::Unit)?;
-        let right = emit_expr(right, unit, &Ty::Unit)?;
+        let left = emit_expr(left, context, &Ty::Unit)?;
+        let right = emit_expr(right, context, &Ty::Unit)?;
         let symbol = match op {
             BinOp::Eq => "==",
             BinOp::NotEq => "!=",
@@ -2155,8 +2371,8 @@ fn emit_binary(
         checked,
     } = op
     {
-        let left = emit_expr(left, unit, &Ty::Float)?;
-        let right = emit_expr(right, unit, &Ty::Float)?;
+        let left = emit_expr(left, context, &Ty::Float)?;
+        let right = emit_expr(right, context, &Ty::Float)?;
         // Both operands are floats whatever `expected` says, because lowering inserted the
         // promotions — so a bare `/` is always well typed here and no dispatch is needed.
         //
@@ -2176,8 +2392,8 @@ fn emit_binary(
     } else {
         expected.clone()
     };
-    let left = emit_expr(left, unit, &operand)?;
-    let right = emit_expr(right, unit, &operand)?;
+    let left = emit_expr(left, context, &operand)?;
+    let right = emit_expr(right, context, &operand)?;
     // Read off the node, not off the operator's name. The same `BinOp::Div` reaches here meaning
     // either rounding, and a backend that assumed one of them would be silently wrong for any
     // frontend that meant the other.

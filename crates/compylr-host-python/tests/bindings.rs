@@ -17,7 +17,7 @@ use compylr_bridge_python_rust::bindings::{cargo_manifest, emit_extension, modul
 use compylr_core::bridge::BuildKey;
 use compylr_core::pass::Optimization;
 use compylr_frontend_python::frontend::parse_source;
-use compylr_frontend_python::lower::lower_source;
+use compylr_frontend_python::lower::lower_source_members;
 use compylr_ir::Unit;
 
 /// PyO3 version the generated crate depends on. Matches this crate's own pin.
@@ -25,11 +25,14 @@ const PYO3_VERSION: &str = "0.29.2";
 
 fn unit_from(source: &str) -> Unit {
     let parsed = parse_source(source).expect("fixture must parse");
-    let functions = lower_source(&parsed, python_stance())
+    let (functions, classes) = lower_source_members(&parsed, python_stance())
         .unwrap_or_else(|e| panic!("should lower: {}", e.render(source)));
     let mut unit = Unit::new();
     for function in functions {
         unit.add_function(function).unwrap();
+    }
+    for class in classes {
+        unit.add_class(class).unwrap();
     }
     unit.validate().expect("calls must resolve");
     unit
@@ -157,6 +160,30 @@ const SOURCE: &str = concat!(
     "def half(n: int) -> int:\n    return n // 0\n\n",
     "def outer(n: int) -> int:\n    return half(n) + 1\n\n",
     "def grow(n: int) -> int:\n    return n * 2\n",
+    "\n",
+    "class Tally:\n",
+    "    def __init__(self, start: int) -> None:\n",
+    "        self.count: int = start\n",
+    "\n",
+    "    def bump(self, by: int) -> None:\n",
+    "        self.count = self.count + by\n",
+    "\n",
+    "def read(tally: Tally) -> int:\n",
+    "    return tally.count\n",
+    "\n",
+    "def mutate(tally: Tally, by: int) -> int:\n",
+    "    tally.count = tally.count + by\n",
+    "    return tally.count\n",
+    "\n",
+    "def mutate_method(tally: Tally, by: int) -> int:\n",
+    "    tally.bump(by)\n",
+    "    return tally.count\n",
+    "\n",
+    "def forward(tally: Tally, by: int) -> int:\n",
+    "    return mutate_method(tally, by)\n",
+    "\n",
+    "def build(start: int) -> Tally:\n",
+    "    return Tally(start)\n",
 );
 
 /// The shared extension, built exactly once.
@@ -187,8 +214,40 @@ print(",".join(names))
     );
     assert_eq!(
         out.trim(),
-        "add,grow,half,has_text,inner_text,is_big,nothing,outer,outer_text,ratio,same_text,shout,text_size",
+        "Tally,add,build,forward,grow,half,has_text,inner_text,is_big,mutate,mutate_method,nothing,outer,outer_text,ratio,read,same_text,shout,text_size",
         "the module must expose exactly the unit's functions, with no backend helpers leaking"
+    );
+}
+
+#[test]
+fn class_valued_functions_share_state_and_return_owned_instances() {
+    let (dir, name) = built();
+    let out = python(
+        &dir,
+        &format!(
+            r#"
+import {name} as m
+first = m.Tally(3)
+print(m.read(first))
+print(m.mutate(first, 2))
+print(m.read(first))
+print(m.mutate_method(first, 4))
+print(m.forward(first, 3))
+print(m.read(first))
+
+second = m.build(10)
+print(type(second).__name__)
+print(m.read(second))
+second.bump(1)
+print(m.read(second))
+print(m.read(first))
+"#
+        ),
+    );
+    assert_eq!(
+        out.lines().collect::<Vec<_>>(),
+        ["3", "5", "5", "9", "12", "12", "Tally", "10", "11", "12"],
+        "free functions must borrow one wrapper's inner value and owned returns must wrap a new one"
     );
 }
 

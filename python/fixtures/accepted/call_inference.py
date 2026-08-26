@@ -1,3 +1,7 @@
+# Some members here are named to stay distinct across the whole accepted corpus: the
+# differential boundary tier builds every fixture into ONE unit, as a real project is built,
+# and a duplicate name is refused by `Unit::add_function`. Renaming one back would break that
+# build rather than any rule this fixture tests.
 def helper(n: int) -> int:
     return n
 
@@ -19,8 +23,8 @@ def later(a: int) -> int:
 
 def promoted(a: int) -> float:
     # An integer argument where a float is declared carries an explicit conversion.
-    return scale(a)
+    return scale_float(a)
 
 
-def scale(x: float) -> float:
+def scale_float(x: float) -> float:
     return x * 2.0

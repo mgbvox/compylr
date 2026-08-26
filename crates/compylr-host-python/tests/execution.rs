@@ -1225,6 +1225,143 @@ fn instance_state_survives_between_calls() {
 }
 
 #[test]
+fn free_functions_borrow_instances_and_preserve_owned_results() {
+    let source = concat!(
+        "class Tally:\n",
+        "    def __init__(self, start: int) -> None:\n",
+        "        self.value: int = start\n",
+        "        self.history: list[int] = [start]\n",
+        "\n",
+        "    def bump(self, by: int) -> None:\n",
+        "        self.value = self.value + by\n",
+        "\n",
+        "def read(tally: Tally) -> int:\n",
+        "    return tally.value + tally.history[0]\n",
+        "\n",
+        "def mutate(tally: Tally, by: int) -> int:\n",
+        "    tally.value = tally.value + by\n",
+        "    tally.history[0] = tally.value\n",
+        "    return tally.value\n",
+        "\n",
+        "def mutate_by_method(tally: Tally, by: int) -> int:\n",
+        "    tally.bump(by)\n",
+        "    return tally.value\n",
+        "\n",
+        "def forward(tally: Tally, by: int) -> int:\n",
+        "    return mutate_by_method(tally, by)\n",
+        "\n",
+        "def build(start: int) -> Tally:\n",
+        "    return Tally(start)\n",
+        "\n",
+        "def build_and_mutate(start: int) -> int:\n",
+        "    tally = build(start)\n",
+        "    changed = mutate(tally, 2)\n",
+        "    return read(tally) + changed\n",
+    );
+    let unit = unit_from(source);
+    let emitted = lookup("rust").unwrap().emit(&unit).expect("must emit");
+    let generated = &emitted["src/generated.rs"];
+    assert!(generated.contains("pub fn read(tally: &Tally)"));
+    assert!(generated.contains("pub fn mutate(tally: &mut Tally"));
+    assert!(generated.contains("pub fn forward(tally: &mut Tally"));
+    assert!(
+        !generated.contains("tally.clone()"),
+        "a borrowed instance must never be cloned to fake ownership:\n{generated}"
+    );
+
+    let out = run_unit(
+        "free_function_instance_borrows",
+        &unit,
+        r#"
+    let mut first = build(3).unwrap();
+    println!("{}", read(&first).unwrap());
+    mutate(&mut first, 2).unwrap();
+    println!("{}", read(&first).unwrap());
+    forward(&mut first, 4).unwrap();
+    println!("{}", read(&first).unwrap());
+
+    let second = build(10).unwrap();
+    println!("{}", read(&second).unwrap());
+    println!("{}", build_and_mutate(4).unwrap());
+"#,
+    );
+    assert_eq!(
+        out.lines().collect::<Vec<_>>(),
+        ["6", "10", "14", "20", "18"],
+        "direct and forwarded mutation must affect one instance while owned returns stay independent"
+    );
+}
+
+/// A method may hand `self` to a free function, and that decides its own receiver.
+///
+/// The emitted-text check would pass with `&self` and a `&mut Counter` parameter; only compiling
+/// it proves they agree. That is the whole failure mode here — a receiver derived from what the
+/// body writes to, rather than from where `self` goes, produces Rust that does not build, and the
+/// user reads a borrow-checker error about code they never wrote.
+#[test]
+fn a_method_that_forwards_self_borrows_it_the_way_the_callee_does() {
+    let source = concat!(
+        "class Counter:\n",
+        "    def __init__(self, start: int) -> None:\n",
+        "        self.value: int = start\n",
+        "\n",
+        "    def raise_directly(self, by: int) -> int:\n",
+        "        self.value = self.value + by\n",
+        "        return self.value\n",
+        "\n",
+        "    def delegate(self, by: int) -> int:\n",
+        "        return through(self, by)\n",
+        "\n",
+        "    def observe(self) -> int:\n",
+        "        return observed(self)\n",
+        "\n",
+        "def through(counter: Counter, by: int) -> int:\n",
+        "    return counter.raise_directly(by)\n",
+        "\n",
+        "def observed(counter: Counter) -> int:\n",
+        "    return counter.value\n",
+        "\n",
+        "def outer(counter: Counter, by: int) -> int:\n",
+        "    return counter.delegate(by)\n",
+    );
+    let unit = unit_from(source);
+    let emitted = lookup("rust").unwrap().emit(&unit).expect("must emit");
+    let generated = &emitted["src/generated.rs"];
+    assert!(
+        generated.contains("pub fn through(counter: &mut Counter"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("pub fn observed(counter: &Counter"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("pub fn outer(counter: &mut Counter"),
+        "{generated}"
+    );
+    assert!(generated.contains("fn delegate(&mut self"), "{generated}");
+    // Only reading through the borrow, so the receiver stays shared: a needless `&mut` here would
+    // make two reads of one instance conflict at the call site.
+    assert!(generated.contains("fn observe(&self"), "{generated}");
+
+    let out = run_unit(
+        "method_forwards_self",
+        &unit,
+        r#"
+    let mut counter = Counter::__compylr_new(1).unwrap();
+    println!("{}", counter.delegate(2).unwrap());
+    println!("{}", outer(&mut counter, 3).unwrap());
+    println!("{}", counter.observe().unwrap());
+"#,
+    );
+    assert_eq!(
+        out.lines().collect::<Vec<_>>(),
+        ["3", "6", "6"],
+        "mutation through a forwarded receiver must reach the one instance"
+    );
+}
+
+#[test]
 fn a_method_calling_a_mutating_method_takes_a_mutable_receiver() {
     // The transitive case, and the likeliest bug: a method whose body is only `self.bump()`
     // mutates through the call, and a shared receiver there produces a borrow-checker error about

@@ -10,11 +10,6 @@ use crate::compat::{
     py_borrow, py_place, py_subscript,
 };
 
-/// Return the sum of two integers.
-pub fn add(a: i64, b: i64) -> Result<i64, RuntimeError> {
-    Ok(PyAdd::py_add(&(a), &(b))?)
-}
-
 /// Scale a value.
 ///
 ///     A longer explanation, spanning several lines, with a blank line above.
@@ -22,6 +17,11 @@ pub fn add(a: i64, b: i64) -> Result<i64, RuntimeError> {
 pub fn described(n: i64) -> Result<i64, RuntimeError> {
     let doubled: i64 = PyNum::py_mul(&(n), &(2i64))?;
     Ok(doubled)
+}
+
+/// Return the sum of two integers.
+pub fn summed(a: i64, b: i64) -> Result<i64, RuntimeError> {
+    Ok(PyAdd::py_add(&(a), &(b))?)
 }
 
 pub fn undocumented(n: i64) -> Result<i64, RuntimeError> {

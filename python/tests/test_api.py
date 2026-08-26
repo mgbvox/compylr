@@ -389,7 +389,127 @@ class TestRejection:
 
         assert set(c._sources) == {"uses", "double"}
 
-    def test_only_the_undetermined_category_is_deferred(self) -> None:
+    def test_a_class_annotation_may_be_marked_before_or_after_its_class(
+        self, tmp_path: Path
+    ) -> None:
+        class Tally:
+            def __init__(self, start: int) -> None:
+                self.value: int = start
+
+        def read(value: Tally) -> int:
+            return value.value
+
+        before = compylr.Manager(Settings(), root=tmp_path / "before")
+        before.compyle(read)
+        before.compyle(Tally)
+        assert set(before._sources) == {"read", "Tally"}
+
+        after = compylr.Manager(Settings(), root=tmp_path / "after")
+        after.compyle(Tally)
+        after.compyle(read)
+        assert set(after._sources) == {"read", "Tally"}
+
+    def test_a_final_class_annotation_typo_fails_before_building(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class Taly:
+            pass
+
+        def typo(value: Taly) -> int:
+            return 1
+
+        manager = compylr.Manager(Settings(), root=tmp_path)
+        manager.compyle(typo)
+        monkeypatch.setattr(
+            manager._pipeline,
+            "build",
+            lambda compiled: pytest.fail(f"invalid source reached the build pipeline: {compiled}"),
+        )
+
+        with pytest.raises(_core.UnsupportedProgramError) as caught:
+            manager.ensure_built()
+
+        assert caught.value.code == "unresolved_class_annotation"
+        assert caught.value.line == 1
+
+    def test_known_and_malformed_annotations_still_fail_while_marking(self) -> None:
+        manager = compylr.initialize()
+
+        def known(value: complex) -> int:
+            return 1
+
+        def malformed(value: list[int, str]) -> int:  # type: ignore[type-arg]
+            return 1
+
+        for function in [known, malformed]:
+            with pytest.raises(_core.UnsupportedProgramError) as caught:
+                manager.compyle(function)
+            assert caught.value.code == "unsupported_type"
+
+    def test_resolved_nested_instances_and_borrowed_escapes_fail_before_building(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class Tally:
+            def __init__(self, start: int) -> None:
+                self.value: int = start
+
+        def nested(values: list[Tally]) -> int:
+            return 1
+
+        def identity(value: Tally) -> Tally:
+            return value
+
+        for name, function, expected in [
+            ("nested", nested, "unsupported_type"),
+            ("escape", identity, "borrowed_instance_escape"),
+        ]:
+            manager = compylr.Manager(Settings(), root=tmp_path / name)
+            manager.compyle(function)
+            manager.compyle(Tally)
+            monkeypatch.setattr(
+                manager._pipeline,
+                "build",
+                lambda compiled: pytest.fail(
+                    f"invalid source reached the build pipeline: {compiled}"
+                ),
+            )
+
+            with pytest.raises(_core.UnsupportedProgramError) as caught:
+                manager.ensure_built()
+
+            assert caught.value.code == expected
+
+    def test_a_deferred_first_error_does_not_let_a_later_one_through(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Deferring is per *source*, not per error: validation reports the first problem it finds,
+        # so a deferred one arriving first postpones everything behind it. That is the cost of
+        # deferring at all, and it is only acceptable because the whole-unit check still runs
+        # before anything is built. This pins that -- the exponent below is never resolvable, and
+        # it must stop the build rather than reach the pipeline.
+        class Tally:
+            def __init__(self, start: int) -> None:
+                self.value: int = start
+
+        def both(value: Tally, n: int) -> int:
+            return n**3
+
+        manager = compylr.Manager(Settings(), root=tmp_path)
+        # Marked before Tally, so the annotation is the first error and is deferred.
+        manager.compyle(both)
+        manager.compyle(Tally)
+        monkeypatch.setattr(
+            manager._pipeline,
+            "build",
+            lambda compiled: pytest.fail(f"invalid source reached the build pipeline: {compiled}"),
+        )
+
+        with pytest.raises(_core.UnsupportedProgramError) as caught:
+            manager.ensure_built()
+
+        assert caught.value.code not in {"unresolved_class_annotation", "undetermined_binding"}
+
+    def test_only_the_explicitly_resolvable_categories_are_deferred(self) -> None:
         # Deferring must not become tolerating. Every other violation still fails at the
         # decorator, which is where the user can see what caused it.
         c = compylr.initialize()

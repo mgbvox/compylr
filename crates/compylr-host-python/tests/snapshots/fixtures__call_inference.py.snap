@@ -1,5 +1,5 @@
 ---
-source: tests/fixtures.rs
+source: crates/compylr-host-python/tests/fixtures.rs
 expression: functions
 ---
 [
@@ -21,8 +21,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 0,
-            end: 39,
+            start: 321,
+            end: 360,
         },
     },
     Function {
@@ -55,8 +55,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 42,
-            end: 94,
+            start: 363,
+            end: 415,
         },
     },
     Function {
@@ -82,8 +82,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 97,
-            end: 276,
+            start: 418,
+            end: 597,
         },
     },
     Function {
@@ -114,8 +114,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 279,
-            end: 321,
+            start: 600,
+            end: 642,
         },
     },
     Function {
@@ -130,7 +130,7 @@ expression: functions
         body: [
             Return(
                 Call {
-                    callee: "scale",
+                    callee: "scale_float",
                     args: [
                         ToFloat(
                             Name(
@@ -143,12 +143,12 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 324,
-            end: 458,
+            start: 645,
+            end: 785,
         },
     },
     Function {
-        name: "scale",
+        name: "scale_float",
         params: [
             Param {
                 name: "x",
@@ -175,8 +175,8 @@ expression: functions
         ],
         doc: None,
         span: Span {
-            start: 461,
-            end: 509,
+            start: 788,
+            end: 842,
         },
     },
 ]

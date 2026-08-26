@@ -103,8 +103,12 @@ refusing — a rule without its reason leaves the user no workaround. `append` i
 **Classes** hold state that outlives a call. Attributes are declared in `__init__` with mandatory
 annotations and nowhere else, or the struct's fields would depend on which methods ran. A method's
 receiver is derived by fixpoint: it is mutable when the method assigns an attribute, mutates a
-collection attribute, **or calls a method that does** — the transitive case is the likeliest bug,
-and its failure mode is a borrow-checker error about generated code rather than a diagnostic.
+collection attribute, **calls a method that does, or hands `self` to a function whose instance
+parameter is mutable** — the transitive cases are the likeliest bugs, and their failure mode is a
+borrow-checker error about generated code rather than a diagnostic. That fixpoint is the *same* one
+that decides a free function's instance parameters, deliberately: `self` is an instance the method
+borrows from its caller, each side can make the other mutable, and two analyses would be free to
+disagree.
 
 The contrast that matters, and that people get wrong: a collection **parameter** crosses by value
 and may not be mutated; an **instance** is not converted at all — the Python object holds the Rust
@@ -220,6 +224,29 @@ Known gaps worth knowing before you trip on them:
   `tests/fixtures.rs` enumerate `python/fixtures/accepted/`. They were once lists, drifted, and
   hid a real defect: tuple indexing emitted a `py_subscript` call with no tuple impl, so
   `collections.py` had been producing code that did not compile. Keep them derived.
+* **Every accepted fixture owes a driver**, in `python/fixtures/drivers/<name>.py`, naming the
+  calls that exercise it as literal data. Both differential tiers read the same driver, and
+  `fixtures.rs` fails when a fixture has none or when a driver does not reach every member the
+  fixture defines. A driver carries **no expected values**: what a call should answer is what
+  CPython answers. Unlike the corpora, `drivers/` is linted and type-checked.
+* **The rejection corpus has an inverted guard.** A program in `python/fixtures/rejected/` that
+  *starts* lowering fails the suite. Clear it by moving the program into `accepted/` and giving it
+  a driver — never by adding an allowance, which turns a change in the language into a change in a
+  test. `python/fixtures/rejected/README.md` says so where someone hitting the failure will look.
+* **A member name must be unique across the whole accepted corpus.** The boundary tier builds
+  every fixture into one unit, as a real project is built, and `Unit::add_function` refuses a
+  duplicate. Four fixtures carry a header saying why a name is what it is; renaming one back
+  breaks that build rather than any rule the fixture tests.
+* **`class_valued_signatures.py` runs through both differential tiers.** Direct class-valued free
+  parameters borrow the inner Rust struct through `PyRef`/`PyRefMut`; newly owned returns are put
+  into the stable `#[pyclass]` wrapper. Borrowed instances may be read, mutated, or compatibly
+  forwarded, but may not escape into owned returns or storage.
+* **A borrow reaches further than the parameter name.** `return holder.item` is refused for the
+  same reason `return holder` is: the caller still holds `holder`, so it would get a detached copy
+  of an instance CPython returns by identity, and every later mutation of it would be silently
+  lost. The generated Rust compiles either way -- reading a field clones it -- which is why this is
+  a located diagnostic rather than something the backend discovers. Reading such an instance, and
+  passing it on to something that borrows it, stay legal.
 
 # Two PyO3 roles
 
@@ -286,6 +313,20 @@ silently was the first.
   `.github/workflows/benchmark.yml` runs it and opens a pull request with the result. Editing a table by hand is
   editing output: the next run overwrites it. Moving or renaming a marker is what breaks the job,
   so the script's `--check` mode runs in CI and on commit.
+* **The README's subset matrix is generated too.** `scripts/update_subset.py` rewrites the block
+  between `<!-- subset:matrix -->` markers from the corpus, and a form is listed **only because a
+  fixture exercising it translated, built, ran, and agreed with CPython** — so the documentation
+  cannot overstate the implementation. Editing the table by hand is editing output. Its `--check`
+  mode runs in the Makefile, the hooks, and CI. Both scripts share `scripts/_regions.py`; they are
+  deliberately separate scripts, because folding a documentation check into a benchmark would put
+  it on the benchmark's timescale.
+* **After a rebase, `cargo doc --workspace` can fail against a stale build cache while
+  `cargo build`, `cargo test`, and `cargo clippy` all pass.** The errors name real files and read
+  like a genuine API mismatch -- unresolved `compylr_ir::Behavior`, `BinOp::Add has no field
+  checked` -- because rustdoc is compiling against an rmeta from before the rebase. `cargo clean
+  --doc` does **not** clear it; `cargo clean -p compylr-ir -p compylr-core -p
+  compylr-frontend-python -p compylr-backend-rust` does. Each crate documents fine on its own the
+  whole time, which is the tell. This cost real time once already.
 * **CI, the Makefile and the pre-commit hooks run the same commands.** `make check` is what the
   workflows do; `.pre-commit-config.yaml` is the subset fast enough to run on a commit. When you
   add a check, add it in all three, or it is a check people discover in a pull request instead.

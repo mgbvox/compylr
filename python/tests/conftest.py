@@ -9,11 +9,20 @@ test's question.
 from __future__ import annotations
 
 import shutil
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from compylr import _manager
+
+# The differential tiers share one runner, and it lives with the drivers it reads rather than in
+# the package -- it is test scaffolding for a corpus, not part of compylr's surface. Putting its
+# directory on the path is what lets `import _runner` work from here without making
+# `python/fixtures/` a package, which would change what maturin packages.
+_DRIVERS = Path(__file__).resolve().parents[1] / "fixtures" / "drivers"
+if str(_DRIVERS) not in sys.path:
+    sys.path.insert(0, str(_DRIVERS))
 
 
 @pytest.fixture(autouse=True)

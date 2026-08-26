@@ -30,10 +30,10 @@ from ._source import capture_source
 
 __all__ = ["CompiledFunction", "Manager", "initialize"]
 
-#: The one diagnostic category the decorator defers to build time.
+#: Diagnostic categories the decorator defers until the complete unit is available.
 #:
 #: Matched on the stable code rather than the message, which is prose and free to be reworded.
-_DEFERRED_UNTIL_BUILD = "undetermined_binding"
+_DEFERRED_UNTIL_BUILD = frozenset({"undetermined_binding", "unresolved_class_annotation"})
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -227,20 +227,24 @@ class Manager:
         # the point of validating at all: the failure should point at the decorator, not at a call
         # site reached much later.
         #
-        # One category is deferred. A binding whose initializer calls a function this source does
-        # not define cannot be typed yet, because each decorated function is captured as its own
-        # source and its callees live in other ones. Refusing here would demand an annotation for
-        # `doubled = double(n)` in exactly the arrangement the decorator always produces. The
-        # build sees every source at once and types it then, so nothing goes unchecked -- it is
-        # checked once there is enough information to check it with.
+        # Two categories are deferred. A binding whose initializer calls a function this source
+        # does not define cannot be typed yet, and a bare annotation may name a class captured in
+        # another marked source. Refusing either here would make acceptance depend on marking
+        # order. The build sees every source at once, so nothing goes unchecked -- both categories
+        # are checked once there is enough information to decide them.
         #
-        # The cost, stated plainly: if that callee is never marked, the failure arrives at the
-        # first call rather than here. That is the same lateness unresolved callees already have,
-        # since they are likewise only resolvable across the assembled unit.
+        # The cost, stated plainly, and it is larger than it looks: validation reports the first
+        # problem it finds, so deferring one defers everything behind it in the same source. A
+        # function whose annotation is deferred and whose body is also outside the subset says
+        # nothing here; both arrive at the build. And if that callee is never marked, the failure
+        # arrives at the first call rather than here -- the same lateness unresolved callees
+        # already have, since they are likewise only resolvable across the assembled unit. What
+        # makes this safe rather than merely late is that the whole-unit check runs before
+        # anything is built, so no unchecked source reaches the pipeline.
         try:
             _core.validate_source(source)
         except _core.UnsupportedProgramError as error:
-            if getattr(error, "code", None) != _DEFERRED_UNTIL_BUILD:
+            if getattr(error, "code", None) not in _DEFERRED_UNTIL_BUILD:
                 raise
 
         name = function.__name__

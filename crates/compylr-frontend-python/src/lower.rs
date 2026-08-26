@@ -227,6 +227,13 @@ struct Ctx<'a> {
     /// Needed because mutation is confined to locals, and a parameter shares a scope frame with
     /// the body's own top-level bindings — so the scope alone cannot tell them apart.
     params: &'a HashSet<String>,
+    /// Direct instance parameters borrowed from the Python-visible wrapper for this call, with
+    /// the class each names.
+    ///
+    /// The class is carried because the borrow reaches further than the parameter: `holder.item`
+    /// is an instance the caller still owns through `holder`, and deciding that needs the type of
+    /// what the attribute holds.
+    borrowed_params: &'a HashMap<String, Ty>,
     /// Whether a loop encloses this statement. Conditionals do not reset it, so `break` inside an
     /// `if` inside a loop is fine — which is the common case.
     in_loop: bool,
@@ -841,8 +848,19 @@ pub fn lower_function_in(
         }
     };
 
+    validate_boundary_signature(def, &params, &ret, enclosing)?;
+
     let mut scope = Scope::function(&params);
     let param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+    let borrowed_params: HashMap<String, Ty> = if enclosing.is_none() {
+        params
+            .iter()
+            .filter(|param| matches!(param.ty, Ty::Instance(_)))
+            .map(|param| (param.name.clone(), param.ty.clone()))
+            .collect()
+    } else {
+        HashMap::new()
+    };
     // `self` is visible but is not a parameter for the mutation rule: an instance is not converted
     // at the boundary, so mutating through it is exactly what the caller observes.
     if let Some(class) = enclosing {
@@ -853,6 +871,7 @@ pub fn lower_function_in(
         lowering,
         in_init,
         params: &param_names,
+        borrowed_params: &borrowed_params,
         in_loop: false,
     };
     let (doc, rest) = split_docstring(&def.body);
@@ -991,12 +1010,28 @@ fn lower_annotation(
             "float" => Ok(Ty::Float),
             "bool" => Ok(Ty::Bool),
             "str" => Ok(Ty::Str),
-            // A class defined in the same source names its instance type. Unknown names are
-            // still rejected, so a typo does not become a phantom type.
+            "complex" | "bytes" | "bytearray" | "object" | "frozenset" | "type" | "memoryview" => {
+                Err(err(
+                    LowerErrorKind::UnsupportedType,
+                    format!("'{}' is not a supported type annotation", name.id),
+                    annotation,
+                ))
+            }
+            "list" | "dict" | "set" | "tuple" => Err(err(
+                LowerErrorKind::UnsupportedType,
+                format!(
+                    "'{}' needs type parameters, such as '{}[int]'",
+                    name.id, name.id
+                ),
+                annotation,
+            )),
+            // A class gathered from the assembled sources names its instance type. An unresolved
+            // bare name gets its own category so single-member validation can defer exactly this
+            // case; complete-unit lowering reports the same located error for a final typo.
             other if classes.contains(other) => Ok(Ty::Instance(other.to_string())),
             other => Err(err(
-                LowerErrorKind::UnsupportedType,
-                format!("'{other}' is not a supported type annotation"),
+                LowerErrorKind::UnresolvedClassAnnotation,
+                format!("'{other}' does not name a compiled class in this unit"),
                 annotation,
             )),
         },
@@ -1018,6 +1053,60 @@ fn lower_annotation(
             other,
         )),
     }
+}
+
+/// Whether `ty` contains a compiled class at any depth.
+fn contains_instance(ty: &Ty) -> bool {
+    match ty {
+        Ty::Instance(_) => true,
+        Ty::List(element) | Ty::Set(element) => contains_instance(element),
+        Ty::Dict(key, value) => contains_instance(key) || contains_instance(value),
+        Ty::Tuple(elements) => elements.iter().any(contains_instance),
+        Ty::Int | Ty::Float | Ty::Bool | Ty::Str | Ty::Unit => false,
+    }
+}
+
+/// Enforce the initial Python-boundary slice once annotations have resolved to IR types.
+fn validate_boundary_signature(
+    def: &StmtFunctionDef,
+    params: &[Param],
+    ret: &Ty,
+    enclosing: Option<&str>,
+) -> Result<(), LowerError> {
+    let skip_receiver = usize::from(enclosing.is_some());
+    for (source, param) in def.parameters.args.iter().skip(skip_receiver).zip(params) {
+        if !contains_instance(&param.ty) {
+            continue;
+        }
+        if enclosing.is_none() && matches!(param.ty, Ty::Instance(_)) {
+            continue;
+        }
+        let annotation = source
+            .parameter
+            .annotation
+            .as_deref()
+            .expect("lower_parameters already required this annotation");
+        return Err(err(
+            LowerErrorKind::UnsupportedType,
+            "compiled class values are supported only as direct parameters of top-level free \
+             functions; nested and explicit method or constructor positions are not supported",
+            annotation,
+        ));
+    }
+
+    if contains_instance(ret) && !(enclosing.is_none() && matches!(ret, Ty::Instance(_))) {
+        let annotation = def
+            .returns
+            .as_deref()
+            .expect("the return annotation was lowered above");
+        return Err(err(
+            LowerErrorKind::UnsupportedType,
+            "compiled class values are supported only as direct returns of top-level free \
+             functions; nested and explicit method or constructor positions are not supported",
+            annotation,
+        ));
+    }
+    Ok(())
 }
 
 /// Lower every element of a literal and unify their types.
@@ -1886,7 +1975,254 @@ fn lower_membership(
     Ok((node, Some(Ty::Bool)))
 }
 
+#[derive(Clone, Copy)]
+enum InstanceUse {
+    Borrow,
+    Own,
+}
+
+fn borrowed_escape(name: &str, node: &impl Ranged) -> LowerError {
+    err(
+        LowerErrorKind::BorrowedInstanceEscape,
+        format!(
+            "'{name}' is a borrow-only instance parameter and cannot be returned, stored, \
+             rebound, or otherwise consumed as an owned value"
+        ),
+        node,
+    )
+}
+
+/// The declared type of a place rooted at a borrow-only instance parameter, if it is one.
+///
+/// Only the shapes that reach *through* a borrow are followed — an attribute of an instance and an
+/// element of a collection held in one. Anything else has produced a fresh value, so there is no
+/// borrow to escape from.
+fn borrowed_place_ty(expr: &PyExpr, ctx: Ctx<'_>) -> Option<Ty> {
+    match expr {
+        PyExpr::Name(name) => ctx.borrowed_params.get(name.id.as_str()).cloned(),
+        PyExpr::Attribute(attribute) => {
+            let Ty::Instance(class) = borrowed_place_ty(&attribute.value, ctx)? else {
+                return None;
+            };
+            ctx.lowering
+                .names
+                .classes
+                .get(&class)?
+                .attributes
+                .iter()
+                .find(|declared| declared.name == attribute.attr.as_str())
+                .map(|declared| declared.ty.clone())
+        }
+        PyExpr::Subscript(subscript) => match borrowed_place_ty(&subscript.value, ctx)? {
+            Ty::List(element) => Some(*element),
+            Ty::Dict(_, value) => Some(*value),
+            // A tuple carries a type per position, so only a literal index names one.
+            Ty::Tuple(types) => match subscript.slice.as_ref() {
+                PyExpr::NumberLiteral(literal) => literal
+                    .value
+                    .as_int()
+                    .and_then(|index| index.as_usize())
+                    .and_then(|index| types.get(index).cloned()),
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The name of the borrow-only parameter a place is rooted at.
+fn borrowed_root(expr: &PyExpr) -> Option<&str> {
+    match expr {
+        PyExpr::Name(name) => Some(name.id.as_str()),
+        PyExpr::Attribute(attribute) => borrowed_root(&attribute.value),
+        PyExpr::Subscript(subscript) => borrowed_root(&subscript.value),
+        _ => None,
+    }
+}
+
+/// Reject reading an instance *out of* a borrow into a position that owns it.
+///
+/// `return holder.item` and `return holder.items[0]` both compile: the backend clones what it
+/// reads, because reading a field must not consume the object. That is the problem. The caller
+/// still holds `holder`, so CPython would have handed back the very instance it holds, and the
+/// compiled program hands back a detached copy — a later mutation of the result is simply lost,
+/// and every answer in between is plausible. Nothing about the generated Rust says so, which is
+/// why this has to be a diagnostic here rather than something the backend discovers.
+fn reject_borrowed_instance_read(
+    expr: &PyExpr,
+    ctx: Ctx<'_>,
+    usage: InstanceUse,
+) -> Result<(), LowerError> {
+    if !matches!(usage, InstanceUse::Own) {
+        return Ok(());
+    }
+    if !matches!(borrowed_place_ty(expr, ctx), Some(Ty::Instance(_))) {
+        return Ok(());
+    }
+    let root = borrowed_root(expr).unwrap_or("the parameter");
+    Err(err(
+        LowerErrorKind::BorrowedInstanceEscape,
+        format!(
+            "this names an instance held inside '{root}', which is borrowed for this call; it can \
+             be read and passed on to another function, which borrows it too, but consuming it as \
+             an owned value would hand back a copy rather than the instance '{root}' holds"
+        ),
+        expr,
+    ))
+}
+
+/// Validate ownership-sensitive uses while source spans are still available.
+fn validate_borrowed_expr(
+    expr: &PyExpr,
+    ctx: Ctx<'_>,
+    usage: InstanceUse,
+) -> Result<(), LowerError> {
+    match expr {
+        PyExpr::Name(name)
+            if matches!(usage, InstanceUse::Own)
+                && ctx.borrowed_params.contains_key(name.id.as_str()) =>
+        {
+            Err(borrowed_escape(name.id.as_str(), expr))
+        }
+        PyExpr::Call(call) => {
+            match call.func.as_ref() {
+                PyExpr::Name(callee) => {
+                    let expected = ctx
+                        .lowering
+                        .names
+                        .sigs
+                        .get(callee.id.as_str())
+                        .map(|signature| signature.params.as_slice())
+                        .or_else(|| {
+                            ctx.lowering
+                                .names
+                                .classes
+                                .get(callee.id.as_str())
+                                .map(|signature| signature.init.as_slice())
+                        });
+                    for (index, argument) in call.arguments.args.iter().enumerate() {
+                        let usage = expected
+                            .and_then(|params| params.get(index))
+                            .filter(|ty| matches!(ty, Ty::Instance(_)))
+                            .map_or(InstanceUse::Own, |_| InstanceUse::Borrow);
+                        validate_borrowed_expr(argument, ctx, usage)?;
+                    }
+                }
+                PyExpr::Attribute(method) => {
+                    validate_borrowed_expr(&method.value, ctx, InstanceUse::Borrow)?;
+                    for argument in &call.arguments.args {
+                        validate_borrowed_expr(argument, ctx, InstanceUse::Own)?;
+                    }
+                }
+                other => validate_borrowed_expr(other, ctx, InstanceUse::Borrow)?,
+            }
+            Ok(())
+        }
+        PyExpr::List(list) => {
+            for item in &list.elts {
+                validate_borrowed_expr(item, ctx, InstanceUse::Own)?;
+            }
+            Ok(())
+        }
+        PyExpr::Set(set) => {
+            for item in &set.elts {
+                validate_borrowed_expr(item, ctx, InstanceUse::Own)?;
+            }
+            Ok(())
+        }
+        PyExpr::Tuple(tuple) => {
+            for item in &tuple.elts {
+                validate_borrowed_expr(item, ctx, InstanceUse::Own)?;
+            }
+            Ok(())
+        }
+        PyExpr::Dict(dict) => {
+            for item in &dict.items {
+                if let Some(key) = &item.key {
+                    validate_borrowed_expr(key, ctx, InstanceUse::Own)?;
+                }
+                validate_borrowed_expr(&item.value, ctx, InstanceUse::Own)?;
+            }
+            Ok(())
+        }
+        PyExpr::Attribute(attribute) => {
+            reject_borrowed_instance_read(expr, ctx, usage)?;
+            validate_borrowed_expr(&attribute.value, ctx, InstanceUse::Borrow)
+        }
+        PyExpr::Subscript(subscript) => {
+            reject_borrowed_instance_read(expr, ctx, usage)?;
+            validate_borrowed_expr(&subscript.value, ctx, InstanceUse::Borrow)?;
+            validate_borrowed_expr(&subscript.slice, ctx, InstanceUse::Borrow)
+        }
+        PyExpr::UnaryOp(unary) => validate_borrowed_expr(&unary.operand, ctx, InstanceUse::Borrow),
+        PyExpr::BinOp(binary) => {
+            validate_borrowed_expr(&binary.left, ctx, InstanceUse::Borrow)?;
+            validate_borrowed_expr(&binary.right, ctx, InstanceUse::Borrow)
+        }
+        PyExpr::Compare(compare) => {
+            validate_borrowed_expr(&compare.left, ctx, InstanceUse::Borrow)?;
+            for comparator in &compare.comparators {
+                validate_borrowed_expr(comparator, ctx, InstanceUse::Borrow)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn reject_borrowed_rebinding(target: &PyExpr, ctx: Ctx<'_>) -> Result<(), LowerError> {
+    let PyExpr::Name(name) = target else {
+        return Ok(());
+    };
+    if ctx.borrowed_params.contains_key(name.id.as_str()) {
+        return Err(borrowed_escape(name.id.as_str(), target));
+    }
+    Ok(())
+}
+
+fn validate_borrowed_statement(stmt: &PyStmt, ctx: Ctx<'_>) -> Result<(), LowerError> {
+    if ctx.borrowed_params.is_empty() {
+        return Ok(());
+    }
+    match stmt {
+        PyStmt::Return(node) => {
+            if let Some(value) = &node.value {
+                validate_borrowed_expr(value, ctx, InstanceUse::Own)?;
+            }
+        }
+        PyStmt::AnnAssign(assign) => {
+            reject_borrowed_rebinding(&assign.target, ctx)?;
+            if let Some(value) = &assign.value {
+                validate_borrowed_expr(value, ctx, InstanceUse::Own)?;
+            }
+        }
+        PyStmt::Assign(assign) => {
+            for target in &assign.targets {
+                reject_borrowed_rebinding(target, ctx)?;
+            }
+            validate_borrowed_expr(&assign.value, ctx, InstanceUse::Own)?;
+        }
+        PyStmt::Expr(node) => {
+            validate_borrowed_expr(&node.value, ctx, InstanceUse::Borrow)?;
+        }
+        PyStmt::If(node) => {
+            validate_borrowed_expr(&node.test, ctx, InstanceUse::Borrow)?;
+        }
+        PyStmt::While(node) => {
+            validate_borrowed_expr(&node.test, ctx, InstanceUse::Borrow)?;
+        }
+        PyStmt::For(node) => {
+            reject_borrowed_rebinding(&node.target, ctx)?;
+            validate_borrowed_expr(&node.iter, ctx, InstanceUse::Borrow)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn lower_stmt(stmt: &PyStmt, scope: &mut Scope, ctx: Ctx<'_>) -> Result<Stmt, LowerError> {
+    validate_borrowed_statement(stmt, ctx)?;
     match stmt {
         PyStmt::Return(node) => match node.value.as_deref() {
             Some(value) => {

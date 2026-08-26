@@ -1,0 +1,63 @@
+---
+source: crates/compylr-host-python/tests/emit_quality.rs
+expression: functions.trim()
+---
+//! Translated by compylr.
+
+use crate::compat::{
+    FastMap, FastSet, IndexOrigin, PyAdd, PyAddAssign, PyAddAssignAt, PyContains,
+    PyIterate, PyLen, PyNum, PySetItem, RuntimeError, TextUnits, div_exact,
+    py_borrow, py_place, py_subscript,
+};
+
+#[derive(Clone)]
+pub struct Tally {
+    pub count: i64,
+}
+
+impl Tally {
+    pub fn __compylr_new(start: i64) -> Result<Self, RuntimeError> {
+        let count: i64 = start;
+        Ok(Self { count })
+    }
+
+    pub fn bump(&mut self, by: i64) -> Result<(), RuntimeError> {
+        (self).count = PyAdd::py_add(&((self).count.clone()), &(by))?;
+        Ok(())
+    }
+
+    pub fn get(&self) -> Result<i64, RuntimeError> {
+        Ok((self).count.clone())
+    }
+}
+
+pub fn build(start: i64) -> Result<Tally, RuntimeError> {
+    let mut t: Tally = Tally::__compylr_new(start)?;
+    (t).bump(1i64)?;
+    Ok(t)
+}
+
+pub fn build_and_forward(start: i64, by: i64) -> Result<Tally, RuntimeError> {
+    let mut t: Tally = Tally::__compylr_new(start)?;
+    let changed: i64 = forward_tally(&mut (t), by)?;
+    (t).count = changed;
+    Ok(t)
+}
+
+pub fn forward_tally(t: &mut Tally, by: i64) -> Result<i64, RuntimeError> {
+    Ok(mutate_method(t, by)?)
+}
+
+pub fn mutate(t: &mut Tally, by: i64) -> Result<i64, RuntimeError> {
+    (t).count = PyAdd::py_add(&((t).count.clone()), &(by))?;
+    Ok((t).count.clone())
+}
+
+pub fn mutate_method(t: &mut Tally, by: i64) -> Result<i64, RuntimeError> {
+    (t).bump(by)?;
+    Ok(read(t)?)
+}
+
+pub fn read(t: &Tally) -> Result<i64, RuntimeError> {
+    Ok((t).count.clone())
+}

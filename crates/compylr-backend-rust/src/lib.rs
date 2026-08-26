@@ -7,4 +7,7 @@
 pub mod runtime;
 pub mod rust;
 
-pub use rust::{RustBackend, rust_ident, rust_ty};
+pub use rust::{
+    InstanceAccess, InstanceParameterAccesses, RustBackend, instance_parameter_accesses,
+    rust_ident, rust_ty,
+};

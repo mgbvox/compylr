@@ -9,14 +9,19 @@
 //! The wrappers are thin by design. Each one calls the pure function, maps its error, and returns
 //! — no logic that could disagree with the translated body.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use compylr_backend_rust::rust::{LIB_PATH, RustBackend, rust_ident, rust_ty};
+use compylr_backend_rust::rust::LIB_PATH;
+use compylr_backend_rust::{
+    InstanceAccess, InstanceParameterAccesses, RustBackend, instance_parameter_accesses,
+    rust_ident, rust_ty,
+};
 
 use crate::BINDINGS_PATH;
 use compylr_core::backend::{Backend, BackendError, GeneratedFiles};
 use compylr_core::bridge::BuildKey;
-use compylr_ir::{Class, Ty, Unit};
+use compylr_ir::{Class, Function, Param, Ty, Unit};
 
 /// Prefix for the extension module a unit compiles to.
 const MODULE_PREFIX: &str = "compylr_generated_";
@@ -81,23 +86,31 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
     let mut out = String::new();
     out.push_str(PREAMBLE);
 
+    let wrappers: BTreeMap<String, String> = unit
+        .classes()
+        .enumerate()
+        .map(|(index, class)| (class.name.clone(), format!("__compylr_class_{index}")))
+        .collect();
+    let instance_accesses = instance_parameter_accesses(unit);
+
     for (index, class) in unit.classes().enumerate() {
-        out.push_str(&emit_class_binding(index, class));
+        out.push_str(&emit_class_binding(index, class, &instance_accesses));
     }
 
     for (index, function) in unit.functions().enumerate() {
         let params = function
             .params
             .iter()
-            .map(|p| format!("{}: {}", rust_ident(&p.name), rust_ty(&p.ty)))
-            .collect::<Vec<_>>()
+            .map(|param| emit_function_param(function, param, &wrappers, &instance_accesses))
+            .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         let args = function
             .params
             .iter()
-            .map(|p| rust_ident(&p.name))
+            .map(|param| emit_function_arg(function, param, &instance_accesses))
             .collect::<Vec<_>>()
             .join(", ");
+        let ret = emit_boundary_type(&function.ret, &wrappers)?;
 
         // The wrapper is named positionally rather than after the function. A Python name can be
         // a Rust keyword, and `#[pyo3(name = ...)]` is what restores the name Python sees, so the
@@ -107,13 +120,17 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
         let _ = writeln!(
             out,
             "fn __compylr_export_{index}({params}) -> PyResult<{}> {{",
-            rust_ty(&function.ret)
+            ret
         );
-        let _ = writeln!(
-            out,
-            "    generated::{}({args}).map_err(__compylr_to_py_err)",
-            rust_ident(&function.name)
-        );
+        let call = format!("generated::{}({args})", rust_ident(&function.name));
+        if let Ty::Instance(class_name) = &function.ret {
+            let wrapper = wrapper_for(&wrappers, class_name)?;
+            let _ = writeln!(out, "    {call}");
+            let _ = writeln!(out, "        .map(|inner| {wrapper} {{ inner }})");
+            let _ = writeln!(out, "        .map_err(__compylr_to_py_err)");
+        } else {
+            let _ = writeln!(out, "    {call}.map_err(__compylr_to_py_err)");
+        }
         out.push_str("}\n\n");
     }
 
@@ -144,6 +161,75 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
     Ok(out)
 }
 
+/// The stable wrapper identifier for one translated class.
+fn wrapper_for<'a>(
+    wrappers: &'a BTreeMap<String, String>,
+    class_name: &str,
+) -> Result<&'a str, BackendError> {
+    wrappers
+        .get(class_name)
+        .map(String::as_str)
+        .ok_or_else(|| BackendError::Unsupported {
+            detail: format!("class-valued boundary type '{class_name}' has no Python wrapper"),
+        })
+}
+
+/// Spell one Python-facing type, using the wrapper rather than the translated inner struct.
+fn emit_boundary_type(
+    ty: &Ty,
+    wrappers: &BTreeMap<String, String>,
+) -> Result<String, BackendError> {
+    match ty {
+        Ty::Instance(class_name) => Ok(wrapper_for(wrappers, class_name)?.to_string()),
+        _ => Ok(rust_ty(ty)),
+    }
+}
+
+fn function_instance_access(
+    function: &Function,
+    param: &Param,
+    accesses: &InstanceParameterAccesses,
+) -> InstanceAccess {
+    accesses
+        .get(&(function.name.clone(), param.name.clone()))
+        .copied()
+        .unwrap_or(InstanceAccess::Shared)
+}
+
+/// Spell a free-function parameter at the Python boundary.
+fn emit_function_param(
+    function: &Function,
+    param: &Param,
+    wrappers: &BTreeMap<String, String>,
+    accesses: &InstanceParameterAccesses,
+) -> Result<String, BackendError> {
+    let name = rust_ident(&param.name);
+    let Ty::Instance(class_name) = &param.ty else {
+        return Ok(format!("{name}: {}", rust_ty(&param.ty)));
+    };
+    let wrapper = wrapper_for(wrappers, class_name)?;
+    Ok(match function_instance_access(function, param, accesses) {
+        InstanceAccess::Shared => format!("{name}: PyRef<'_, {wrapper}>"),
+        InstanceAccess::Mutable => format!("mut {name}: PyRefMut<'_, {wrapper}>"),
+    })
+}
+
+/// Borrow one wrapper's inner Rust value according to the generated callee's ABI.
+fn emit_function_arg(
+    function: &Function,
+    param: &Param,
+    accesses: &InstanceParameterAccesses,
+) -> String {
+    let name = rust_ident(&param.name);
+    if !matches!(param.ty, Ty::Instance(_)) {
+        return name;
+    }
+    match function_instance_access(function, param, accesses) {
+        InstanceAccess::Shared => format!("&{name}.inner"),
+        InstanceAccess::Mutable => format!("&mut {name}.inner"),
+    }
+}
+
 /// Expose one class to Python.
 ///
 /// The wrapper holds the translated struct rather than being it, so `generated.rs` stays free of
@@ -155,11 +241,11 @@ fn emit_binding_layer(unit: &Unit) -> Result<String, BackendError> {
 /// Rust value, and a method borrows it from there — so a mutated attribute is exactly what the
 /// caller sees on the next call. That asymmetry is why an attribute can be a cache while a
 /// parameter cannot be mutated.
-fn emit_class_binding(index: usize, class: &Class) -> String {
+fn emit_class_binding(index: usize, class: &Class, accesses: &InstanceParameterAccesses) -> String {
     let mut out = String::new();
     let wrapper = format!("__compylr_class_{index}");
     let translated = rust_ident(&class.name);
-    let mutating = compylr_backend_rust::rust::mutating_methods(class);
+    let mutating = compylr_backend_rust::rust::mutating_methods(class, accesses);
 
     if let Some(doc) = &class.doc {
         for line in doc.lines() {
