@@ -2,7 +2,7 @@
 //!
 //! Authored as IR, not as Python. That is the whole point: a backend's job is to render the IR,
 //! and a corpus written in one source language can only cover what that language happens to
-//! produce. `python/fixtures/accepted/` is a good test of the Python *frontend* and a poor test
+//! produce. `frontends/python/fixtures/accepted/` is a good test of the Python *frontend* and a poor test
 //! of a backend, because a tree Python cannot express is a tree the corpus would never contain —
 //! and the modes Python cannot write were exactly where a backend could have been silently wrong.
 //!

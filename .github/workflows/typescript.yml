@@ -24,10 +24,10 @@ jobs:
         with:
           node-version: "22"
       - name: Install dependencies
-        working-directory: demo-ts
+        working-directory: demo/demo-ts-go
         run: npm ci || npm install
       - name: Type-check demo
-        working-directory: demo-ts
+        working-directory: demo/demo-ts-go
         run: npx tsc --noEmit
 
   test:
@@ -44,10 +44,10 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - name: Install dependencies
-        working-directory: demo-ts
+        working-directory: demo/demo-ts-go
         run: npm ci || npm install
       - name: Run test suite
-        working-directory: demo-ts
+        working-directory: demo/demo-ts-go
         run: npm test
 
   demo:
@@ -65,7 +65,7 @@ jobs:
           go-version: "1.23"
 
       - name: Install demo dependencies
-        working-directory: demo-ts
+        working-directory: demo/demo-ts-go
         run: npm ci || npm install
 
       - name: Precompile demo algorithms to Go
@@ -74,35 +74,35 @@ jobs:
             --frontend typescript \
             --backend go \
             --emit crate \
-            --out demo-ts/.compylr/go \
-            demo-ts/src/algorithms/sorting.ts \
-            demo-ts/src/algorithms/arithmetic.ts \
-            demo-ts/src/algorithms/stats.ts \
-            demo-ts/src/algorithms/text.ts \
-            demo-ts/src/algorithms/graphs.ts \
-            demo-ts/src/algorithms/dynamic.ts \
-            demo-ts/src/algorithms/matrices.ts \
-            demo-ts/src/algorithms/structures.ts \
-            demo-ts/src/algorithms/nth_prime/recursive.ts \
-            demo-ts/src/algorithms/nth_prime/iterative.ts \
-            demo-ts/src/algorithms/nth_prime/memoized.ts
+            --out demo/demo-ts-go/.compylr/go \
+            demo/demo-ts-go/src/algorithms/sorting.ts \
+            demo/demo-ts-go/src/algorithms/arithmetic.ts \
+            demo/demo-ts-go/src/algorithms/stats.ts \
+            demo/demo-ts-go/src/algorithms/text.ts \
+            demo/demo-ts-go/src/algorithms/graphs.ts \
+            demo/demo-ts-go/src/algorithms/dynamic.ts \
+            demo/demo-ts-go/src/algorithms/matrices.ts \
+            demo/demo-ts-go/src/algorithms/structures.ts \
+            demo/demo-ts-go/src/algorithms/nth_prime/recursive.ts \
+            demo/demo-ts-go/src/algorithms/nth_prime/iterative.ts \
+            demo/demo-ts-go/src/algorithms/nth_prime/memoized.ts
 
       - name: Build Go shared library
-        working-directory: demo-ts/.compylr/go
+        working-directory: demo/demo-ts-go/.compylr/go
         run: go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .
 
       - name: Run every algorithm and verify IR coverage
-        working-directory: demo-ts
+        working-directory: demo/demo-ts-go
         run: npm start
 
       - name: Run nth prime benchmarks
-        working-directory: demo-ts
+        working-directory: demo/demo-ts-go
         run: node --experimental-strip-types src/algorithms/nth_prime/benchmark.ts
 
       - name: Run full test suite
-        working-directory: demo-ts
+        working-directory: demo/demo-ts-go
         run: npm test
 
       - name: Type check demo sources
-        working-directory: demo-ts
+        working-directory: demo/demo-ts-go
         run: npx tsc --noEmit

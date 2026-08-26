@@ -86,14 +86,14 @@ mod tests {
 
     #[test]
     fn directory_path_reports_io_failure_rather_than_panicking() {
-        let path = manifest_dir().join("python");
+        let path = manifest_dir().join("frontends/python");
         let error = parse_file(&path).unwrap_err();
         assert!(error.is_io(), "expected io failure, got {error}");
     }
 
     #[test]
     fn reads_a_real_fixture_from_disk() {
-        let path = manifest_dir().join("python/entrypoint.py");
+        let path = manifest_dir().join("frontends/python/entrypoint.py");
         let parsed = parse_file(&path).unwrap();
         assert!(!parsed.syntax().body.is_empty());
     }

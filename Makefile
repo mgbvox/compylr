@@ -14,9 +14,9 @@ SHELL := /bin/bash
 
 VENV := .venv
 PY := $(VENV)/bin/python
-DEMO := demo
-DEMO_TS := demo-ts
-FIXTURE ?= python/fixtures/accepted/inference.py
+DEMO := demo/demo-python-rust
+DEMO_TS := demo/demo-ts-go
+FIXTURE ?= frontends/python/fixtures/accepted/inference.py
 N ?= 500
 SCALE ?= 1
 
@@ -62,16 +62,16 @@ python: develop py-lint py-types ## Run the Python suite, its linters, and its t
 
 .PHONY: py-lint
 py-lint: $(VENV) ## Ruff, both halves: the lint rules and the formatter
-	$(VENV)/bin/ruff check python/ scripts/
-	$(VENV)/bin/ruff format --check python/ scripts/
+	$(VENV)/bin/ruff check frontends/python/ scripts/
+	$(VENV)/bin/ruff format --check frontends/python/ scripts/
 
 .PHONY: py-fmt
 py-fmt: $(VENV) ## Format the Python sources
-	$(VENV)/bin/ruff format python/ scripts/
+	$(VENV)/bin/ruff format frontends/python/ scripts/
 
 .PHONY: py-types
 py-types: $(VENV) ## Type-check the package and the fixture drivers with ty
-	$(VENV)/bin/ty check python/compylr python/fixtures/drivers
+	$(VENV)/bin/ty check frontends/python/compylr frontends/python/fixtures/drivers
 
 .PHONY: ts
 ts: ts-lint ts-types ts-test ## Run the TypeScript suite, linters, and type checker

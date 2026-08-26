@@ -36,8 +36,8 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-const ACCEPTED: &str = "python/fixtures/accepted/inference.py";
-const REJECTED: &str = "python/fixtures/rejected/boolean_arithmetic.py";
+const ACCEPTED: &str = "frontends/python/fixtures/accepted/inference.py";
+const REJECTED: &str = "frontends/python/fixtures/rejected/boolean_arithmetic.py";
 
 #[test]
 fn a_supported_file_is_reported_and_exits_successfully() {
@@ -61,7 +61,7 @@ fn no_arguments_prints_usage_and_fails() {
 
 #[test]
 fn a_missing_file_reports_the_path() {
-    let output = cli(&["python/fixtures/accepted/nonesuch.py"]);
+    let output = cli(&["frontends/python/fixtures/accepted/nonesuch.py"]);
     assert!(!output.status.success());
     assert!(
         stderr(&output).contains("nonesuch.py"),
@@ -90,7 +90,7 @@ fn diagnostics_go_to_stderr_leaving_stdout_clean() {
 
 #[test]
 fn a_syntax_error_is_reported() {
-    let output = cli(&["python/entrypoint.py"]);
+    let output = cli(&["frontends/python/entrypoint.py"]);
     assert!(!output.status.success());
     assert!(!stderr(&output).is_empty());
 }
@@ -293,7 +293,7 @@ mod frontends {
 mod behavior {
     use super::*;
 
-    const ARITHMETIC: &str = "python/fixtures/accepted/arithmetic.py";
+    const ARITHMETIC: &str = "frontends/python/fixtures/accepted/arithmetic.py";
 
     #[test]
     fn the_default_is_the_source_languages_stance() {

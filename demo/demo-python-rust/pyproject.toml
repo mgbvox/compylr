@@ -23,7 +23,7 @@ packages = ["src/algorithms"]
 # compylr is consumed from the parent checkout rather than from an index, so the demo exercises
 # whatever is actually in this repository rather than the last release.
 [tool.uv.sources]
-compylr = { path = "..", editable = true }
+compylr = { path = "../..", editable = true }
 
 [tool.ruff]
 line-length = 100

@@ -193,7 +193,7 @@ fn fixtures(kind: &str) -> Vec<PathBuf> {
         .ancestors()
         .nth(2)
         .expect("the crate sits two levels below the repository root")
-        .join("python/fixtures")
+        .join("frontends/python/fixtures")
         .join(kind);
     let mut paths: Vec<PathBuf> = fs::read_dir(&root)
         .unwrap_or_else(|e| panic!("{} must be readable: {e}", root.display()))

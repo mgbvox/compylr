@@ -20,19 +20,19 @@ worktrees/
 # matter what followed. So the directory is re-included first, then its contents are
 # excluded, then the two wanted subtrees are re-included one level at a time. Every
 # intermediate directory has to be walkable for the rule under it to be reachable.
-!demo/.compylr/
-demo/.compylr/*
-!demo/.compylr/crate/
-!demo/.compylr/ir/
+!demo/demo-python-rust/.compylr/
+demo/demo-python-rust/.compylr/*
+!demo/demo-python-rust/.compylr/crate/
+!demo/demo-python-rust/.compylr/ir/
 
-!demo-ts/.compylr/
-demo-ts/.compylr/*
-!demo-ts/.compylr/go/
-!demo-ts/.compylr/ir/
-demo-ts/.compylr/lib/
+!demo/demo-ts-go/.compylr/
+demo/demo-ts-go/.compylr/*
+!demo/demo-ts-go/.compylr/go/
+!demo/demo-ts-go/.compylr/ir/
+demo/demo-ts-go/.compylr/lib/
 
 # The build output under the committed crate, which is ~64M and rebuilt on demand.
-demo/.compylr/crate/target/
+demo/demo-python-rust/.compylr/crate/target/
 *.so
 *.pyd
 /dist
@@ -59,7 +59,7 @@ __pycache__/
 .claude/settings.local.json
 
 # The demo's own environment. Its .compylr is handled above.
-demo/.venv/
+demo/demo-python-rust/.venv/
 node_modules/
-demo-ts/dist/
-demo/uv.lock
+demo/demo-ts-go/dist/
+demo/demo-python-rust/uv.lock

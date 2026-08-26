@@ -190,30 +190,46 @@ uv run python -m algorithms.benchmark       # or directly, from here
 ```
 every algorithm, scale=1, per call, best of 5 batches
 
-workload                           compiled    interpreted   speedup
---------------------------------------------------------------------
-arithmetic.collatz_length            0.28us         6.11us     22.0x
-dynamic.knapsack                    21.54us       246.76us     11.5x
-structures.component_count           6.51us        60.01us      9.2x
-matrices.multiply                    9.76us        80.84us      8.3x
-arithmetic.sieve                     1.20us         8.82us      7.3x
-stats.standard_deviation             5.49us        19.35us      3.5x
-sorting.merge_sort                  64.23us       177.35us      2.8x
-sorting.insertion_sort               4.71us        12.59us      2.7x
-dynamic.edit_distance               47.35us       111.83us      2.4x
-stats.normalize                     11.00us        23.42us      2.1x
-graphs.topological_order           144.35us       209.18us      1.4x
-reference (never compiled)          38.80us        40.17us      1.0x
-matrices.transpose                   5.76us         5.96us      1.0x
-text.joined                         77.27us        61.71us      0.8x
-graphs.bfs_distances                49.62us        27.17us      0.5x
-text.word_count                     74.16us        18.69us      0.3x
+workload                             compiled    interpreted   spread          speedup
+--------------------------------------------------------------------------------------
+arithmetic.collatz_length (Rust behavior)       0.18us         4.73us      1%            26.3x
+arithmetic.collatz_length              0.19us         4.72us      1%            24.8x
+dynamic.knapsack                       9.42us       183.70us      2%            19.5x
+structures.component_count             3.33us        48.37us      2%            14.5x
+matrices.multiply                      4.85us        59.12us      6%            12.2x
+arithmetic.sieve                       0.68us         6.82us      3%            10.1x
+stats.standard_deviation               3.21us        14.65us      8%             4.6x
+text.joined                           12.45us        44.89us      1%             3.6x
+sorting.merge_sort!                   37.50us       133.20us     60%             3.6x
+sorting.insertion_sort                 2.75us         9.44us      4%             3.4x
+graphs.topological_order              46.33us       156.25us      3%             3.4x
+dynamic.edit_distance                 27.74us        82.35us      1%             3.0x
+stats.normalize                        6.74us        17.77us      6%             2.6x
+matrices.transpose                     2.41us         4.61us      4%             1.9x
+graphs.bfs_distances                  16.92us        20.48us      1%             1.2x
+reference (never compiled)            28.12us        30.18us      6%   not resolvable
+text.total_length                     10.91us         6.16us      5%             0.6x
+text.word_count!                      25.35us        12.75us     40%             0.5x
+sorting.binary_search                  2.12us         0.42us      1%             0.2x
 
-The reference is never compiled, so its 1.04x is this run's noise floor — read every other row against that, not against 1.0.
+The reference is never compiled, so its true ratio is exactly 1.0 and everything it reports instead is this run's noise floor: 7%. A row closer to 1.0 than that reads "not resolvable" rather than a figure, because it would be one.
+`spread` is how far the slowest batch ran from the fastest, in the mode that varied more. A row must clear its own spread as well as the floor to report a figure.
+! marks a workload whose batches varied by more than 25%: unstable enough that its own figure is not worth reading. (sorting.merge_sort, text.word_count)
 Both modes returned the same answer for every workload.
+
+behavior comparison: arithmetic.collatz_length(97)
+
+mode                                    best    spread
+------------------------------------------------------
+interpreted Python                    4.72us       0%
+compiled, Python behavior             0.19us       1%
+compiled, Rust behavior               0.18us       1%
+
+Rust/Python compiled ratio: not resolvable, read against a 7% noise floor.
+All three modes returned 118.
 ```
 
-_scale 1 — measured on Darwin arm64, Python 3.14.0, 2026-08-24._
+_scale 1 — measured on Darwin arm64, Python 3.14.0, 2026-08-26._
 <!-- /benchmark:algorithms -->
 
 **The spread is the point.** A demo reporting one speedup would be hiding what is worth knowing.
@@ -290,19 +306,20 @@ uv run python -m algorithms.nth_prime.benchmark --n 500
 ```
 nth prime, n=500, per call, best of 5 batches
 
-variant                          compiled    interpreted   speedup
-------------------------------------------------------------------
-reference (never compiled)      1066.72us      1054.66us      1.0x
-recursive                         37.76us      1207.53us     32.0x
-iterative                         18.94us       628.95us     33.2x
-memoized (cold cache)             35.87us      1045.49us     29.1x
-memoized (warm cache)              0.10us         0.08us      0.8x
+variant                            compiled    interpreted   spread          speedup
+------------------------------------------------------------------------------------
+reference (never compiled)         815.41us       741.67us      3%   not resolvable
+recursive                           25.92us       865.15us      5%            33.4x
+iterative                           12.61us       454.88us      2%            36.1x
+memoized (cold cache)!              23.23us       762.00us     97%            32.8x
+memoized (warm cache)                0.05us         0.06us      8%             1.1x
 
-The reference is never compiled, so its 0.99x is this run's noise floor — read every other row against that, not against 1.0.
+The reference is never compiled, so its true ratio is exactly 1.0 and everything it reports instead is this run's noise floor: 9%. A row closer to 1.0 than that reads "not resolvable" rather than a figure, because it would be one.
+! marks a variant whose batches varied by more than 25%: unstable enough that its own figure is not worth reading. (memoized (cold cache))
 Both modes returned the same answer for every variant.
 ```
 
-_n = 500 — measured on Darwin arm64, Python 3.14.0, 2026-08-24._
+_n = 500 — measured on Darwin arm64, Python 3.14.0, 2026-08-26._
 <!-- /benchmark:nth-prime -->
 
 **A warm cache hit is *slower* compiled** — 0.10 µs against 0.08 µs. Crossing the boundary costs

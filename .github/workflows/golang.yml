@@ -22,7 +22,7 @@ jobs:
           go-version: "1.23"
 
       - name: Verify gofmt formatting
-        working-directory: demo-ts/.compylr/go
+        working-directory: demo/demo-ts-go/.compylr/go
         run: |
           diffs=$(gofmt -l .)
           if [ -n "$diffs" ]; then
@@ -32,7 +32,7 @@ jobs:
           fi
 
       - name: Go vet
-        working-directory: demo-ts/.compylr/go
+        working-directory: demo/demo-ts-go/.compylr/go
         run: go vet ./...
 
   test:
@@ -50,7 +50,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
 
       - name: Build Go package
-        working-directory: demo-ts/.compylr/go
+        working-directory: demo/demo-ts-go/.compylr/go
         run: go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .
 
   demo:
@@ -70,19 +70,19 @@ jobs:
             --frontend typescript \
             --backend go \
             --emit crate \
-            --out demo-ts/.compylr/go \
-            demo-ts/src/algorithms/sorting.ts \
-            demo-ts/src/algorithms/arithmetic.ts \
-            demo-ts/src/algorithms/stats.ts \
-            demo-ts/src/algorithms/text.ts \
-            demo-ts/src/algorithms/graphs.ts \
-            demo-ts/src/algorithms/dynamic.ts \
-            demo-ts/src/algorithms/matrices.ts \
-            demo-ts/src/algorithms/structures.ts \
-            demo-ts/src/algorithms/nth_prime/recursive.ts \
-            demo-ts/src/algorithms/nth_prime/iterative.ts \
-            demo-ts/src/algorithms/nth_prime/memoized.ts
+            --out demo/demo-ts-go/.compylr/go \
+            demo/demo-ts-go/src/algorithms/sorting.ts \
+            demo/demo-ts-go/src/algorithms/arithmetic.ts \
+            demo/demo-ts-go/src/algorithms/stats.ts \
+            demo/demo-ts-go/src/algorithms/text.ts \
+            demo/demo-ts-go/src/algorithms/graphs.ts \
+            demo/demo-ts-go/src/algorithms/dynamic.ts \
+            demo/demo-ts-go/src/algorithms/matrices.ts \
+            demo/demo-ts-go/src/algorithms/structures.ts \
+            demo/demo-ts-go/src/algorithms/nth_prime/recursive.ts \
+            demo/demo-ts-go/src/algorithms/nth_prime/iterative.ts \
+            demo/demo-ts-go/src/algorithms/nth_prime/memoized.ts
 
       - name: Build compiled shared library
-        working-directory: demo-ts/.compylr/go
+        working-directory: demo/demo-ts-go/.compylr/go
         run: go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .

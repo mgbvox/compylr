@@ -27,56 +27,56 @@ repos:
       - id: check-yaml
         files: ^\.github/.*\.ya?ml$|^\.pre-commit-config\.yaml$
       - id: check-toml
-        files: ^(pyproject\.toml|demo/pyproject\.toml|Cargo\.toml|crates/.*/Cargo\.toml)$
+        files: ^(pyproject\.toml|demo/demo-python-rust/pyproject\.toml|Cargo\.toml|crates/.*/Cargo\.toml)$
       - id: check-merge-conflict
 
   - repo: local
     hooks:
       # -- Python ------------------------------------------------------------------------
       - id: ruff-check
-        name: ruff check (python/, scripts/)
-        entry: ruff check python/ scripts/
+        name: ruff check (frontends/python/, scripts/)
+        entry: ruff check frontends/python/ scripts/
         language: python
         additional_dependencies: ["ruff>=0.6"]
         pass_filenames: false
-        files: ^(python|scripts)/.*\.py$
-        exclude: ^python/fixtures/(accepted|rejected)/
+        files: ^(frontends/python|scripts)/.*\.py$
+        exclude: ^frontends/python/fixtures/(accepted|rejected)/
 
       - id: ruff-format
-        name: ruff format --check (python/, scripts/)
-        entry: ruff format --check python/ scripts/
+        name: ruff format --check (frontends/python/, scripts/)
+        entry: ruff format --check frontends/python/ scripts/
         language: python
         additional_dependencies: ["ruff>=0.6"]
         pass_filenames: false
-        files: ^(python|scripts)/.*\.py$
-        exclude: ^python/fixtures/(accepted|rejected)/
+        files: ^(frontends/python|scripts)/.*\.py$
+        exclude: ^frontends/python/fixtures/(accepted|rejected)/
 
       - id: ty
-        name: ty check (python/compylr, python/fixtures/drivers)
-        entry: ty check python/compylr python/fixtures/drivers
+        name: ty check (frontends/python/compylr, frontends/python/fixtures/drivers)
+        entry: ty check frontends/python/compylr frontends/python/fixtures/drivers
         language: python
         additional_dependencies: ["ty>=0.0.74"]
         pass_filenames: false
-        files: ^python/(compylr|fixtures/drivers)/.*\.pyi?$|^pyproject\.toml$
+        files: ^frontends/python/(compylr|fixtures/drivers)/.*\.pyi?$|^pyproject\.toml$
 
       # The demo is a separate project with its own environment. Its lint rules are the same, so
       # ruff runs here; `ty check` needs compylr installed and importable, which is a build rather
       # than a hook -- CI does that one.
       - id: ruff-check-demo
-        name: ruff check (demo/)
-        entry: ruff check demo/src demo/tests
+        name: ruff check (demo/demo-python-rust/)
+        entry: ruff check demo/demo-python-rust/src demo/demo-python-rust/tests
         language: python
         additional_dependencies: ["ruff>=0.6"]
         pass_filenames: false
-        files: ^demo/(src|tests)/.*\.py$
+        files: ^demo/demo-python-rust/(src|tests)/.*\.py$
 
       - id: ruff-format-demo
-        name: ruff format --check (demo/)
-        entry: ruff format --check demo/src demo/tests
+        name: ruff format --check (demo/demo-python-rust/)
+        entry: ruff format --check demo/demo-python-rust/src demo/demo-python-rust/tests
         language: python
         additional_dependencies: ["ruff>=0.6"]
         pass_filenames: false
-        files: ^demo/(src|tests)/.*\.py$
+        files: ^demo/demo-python-rust/(src|tests)/.*\.py$
 
       # -- Rust --------------------------------------------------------------------------
       #
@@ -108,7 +108,7 @@ repos:
         entry: python3 scripts/update_benchmarks.py --check
         language: system
         pass_filenames: false
-        files: ^(README\.md|demo/README\.md|scripts/update_benchmarks\.py)$
+        files: ^(README\.md|demo/demo-python-rust/README\.md|scripts/update_benchmarks\.py)$
 
       # Marker-presence only, for the same reason as the benchmark hook above: regenerating the
       # matrix runs the compiler over the whole corpus, which is a CI job rather than a commit.
@@ -117,4 +117,4 @@ repos:
         entry: python3 scripts/update_subset.py --markers
         language: system
         pass_filenames: false
-        files: ^(README\.md|scripts/update_subset\.py|scripts/_regions\.py|python/fixtures/accepted/.*\.py)$
+        files: ^(README\.md|scripts/update_subset\.py|scripts/_regions\.py|frontends/python/fixtures/accepted/.*\.py)$

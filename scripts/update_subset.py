@@ -56,7 +56,7 @@ def _tables() -> dict[str, tuple[str, ...]]:
     definitions and fails when a form is added that they do not list -- so they are guarded
     against the compiler. A second copy would be a second thing to keep in step.
     """
-    path = REPO / "demo/src/algorithms/ir_coverage.py"
+    path = REPO / "demo/demo-python-rust/src/algorithms/ir_coverage.py"
     spec = importlib.util.spec_from_file_location("_ir_coverage", path)
     if spec is None or spec.loader is None:  # pragma: no cover - only if the demo moves
         raise RuntimeError(f"cannot read the IR form tables from {path}")

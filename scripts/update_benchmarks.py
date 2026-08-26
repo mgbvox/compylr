@@ -39,25 +39,17 @@ from pathlib import Path
 from _regions import MarkerError, Region, find_region, replace_region
 
 REPO = Path(__file__).resolve().parents[1]
-DEMO = REPO / "demo"
-DEMO_TS = REPO / "demo-ts"
+DEMOS_DIR = REPO / "demo"
 
 #: How a generated region is delimited. The name is what makes a region addressable, so a block
 #: can be moved or reordered in the README without this script losing track of it.
 
 #: One row of a printed table: label, compiled µs, interpreted µs, ratio.
 ROW = re.compile(
-    r"^(?P<label>\S.*?)\s{2,}(?P<fast>[\d.]+)us\s+(?P<slow>[\d.]+)us\s+(?P<ratio>\S+)$"
+    r"^(?P<label>\S.*?)\s{2,}(?P<fast>[\d.]+)us\s+(?P<slow>[\d.]+)us\s+(?:(?P<spread>[\d]+%|--)\s+)?(?P<ratio>.+)$"
 )
 
-
-ALGORITHMS = Region("algorithms", DEMO / "README.md")
-NTH_PRIME = Region("nth-prime", DEMO / "README.md")
 SUMMARY = Region("summary", REPO / "README.md")
-TS_ALGORITHMS = Region("ts-algorithms", DEMO_TS / "README.md")
-TS_NTH_PRIME = Region("ts-nth-prime", DEMO_TS / "README.md")
-
-REGIONS = (ALGORITHMS, NTH_PRIME, SUMMARY, TS_ALGORITHMS, TS_NTH_PRIME)
 
 
 def provenance(detail: str) -> str:
@@ -79,7 +71,7 @@ def ts_provenance(detail: str) -> str:
     return f"_{detail} — measured on {machine}, Node.js 22, {when}._"
 
 
-def run_benchmark(module: str, args: list[str]) -> str:
+def run_benchmark(cwd: Path, module: str, args: list[str]) -> str:
     """Run one of the demo's benchmarks and return its table.
 
     Run through `uv` from the demo directory, which is how the Makefile and the demo's own README
@@ -88,7 +80,7 @@ def run_benchmark(module: str, args: list[str]) -> str:
     """
     completed = subprocess.run(
         ["uv", "run", "python", "-m", module, *args],
-        cwd=DEMO,
+        cwd=cwd,
         capture_output=True,
         text=True,
         check=False,
@@ -104,11 +96,11 @@ def run_benchmark(module: str, args: list[str]) -> str:
     return output
 
 
-def run_ts_benchmark(script: str, args: list[str]) -> str:
+def run_ts_benchmark(cwd: Path, script: str, args: list[str]) -> str:
     """Run one of the TypeScript demo's benchmarks and return its table."""
     completed = subprocess.run(
         ["node", "--experimental-strip-types", script, *args],
-        cwd=DEMO_TS,
+        cwd=cwd,
         capture_output=True,
         text=True,
         check=False,
@@ -166,9 +158,9 @@ def fenced(table: str) -> str:
     return f"```\n{table}\n```"
 
 
-def check_markers() -> int:
+def check_markers(regions: list[Region]) -> int:
     """Verify every region is addressable. Measures nothing."""
-    for region in REGIONS:
+    for region in regions:
         text = region.path.read_text()
         find_region(text, region)
         print(f"ok  {region.path.relative_to(REPO)}  {region.name}")
@@ -192,38 +184,53 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    demo_dirs = sorted([d for d in DEMOS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")])
+    regions = [SUMMARY]
+    for demo_dir in demo_dirs:
+        regions.append(Region("algorithms", demo_dir / "README.md"))
+        regions.append(Region("nth-prime", demo_dir / "README.md"))
+
     if args.check:
         try:
-            return check_markers()
+            return check_markers(regions)
         except MarkerError as error:
             print(f"error: {error}", file=sys.stderr)
             return 1
 
     # Fail on a missing marker before spending minutes measuring.
-    check_markers()
+    check_markers(regions)
 
-    algorithms = run_benchmark("algorithms.benchmark", ["--scale", str(args.scale)])
-    nth_prime = run_benchmark("algorithms.nth_prime.benchmark", ["--n", str(args.n)])
-    ts_algorithms = run_ts_benchmark("src/algorithms/benchmark.ts", ["--scale", str(args.scale)])
-    ts_nth_prime = run_ts_benchmark("src/algorithms/nth_prime/benchmark.ts", ["--n", str(args.n)])
-
-    bodies = {
-        ALGORITHMS: f"{fenced(algorithms)}\n\n{provenance(f'scale {args.scale}')}",
-        NTH_PRIME: f"{fenced(nth_prime)}\n\n{provenance(f'n = {args.n}')}",
-        SUMMARY: f"{summarise(algorithms)}\n\n{provenance(f'scale {args.scale}')}",
-        TS_ALGORITHMS: f"{fenced(ts_algorithms)}\n\n{ts_provenance(f'scale {args.scale}')}",
-        TS_NTH_PRIME: f"{fenced(ts_nth_prime)}\n\n{ts_provenance(f'n = {args.n}')}",
-    }
+    bodies = {}
+    for demo_dir in demo_dirs:
+        if (demo_dir / "pyproject.toml").exists():
+            algorithms = run_benchmark(demo_dir, "algorithms.benchmark", ["--scale", str(args.scale)])
+            nth_prime = run_benchmark(demo_dir, "algorithms.nth_prime.benchmark", ["--n", str(args.n)])
+            prov = provenance(f"scale {args.scale}")
+            prov_n = provenance(f"n = {args.n}")
+            
+            if demo_dir.name == "demo-python-rust":
+                bodies[SUMMARY] = f"{summarise(algorithms)}\n\n{prov}"
+        elif (demo_dir / "package.json").exists():
+            algorithms = run_ts_benchmark(demo_dir, "src/algorithms/benchmark.ts", ["--scale", str(args.scale)])
+            nth_prime = run_ts_benchmark(demo_dir, "src/algorithms/nth_prime/benchmark.ts", ["--n", str(args.n)])
+            prov = ts_provenance(f"scale {args.scale}")
+            prov_n = ts_provenance(f"n = {args.n}")
+        else:
+            print(f"warning: unknown demo type for {demo_dir.name}", file=sys.stderr)
+            continue
+            
+        bodies[Region("algorithms", demo_dir / "README.md")] = f"{fenced(algorithms)}\n\n{prov}"
+        bodies[Region("nth-prime", demo_dir / "README.md")] = f"{fenced(nth_prime)}\n\n{prov_n}"
 
     if args.dry_run:
         for region, body in bodies.items():
             print(f"--- {region.path.relative_to(REPO)} :: {region.name}\n{body}\n")
         return 0
 
-    for path in {region.path for region in REGIONS}:
+    for path in {region.path for region in regions}:
         text = path.read_text()
         for region, body in bodies.items():
-            if region.path == path:
+            if region.path == path and region in bodies:
                 text = replace_region(text, region, body)
         path.write_text(text)
         print(f"wrote {path.relative_to(REPO)}")
