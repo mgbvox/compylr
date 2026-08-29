@@ -14,68 +14,73 @@ cannot be borrowed SHALL NOT produce a diagnostic, because the program is correc
 
 #### Scenario: An unanalyzable body yields ownership
 
-- **WHEN** a parameter's use cannot be proven not to escape
-- **THEN** the parameter is owned, and compilation succeeds with no diagnostic
+- **GIVEN** a parameter whose use cannot be proven not to escape
+- **WHEN** the unit is lowered
+- **THEN** the parameter is owned
+- **AND** compilation succeeds with no diagnostic
 
 #### Scenario: A read-only parameter is borrowed
 
-- **WHEN** a parameter is only read within the call
-- **THEN** it carries a shared borrow
+- **GIVEN** a function whose body is
+
+  ```python
+  def is_long(word: str) -> bool:
+      return len(word) > 3
+  ```
+
+- **WHEN** the unit is lowered
+- **THEN** `word` carries a shared borrow
 
 #### Scenario: Ownership is never requested by the user
 
-- **WHEN** any supported source program is compiled
-- **THEN** no syntax expresses a passing mode, and no diagnostic mentions one
+- **GIVEN** any supported source program
+- **WHEN** it is compiled
+- **THEN** no syntax expresses a passing mode
+- **AND** no diagnostic mentions one
 
 #### Scenario: The mode does not change what the program computes
 
-- **WHEN** the same program is compiled with every parameter forced owned and again with modes
-  inferred
-- **THEN** both produce identical answers for every call
+- **GIVEN** one program compiled with every parameter forced owned and again with modes inferred
+- **WHEN** every call is made against both
+- **THEN** both produce identical answers
 
 ### Requirement: A parameter that escapes the call is owned
 
 A parameter SHALL be owned whenever the body lets its value outlive the call: returning it, storing
 it in a collection, an attribute, or any binding that outlives the call, appending it to a
 sequence, using it as a mapping key or value that is retained, or passing it to anything that
-requires ownership.
+requires ownership. Ownership is a question about escape, not about mutation.
 
-#### Scenario: A returned parameter is owned
+#### Scenario Outline: A shape that keeps the value forces ownership
 
-- **WHEN** a function returns its parameter
-- **THEN** the parameter is owned
+- **GIVEN** a function whose body contains `<shape>` applied to its parameter `who`
+- **WHEN** the unit is lowered
+- **THEN** `who` is owned
 
-#### Scenario: An appended parameter is owned
+**Examples:**
 
-- **WHEN** a function appends its parameter to a sequence
-- **THEN** the parameter is owned
-
-#### Scenario: A parameter stored under a mapping key is owned
-
-- **WHEN** a function assigns its parameter as a mapping value
-- **THEN** the parameter is owned
-
-#### Scenario: A parameter stored in an attribute is owned
-
-- **WHEN** a method assigns its parameter to an attribute of the receiver
-- **THEN** the parameter is owned
-
-#### Scenario: A parameter compared across representations is owned
-
-- **WHEN** a function compares its text parameter with a text literal using an ordering comparison
-- **THEN** the parameter is owned, because the comparison is not available between the borrowed and
-  owned representations
-
-#### Scenario: A parameter tested for membership is owned
-
-- **WHEN** a function tests whether a sequence contains its parameter
-- **THEN** the parameter is owned
+| shape             | why it keeps the value                                  |
+| ----------------- | ------------------------------------------------------- |
+| `return who`      | the value outlives the call                              |
+| `xs.append(who)`  | the sequence retains it                                  |
+| `d[k] = who`      | the mapping retains it                                   |
+| `self.name = who` | the instance retains it past the call                    |
+| `who < "m"`       | the ordering is unavailable across the two spellings     |
+| `who in xs`       | membership needs the owned representation                |
 
 #### Scenario: A parameter passed to a function needing ownership is owned
 
-- **WHEN** a function passes its parameter to another function whose corresponding parameter is
+- **GIVEN** a function passing its parameter to another function whose corresponding parameter is
   owned
+- **WHEN** the unit is lowered
 - **THEN** the caller's parameter is also owned
+
+#### Scenario: Not mutating is not sufficient to borrow
+
+- **GIVEN** a parameter that is never mutated and is appended to a sequence
+- **WHEN** the unit is lowered
+- **THEN** the parameter is owned
+- **BUT** it is not borrowed on the grounds that it was never mutated
 
 ### Requirement: Ownership and mutability are decided by one analysis
 
@@ -85,25 +90,29 @@ given program on every run.
 
 #### Scenario: One analysis decides both
 
-- **WHEN** a function both mutates an instance parameter and forwards a text parameter
-- **THEN** the mutability of the first and the ownership of the second are decided together, and
-  neither is re-derived separately
+- **GIVEN** a function that both mutates an instance parameter and forwards a text parameter
+- **WHEN** the unit is lowered
+- **THEN** the mutability of the first and the ownership of the second are decided together
+- **BUT** neither is re-derived separately
 
 #### Scenario: Transitive requirements propagate
 
-- **WHEN** a function passes a parameter to a function that stores it, which is only discovered
-  after that callee is analyzed
-- **THEN** the fixpoint re-runs and the caller's parameter becomes owned
+- **GIVEN** a function passing a parameter to a callee that stores it, discovered only once that
+  callee is analyzed
+- **WHEN** the fixpoint runs
+- **THEN** it re-runs and the caller's parameter becomes owned
 
 #### Scenario: Mutual recursion terminates
 
-- **WHEN** two functions pass parameters to one another
-- **THEN** the analysis terminates and produces the same modes regardless of which was analyzed
-  first
+- **GIVEN** two functions that pass parameters to one another
+- **WHEN** the fixpoint runs
+- **THEN** it terminates
+- **AND** it produces the same modes regardless of which was analyzed first
 
 #### Scenario: The result does not depend on declaration order
 
-- **WHEN** the same functions are analyzed in a different order
+- **GIVEN** the same functions declared in a different order
+- **WHEN** the unit is lowered
 - **THEN** every parameter receives the same mode
 
 ### Requirement: A borrow does not reach beyond the call
@@ -115,15 +124,20 @@ than the program refused.
 
 #### Scenario: A borrowed value may be forwarded compatibly
 
-- **WHEN** a function passes a borrowed parameter to another function that also borrows it
-- **THEN** both remain borrowed and no copy is made
+- **GIVEN** a function passing a borrowed parameter to another function that also borrows it
+- **WHEN** the unit is lowered and emitted
+- **THEN** both remain borrowed
+- **AND** no copy is made
 
 #### Scenario: Reading a borrowed value does not copy it
 
-- **WHEN** a borrowed parameter is read several times in a body
+- **GIVEN** a borrowed parameter read several times in a body
+- **WHEN** the unit is emitted
 - **THEN** no copy is made for any read
 
 #### Scenario: The existing instance rules are unchanged
 
-- **WHEN** a program tries to return a borrowed instance, or a field of one
-- **THEN** it is refused by the existing diagnostics, which this change does not relax
+- **GIVEN** a program that returns a borrowed instance, or a field of one
+- **WHEN** the program is lowered
+- **THEN** it is refused by the existing diagnostics
+- **BUT** this change does not relax them
