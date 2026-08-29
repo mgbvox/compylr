@@ -12,25 +12,46 @@ A logging operation SHALL carry one of the levels debug, information, warning, e
 and SHALL take exactly one argument of a renderable type. Additional positional arguments SHALL be
 rejected with a located diagnostic naming placeholder-style formatting as not yet supported.
 
-#### Scenario: Each level is available
+#### Scenario Outline: Each level is available
 
-- **WHEN** a program records at debug, information, warning, error, or critical level
-- **THEN** each lowers to an effectful operation carrying that level
+- **GIVEN** a program whose body records at <level>
+- **WHEN** the program is lowered by the `python` frontend
+- **THEN** it lowers to an effectful operation carrying that level
+
+**Examples:**
+
+| level       |
+| ----------- |
+| debug       |
+| information |
+| warning     |
+| error       |
+| critical    |
 
 #### Scenario: A single argument of any renderable type is accepted
 
-- **WHEN** a program records an integer, float, boolean, string, sequence, or tuple
-- **THEN** lowering succeeds and the value is rendered by the same convention output uses
+- **GIVEN** a program recording an integer, float, boolean, string, sequence, or tuple
+- **WHEN** the program is lowered by the `python` frontend
+- **THEN** lowering succeeds
+- **AND** the value is rendered by the same convention output uses
 
 #### Scenario: Additional arguments are refused with their reason
 
-- **WHEN** a program records a message with a second positional argument
+- **GIVEN** a program whose body contains
+
+  ```python
+  logging.info("count: %s", count)
+  ```
+
+- **WHEN** the program is lowered by the `python` frontend
 - **THEN** lowering fails with a located diagnostic reporting that placeholder-style formatting is
-  not yet supported, rather than silently joining the arguments
+  not yet supported
+- **BUT** the arguments are not silently joined
 
 #### Scenario: An unordered container is refused
 
-- **WHEN** a program records a mapping or a set
+- **GIVEN** a program recording a mapping or a set
+- **WHEN** the program is lowered by the `python` frontend
 - **THEN** lowering fails for the reason it fails for output: iteration order is not guaranteed
 
 ### Requirement: A suppressed record costs nothing
@@ -40,17 +61,21 @@ argument. The level test SHALL precede any work the record would require.
 
 #### Scenario: A disabled record does not render its argument
 
-- **WHEN** a record at a disabled level names an argument whose rendering is observable
+- **GIVEN** a record at a disabled level naming an argument whose rendering is observable
+- **WHEN** the compiled function runs
 - **THEN** the rendering does not happen
 
 #### Scenario: A disabled record in a loop is a level test per iteration
 
-- **WHEN** a loop body records at a disabled level
-- **THEN** the per-iteration cost is a level test, and no rendering or allocation occurs
+- **GIVEN** a loop body recording at a disabled level
+- **WHEN** the compiled function runs
+- **THEN** the per-iteration cost is a level test
+- **BUT** no rendering and no allocation occurs
 
 #### Scenario: An enabled record renders once
 
-- **WHEN** a record at an enabled level is reached
+- **GIVEN** a record at an enabled level
+- **WHEN** the compiled function runs
 - **THEN** its argument is rendered exactly once
 
 ### Requirement: The host's logging configuration governs compiled records
@@ -61,28 +86,36 @@ host's level SHALL change what compiled code emits without rebuilding it.
 
 #### Scenario: Host handlers receive compiled records
 
-- **WHEN** the host configures a handler and calls a compiled function that records
+- **GIVEN** a host that has configured a handler
+- **WHEN** it calls a compiled function that records
 - **THEN** the handler receives the record
 
 #### Scenario: The host's level suppresses compiled records
 
-- **WHEN** the host sets its effective level above a record's level and calls a compiled function
-- **THEN** the record is not written, and no rebuild was required to achieve that
+- **GIVEN** a host whose effective level is above a record's level
+- **WHEN** it calls a compiled function containing that record
+- **THEN** the record is not written
+- **AND** no rebuild was required to achieve that
 
 #### Scenario: Levels map both ways
 
-- **WHEN** a record is produced at each supported level
-- **THEN** it arrives at the host at the corresponding level, and a host level maps back to the
-  same one
+- **GIVEN** a program recording at each supported level
+- **WHEN** the records reach the host
+- **THEN** each arrives at the corresponding level
+- **AND** a host level maps back to the same one
 
-#### Scenario: A record carries an origin
+#### Scenario: A record is attributed to the logger the interpreted program uses
 
+- **GIVEN** a program whose body calls the module-level logging functions
 - **WHEN** a compiled record reaches the host
-- **THEN** it carries an origin derived from the source module, so configuration keyed by logger
-  name applies to it
+- **THEN** it is attributed to the root logger, which is where the module-level functions record
+  interpreted
+- **BUT** it is not attributed to the source module, which would make the same source produce a
+  different logger name in the two modes
 
 #### Scenario: Compiled and interpreted records share one stream
 
-- **WHEN** the same program runs with compilation disabled and again compiled
-- **THEN** both produce records at the same levels with the same messages, through the same host
-  configuration
+- **GIVEN** one program run with `COMPYLR_DISABLE=1` and again compiled
+- **WHEN** the records of both runs are compared
+- **THEN** both produce records at the same levels, with the same messages, against the same logger
+- **AND** both pass through the same host configuration

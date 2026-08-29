@@ -8,16 +8,26 @@ take the level from the registry rather than from the operation's name.
 
 #### Scenario: A gated operation records its level
 
-- **WHEN** a gated operation is looked up in the registry
+- **GIVEN** a gated operation in the registry
+- **WHEN** it is looked up
 - **THEN** it declares the level that gates it
 
 #### Scenario: The level reaches the backend as data
 
-- **WHEN** a backend emits a gated operation
-- **THEN** it selects the target level from the declared level, and an operation added later with a
-  new name needs no backend change beyond a table entry
+- **GIVEN** a backend emitting a gated operation
+- **WHEN** the target level is selected
+- **THEN** it is selected from the declared level
+- **AND** an operation added later with a new name needs no backend change beyond a table entry
 
 #### Scenario: An ungated effectful operation is unaffected
 
-- **WHEN** an effectful operation declaring no level is emitted
+- **GIVEN** an effectful operation declaring no level
+- **WHEN** it is emitted
 - **THEN** it is performed unconditionally, as output is
+
+#### Scenario: Adding a gated module needs no IR change
+
+- **GIVEN** a second module of gated effectful operations
+- **WHEN** it is added to the registry
+- **THEN** it reuses the existing effectful statement form
+- **AND** the artifact version does not move
