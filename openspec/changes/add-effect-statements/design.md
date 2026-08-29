@@ -2,14 +2,17 @@
 
 See proposal.md — Why. Four existing facts constrain the approach:
 
-* `Stmt::Effect` means "a unit-returning method call", and its documentation gives the reason. It
-  is not a general effect node and must not quietly become one.
-* `crate_boundaries.rs` forbids `compylr-backend-rust` from naming Python. Anything about the
-  *host's* stream is therefore a bridge concern, not a backend one.
-* Mapping and set iteration order is deliberately unspecified, and CLAUDE.md instructs that no test
-  assert on it.
-* `tests/conformance.rs` checks `(form, position)` coverage, because a statement's emission depends
-  on where it is. A new statement form owes four positions.
+* [`Stmt::Effect`](../../../crates/compylr-ir/src/ir.rs#L761) means "a unit-returning method call",
+  and its documentation gives the reason. It is not a general effect node and must not quietly
+  become one.
+* [`crate_boundaries.rs`](../../../crates/compylr-host-python/tests/crate_boundaries.rs) forbids
+  `compylr-backend-rust` from naming Python. Anything about the *host's* stream is therefore a
+  bridge concern, not a backend one.
+* Mapping and set iteration order is deliberately unspecified, and
+  [`CLAUDE.md`](../../../CLAUDE.md) instructs that no test assert on it.
+* [`conformance.rs`](../../../crates/compylr-host-python/tests/conformance.rs) checks
+  `(form, position)` coverage, because a statement's emission depends on where it is. A new
+  statement form owes four positions.
 
 ## Goals / Non-Goals
 
@@ -27,70 +30,191 @@ See proposal.md — Why. Four existing facts constrain the approach:
 
 ## Decisions
 
-### Rendering is a declared convention, not the target's default
+### 1. An effect on the outside world is a new `Stmt` form, not a widened `Stmt::Effect`
 
-This is the decision the change turns on. Python prints `True`, Rust prints `true`. Python prints
-`1.0` for a whole float; Rust's `{}` prints `1`. Emitting the target's default would make compiled
-output differ from interpreted output — and `print` is exactly what a user reaches for when
-something is *already* wrong, so a divergence here corrupts the tool they are debugging with.
+**Decision.** Add a statement variant beside the existing one rather than redefining it:
 
-The convention rides on the operation as a mode, the way `TextUnits` rides on `Expr::Len`, and a
-backend matches on the mode. This is the IR's stated rule — "IR operations carry the semantics the
-resolved behavior declared, not one language's by default" — applied to output.
+```rust
+// before — the only effect the subset admits, and its doc says so
+Effect(Expr),
+// after — an effect that leaves the program, carrying the operation and how values render
+Perform {
+    module: String,
+    operation: String,
+    args: Vec<Expr>,
+    convention: Convention,
+},
+```
 
-*Alternative considered: a seventh behavior axis.* Rejected for the reason
-`add-intrinsic-calls` rejected one: an axis costs a field on `LanguageBehavior` and a declared
-stance from every language, and nobody wants Python's boolean spelling with Go's float spelling.
+**Why.** `Stmt::Effect` documents that lowering only ever puts a unit-returning *method* call there,
+and the reason is load-bearing: a free function in this subset reaches no mutable state, so
+discarding its result is dead code. Widening the variant to mean "any effect" would delete that
+reasoning from the type and make the dead-code rejection unenforceable.
 
-*Alternative considered: always render as the source language.* Nearly right, and it is the
-default. It is expressed as a mode anyway so a target-native rendering is expressible later without
-reopening the IR — the same reason `unchecked-arithmetic` exists as a declined option rather than
-as nothing.
+**Alternatives considered.** *Reuse `Stmt::Effect` and let the registry decide.* The IR would then
+carry a form whose legality depends on a lookup, and a reader of the enum could no longer tell what
+is admissible. *An expression form returning unit.* `None` is a return type in this subset, not a
+value; an expression of no type has nowhere to go.
 
-### Output goes through a runtime sink the host installs
+#### The IR, in both faces
 
-Rust's `std::io::stdout()` and Python's `sys.stdout` hold **separate buffers**. Line-buffered to a
-terminal the difference is usually invisible; block-buffered to a pipe or a file the two orders
-scramble outright. Worse, `contextlib.redirect_stdout`, pytest's `capsys`, and notebook capture all
-work by replacing `sys.stdout`, and none of them can see a write the Rust side made directly.
+The definition delta is above. The value, for the worked example's first `print`, as the JSON
+`--emit ir` writes. The envelope is real output from the tip of this branch; the `Perform` node is
+`expected`:
 
-So the backend emits a call to a sink in the generated runtime, and the bridge installs one that
-writes through the host's stream. Backend emits target code; bridge knows the host. That is the
-existing division of labour, not a new one.
+```json
+{
+  "version": 5,
+  "functions": [
+    {
+      "name": "describe",
+      "params": [{ "name": "label", "ty": "Text" }, { "name": "values", "ty": { "List": "Int" } }],
+      "ret": "Float",
+      "body": [
+        {
+          "Perform": {
+            "module": "builtins",
+            "operation": "print",
+            "args": [{ "Name": "label" }, { "Name": "total" }],
+            "convention": "Python"
+          }
+        }
+      ]
+    }
+  ],
+  "origin": { "frontend": "python", "requires": ["IntegerOverflowReported", "FloatOrderPreserved"] }
+}
+```
 
-*Alternative considered: write to Rust's stdout and flush aggressively.* Flushing fixes neither
-redirection nor capture, because the bytes never pass through `sys.stdout` at all.
+The five questions:
 
-*Alternative considered: the backend emits PyO3 calls directly.* Forbidden — the backend cannot
-name Python, and `crate_boundaries.rs` fails the build if it does.
+- **Neutrality.** `Convention` names a *rendering stance*, not a language's formatter. `Python` is
+  the name of a convention the way `Rounding::TowardNegInf` is the name of a rounding — a Go
+  frontend declaring the same stance gets the same rendering. Nothing in the form reaches a
+  formatter, so `crate_boundaries.rs` is unaffected.
+- **Mode or form?** Both, at two levels, and keeping them straight is the decision. *Performing* an
+  effect differs from evaluating an expression in **shape**, so it is a new statement form.
+  *Rendering* differs in the **semantics** of one operation, so it is a mode on that form — exactly
+  as `units` is a mode on `Expr::Len` rather than two length forms.
+- **Format version.** [`ARTIFACT_VERSION`](../../../crates/compylr-ir/src/ir.rs#L58) advances. Every
+  cached build is invalidated once; see the Migration Plan.
+- **Fingerprint.** [`Unit::fingerprint`](../../../crates/compylr-ir/src/ir.rs#L1299) must cover the
+  operation, the arguments, and the convention. The convention changes the program's *observable
+  output*, so it is squarely on the covered side of the pre-pass line — two units differing only in
+  it must not share a cached build.
+- **Coverage.** A new `Stmt` form trips both
+  [`demo_coverage.rs`](../../../crates/compylr-host-python/tests/demo_coverage.rs) and the
+  `(form, position)` matrix in `conformance.rs`. Paid with a demo algorithm that prints and with
+  the new form covered in all four positions — free function body, method body, constructor body,
+  and loop body — both scheduled in tasks.
 
-A default sink writing to the target's own stdout is kept, so a crate built outside a host still
-prints. Without it, `cargo run` on generated code would be silent, which reads as a bug.
+### 2. Rendering is a declared convention, not the target's default
 
-### Printing a mapping or a set is refused
+**Decision.** The convention rides on the operation as a mode, and the backend matches on it:
 
-Their iteration order is unspecified by deliberate choice. A differential test on their printed
-form would therefore be **flaky rather than correct** — it would pass locally, fail in CI, and
-implicate the compiler in a divergence the language never promised to avoid.
+```rust
+match convention {
+    Convention::Python => render_python(value),  // True, 5.0
+    // a target-native rendering is expressible without reopening the IR
+}
+```
 
-Refusing is the honest answer, and the diagnostic points at an ordered projection so the user has a
-way through. This falls straight out of an invariant already recorded in three places; the change
-adds no new rule, it declines to break one.
+**Why.** This is the decision the change turns on. Python prints `True`, Rust prints `true`. Python
+prints `5.0` for a whole float; Rust's `{}` prints `5`. Emitting the target's default would make
+compiled output differ from interpreted output — and `print` is exactly what a user reaches for
+when something is *already* wrong, so a divergence here corrupts the tool they are debugging with.
+This is the IR's stated rule — "IR operations carry the semantics the resolved behavior declared,
+not one language's by default" — applied to output.
 
-### The carve-out is in the registry, not in the lowering condition
+**Alternatives considered.** *A seventh behavior axis.* Rejected for the reason
+`add-intrinsic-calls` rejected one: an axis costs a field on
+[`LanguageBehavior`](../../../crates/compylr-ir/src/behavior.rs#L179) and a declared stance from
+every language, and nobody wants Python's boolean spelling with Go's float spelling. *Always render
+as the source language.* Nearly right, and it is the default. It is expressed as a mode anyway so a
+target-native rendering is expressible later without reopening the IR — the same reason
+`unchecked-arithmetic` exists as a declined option rather than as nothing.
 
-`bare_expression_error` currently special-cases `append` and unit-returning method calls by shape.
-Adding `print` by shape would make a third hand-written exception. Instead lowering asks the
-registry whether the operation is effectful — so the reason the rejection exists ("its value is
-discarded") is tested directly, and every later effectful operation, `logging` included, is covered
-without touching this code again.
+### 3. Output goes through a runtime sink the host installs
 
-### Rendering a sequence writes into one buffer
+**Decision.** The backend emits a sink call; the bridge installs the sink:
 
-Rendering element-by-element into freshly allocated strings makes printing a sequence quadratic in
-allocator traffic. The demo is where cost shows up, and it has already found a quadratic clone in
-`for` and an O(n) clone per nested read — both invisible to every correctness test. A linear
-rendering is specified so the third one is not found the same way.
+```rust
+// backend emits this — it names no host
+compylr_sink::write_line(&parts);
+// bridge installs this — it names Python, and only the bridge may
+compylr_sink::install(|bytes| py_stdout_write(bytes));
+```
+
+**Why.** Rust's `std::io::stdout()` and Python's `sys.stdout` hold **separate buffers**.
+Line-buffered to a terminal the difference is usually invisible; block-buffered to a pipe or a file
+the two orders scramble outright. Worse, `contextlib.redirect_stdout`, pytest's `capsys`, and
+notebook capture all work by replacing `sys.stdout`, and none of them can see a write the Rust side
+made directly. Backend emits target code; bridge knows the host. That is the existing division of
+labour, not a new one. A default sink writing to the target's own stdout is kept, so a crate built
+outside a host still prints — without it, `cargo run` on generated code would be silent, which
+reads as a bug.
+
+**Alternatives considered.** *Write to Rust's stdout and flush aggressively.* Flushing fixes neither
+redirection nor capture, because the bytes never pass through `sys.stdout` at all. *The backend
+emits PyO3 calls directly.* Forbidden — the backend cannot name Python, and `crate_boundaries.rs`
+fails the build if it does.
+
+### 4. Printing a mapping or a set is refused
+
+**Decision.** A located diagnostic pointing at an ordered projection:
+
+```python
+print(counts)          # error: a mapping has no guaranteed order, so its printed form is not
+                       #        a value the compiled and interpreted builds must agree on
+print(sorted(counts))  # the suggested way through
+```
+
+**Why.** Their iteration order is unspecified by deliberate choice. A differential test on their
+printed form would therefore be **flaky rather than correct** — it would pass locally, fail in CI,
+and implicate the compiler in a divergence the language never promised to avoid. This falls straight
+out of an invariant already recorded in three places; the change adds no new rule, it declines to
+break one.
+
+**Alternatives considered.** *Print them in insertion order.* That is a promise about mapping order,
+made through the back door, on a language that deliberately declines to make it.
+
+### 5. The carve-out is in the registry, not in the lowering condition
+
+**Decision.** Lowering asks whether the operation is effectful rather than matching its shape:
+
+```rust
+// before — a hand-written shape test, twice
+if !is_unit_returning_method_call(&expr) { return Err(bare_expression_error(stmt)); }
+// after — the registry answers, and every later effectful operation is covered
+if !is_unit_returning_method_call(&expr) && !registry::is_effectful(&expr) {
+    return Err(bare_expression_error(stmt));
+}
+```
+
+**Why.** [`bare_expression_error`](../../../crates/compylr-frontend-python/src/lower.rs#L1677) is
+raised from two call sites that special-case `append` and unit-returning method calls by shape.
+Adding `print` by shape would make a third hand-written exception. Asking the registry tests the
+reason the rejection exists — that the value is discarded — directly, and `add-logging` then needs
+no change here at all.
+
+**Alternatives considered.** *A third shape test.* It works and it is the version that has to be
+edited again for every effectful operation ever added.
+
+### 6. Rendering a sequence writes into one buffer
+
+**Decision.** The renderer takes the output buffer rather than returning a string:
+
+```rust
+fn render_into(buffer: &mut String, value: &Value, convention: Convention);
+```
+
+**Why.** Rendering element-by-element into freshly allocated strings makes printing a sequence
+quadratic in allocator traffic. The demo is where cost shows up, and it has already found a
+quadratic clone in `for` and an O(n) clone per nested read — both invisible to every correctness
+test. A linear rendering is specified so the third one is not found the same way.
+
+**Alternatives considered.** *Return `String` and join.* Simpler to read and allocates once per
+element plus once per join, which is the shape of the two defects already found this way.
 
 ## Risks / Trade-offs
 
