@@ -246,16 +246,16 @@ only when the generated body saves more than that conversion costs.
 <!-- benchmark:summary -->
 | workload | compiled | interpreted | speedup |
 | --- | ---: | ---: | ---: |
-| `arithmetic.collatz_length (Rust behavior)` | 0.18us | 4.73us | **26.3x** |
-| `arithmetic.collatz_length` | 0.19us | 4.72us | **24.8x** |
-| `dynamic.knapsack` | 9.42us | 183.70us | **19.5x** |
+| `dynamic.knapsack` | 10.25us | 214.32us | **20.9x** |
+| `arithmetic.collatz_length` | 0.24us | 4.11us | **16.9x** |
+| `arithmetic.collatz_length (Rust behavior)` | 0.25us | 4.09us | **16.2x** |
 | … | | | |
-| `text.total_length` | 10.91us | 6.16us | **0.6x** |
-| `text.word_count!` | 25.35us | 12.75us | **0.5x** |
-| `sorting.binary_search` | 2.12us | 0.42us | **0.2x** |
-| `reference (never compiled)` | 28.12us | 30.18us | not resolvable |
+| `text.total_length` | 13.40us | 9.59us | **0.7x** |
+| `text.word_count` | 24.58us | 16.46us | **0.7x** |
+| `sorting.binary_search` | 2.60us | 0.55us | **0.2x** |
+| `reference (never compiled)` | 32.82us | 30.73us | not resolvable |
 
-_scale 1 — measured on Darwin arm64, Python 3.14.0, 2026-08-26._
+_scale 1 — measured on Linux x86_64, Python 3.12.14, 2026-08-29._
 <!-- /benchmark:summary -->
 
 The `reference` row is never compiled, so its ratio is what "no difference" looks like on the
