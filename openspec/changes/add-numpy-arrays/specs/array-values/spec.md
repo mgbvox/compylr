@@ -10,49 +10,72 @@ the caller's buffer rather than a copy of it.
 
 An array type SHALL carry the storage of its elements and its rank, both declared in the source.
 Rank SHALL be part of the type rather than discovered at runtime. An annotation that does not
-declare both SHALL be rejected with a located diagnostic naming the accepted spelling.
+declare both SHALL be rejected with a located diagnostic naming the accepted spelling, for the
+reason [`bare_list_annotation.py`](../../../../../frontends/python/fixtures/rejected/bare_list_annotation.py)
+is refused: a fact that is not written down is not a type compylr can use.
 
 #### Scenario: A ranked annotation is accepted
 
-- **WHEN** lowering a parameter annotated as an array of a supported storage with a declared rank
-- **THEN** lowering succeeds and the parameter's type carries both
+- **GIVEN** a function whose signature is
 
-#### Scenario: An unranked annotation is refused
+  ```python
+  def dot(a: compylr.Array1[np.float64], b: compylr.Array1[np.float64]) -> float: ...
+  ```
 
-- **WHEN** lowering a parameter annotated as an array without a declared rank
-- **THEN** lowering fails with a located diagnostic naming the ranked spelling, for the reason a
-  bare sequence annotation is refused: a rank that is not written down is not a type
+- **WHEN** the function is lowered by the `python` frontend
+- **THEN** lowering succeeds
+- **AND** each parameter's type carries both storage and rank
+
+#### Scenario Outline: An annotation missing a declared fact is refused
+
+- **GIVEN** a parameter annotated `<annotation>`
+- **WHEN** the function is lowered by the `python` frontend
+- **THEN** lowering fails with a located diagnostic naming <names>
+
+**Examples:**
+
+| annotation             | names                                          |
+| ---------------------- | ---------------------------------------------- |
+| `np.ndarray`           | the ranked spelling, and the missing storage    |
+| `NDArray[np.float64]`  | the ranked spelling                             |
 
 #### Scenario: An unsupported storage is refused as planned
 
-- **WHEN** lowering an array annotated with a storage outside the supported set
-- **THEN** lowering fails with a located diagnostic reporting that storage as planned, distinct from
-  reporting the annotation as unknown
+- **GIVEN** a parameter annotated as an array of a storage outside the supported set, such as
+  `np.float32`
+- **WHEN** the function is lowered by the `python` frontend
+- **THEN** lowering fails with a located diagnostic reporting that storage as planned
+- **BUT** it does not report the annotation as unknown
 
 #### Scenario: Two ranks are two types
 
-- **WHEN** an array of rank one and an array of rank two over the same storage are compared
-- **THEN** they are different types, and passing one where the other is declared is refused
+- **GIVEN** an array of rank one and an array of rank two over the same storage
+- **WHEN** one is passed where the other is declared
+- **THEN** lowering fails, because they are different types
 
 ### Requirement: Reading an element yields a scalar of the existing model
 
 Reading an array element SHALL yield a value of the existing integer or floating-point type
 according to the array's storage, so that the array type introduces no new scalar type and no new
-integer width into the model.
+integer width into [`Ty`](../../../../../crates/compylr-ir/src/ir.rs#L103).
 
-#### Scenario: A floating-point element reads as a float
+#### Scenario Outline: An element reads as the model's own scalar
 
-- **WHEN** an element of a floating-point array is read
-- **THEN** its type is the model's floating-point type
+- **GIVEN** an array whose storage is <storage>
+- **WHEN** one of its elements is read
+- **THEN** the read's type is the model's <scalar> type
 
-#### Scenario: An integer element reads as an integer
+**Examples:**
 
-- **WHEN** an element of an integer array is read
-- **THEN** its type is the model's integer type
+| storage   | scalar         |
+| --------- | -------------- |
+| `float64` | floating-point |
+| `int64`   | integer        |
 
 #### Scenario: An element participates in ordinary arithmetic
 
-- **WHEN** an element read is combined with another numeric expression
+- **GIVEN** an element read from an array
+- **WHEN** it is combined with another numeric expression
 - **THEN** the existing operator type rules and numeric promotion apply unchanged
 
 ### Requirement: Indexing names one element per rank
@@ -61,31 +84,38 @@ Indexing an array SHALL supply exactly one index per rank and SHALL yield an ele
 fewer indices than the rank SHALL be refused, because the result would be a view that outlives the
 expression. The declared index origin and checking mode SHALL apply as they do for a sequence.
 
-#### Scenario: A rank-one array is indexed by one index
+#### Scenario Outline: A full index yields an element
 
-- **WHEN** an element of a rank-one array is read with a single index
+- **GIVEN** an array of rank <rank>
+- **WHEN** it is subscripted with <indices> in one subscript
 - **THEN** the read succeeds and yields an element
 
-#### Scenario: A rank-two array is indexed by two indices
+**Examples:**
 
-- **WHEN** an element of a rank-two array is read with two indices in one subscript
-- **THEN** the read succeeds and yields an element
+| rank | indices     |
+| ---- | ----------- |
+| 1    | one index   |
+| 2    | two indices |
 
 #### Scenario: Partial indexing is refused
 
-- **WHEN** a rank-two array is subscripted with a single index
+- **GIVEN** a rank-two array subscripted with a single index
+- **WHEN** the function is lowered by the `python` frontend
 - **THEN** lowering fails with a located diagnostic explaining that every index must be supplied,
   because a partial index would produce a view
 
 #### Scenario: A negative index resolves by the declared origin
 
-- **WHEN** an array is indexed with a negative offset
+- **GIVEN** an array indexed with a negative offset
+- **WHEN** the unit is compiled and run
 - **THEN** it resolves according to the declared index origin, as a sequence does
 
 #### Scenario: An out-of-range index honours the declared checking mode
 
-- **WHEN** an array is indexed outside its extent under a reported checking mode
-- **THEN** the failure is recoverable and carries a located message, rather than aborting
+- **GIVEN** an array indexed outside its extent under the reported checking mode
+- **WHEN** the compiled function runs
+- **THEN** the failure is recoverable and carries a located message
+- **BUT** it does not abort
 
 ### Requirement: An array parameter is a view over the caller's buffer
 
@@ -95,78 +125,96 @@ caller after the call returns.
 
 #### Scenario: No copy is made at the boundary
 
-- **WHEN** a compiled function is called with an array of any size
+- **GIVEN** a compiled function taking an array parameter
+- **WHEN** it is called with arrays of increasing size
 - **THEN** the time taken before the body runs does not grow with the number of elements
 
 #### Scenario: A write is visible to the caller
 
-- **WHEN** a compiled function writes to an element of a mutably bound array parameter
-- **THEN** the caller observes the new value in its own array after the call
+- **GIVEN** a compiled function that writes to an element of a mutably bound array parameter
+- **WHEN** the caller calls it and then reads its own array
+- **THEN** the caller observes the new value
 
 #### Scenario: A read-only parameter does not permit writing
 
-- **WHEN** a function only reads an array parameter
-- **THEN** the parameter is bound as a shared view, and the emitted code cannot write through it
+- **GIVEN** a function that only reads an array parameter
+- **WHEN** the unit is lowered and emitted
+- **THEN** the parameter is bound as a shared view
+- **AND** the emitted code cannot write through it
 
 #### Scenario: A strided array stays a view
 
-- **WHEN** a compiled function is called with a non-contiguous array, such as a strided slice
-- **THEN** it is bound as a strided view and is still not copied
+- **GIVEN** a non-contiguous array, such as a strided slice
+- **WHEN** a compiled function is called with it
+- **THEN** it is bound as a strided view
+- **BUT** it is still not copied
 
 #### Scenario: The contrast with collections holds
 
-- **WHEN** a function declares both a sequence parameter and an array parameter and mutates each
-- **THEN** mutating the sequence parameter is refused as it is today, and mutating the array
-  parameter is accepted and observed by the caller
+- **GIVEN** a function declaring both a sequence parameter and an array parameter, mutating each
+- **WHEN** the function is lowered
+- **THEN** mutating the sequence parameter is refused as it is today
+- **BUT** mutating the array parameter is accepted and observed by the caller
 
 ### Requirement: Overlapping mutable array parameters are refused
 
 Where a function takes more than one array parameter and at least one is mutably bound, the call
-SHALL be refused when two of those parameters refer to overlapping memory.
+SHALL be refused when two of those parameters refer to overlapping memory. Two Rust references to
+one buffer with one mutable is undefined behavior rather than a wrong answer, and nothing in the
+type system catches it.
 
 #### Scenario: The same array passed twice is refused
 
-- **WHEN** a compiled function taking two array parameters, one mutably bound, is called with the
-  same array for both
-- **THEN** the call raises an error naming the overlap, and no compiled code runs
+- **GIVEN** a compiled function taking two array parameters, one mutably bound
+- **WHEN** it is called with the same array for both
+- **THEN** the call raises an error naming the overlap
+- **AND** no compiled code runs
 
 #### Scenario: Overlapping views are refused
 
-- **WHEN** two parameters are different views over overlapping regions of one buffer and one is
+- **GIVEN** two parameters that are different views over overlapping regions of one buffer, one
   mutably bound
+- **WHEN** the function is called
 - **THEN** the call raises an error naming the overlap
 
 #### Scenario: Distinct arrays are accepted
 
-- **WHEN** two array parameters refer to separate buffers
+- **GIVEN** two array parameters referring to separate buffers
+- **WHEN** the function is called
 - **THEN** the call proceeds
 
 #### Scenario: Shared-only parameters do not need the check
 
-- **WHEN** every array parameter is bound as a shared view
-- **THEN** passing the same array for several parameters is accepted
+- **GIVEN** a function every one of whose array parameters is bound as a shared view
+- **WHEN** it is called with the same array for several parameters
+- **THEN** the call is accepted
 
 ### Requirement: An array may not be returned or constructed
 
 Returning an array, constructing one, or storing one SHALL be refused with a located diagnostic
-naming the capability as not yet supported. A function taking array parameters MAY return a scalar.
+naming the capability as not yet supported. A function taking array parameters MAY return a scalar,
+and in-place output through a mutably bound parameter is the supported idiom.
 
 #### Scenario: Returning an array is refused
 
-- **WHEN** lowering a function declaring an array return type
+- **GIVEN** a function declaring an array return type
+- **WHEN** the function is lowered by the `python` frontend
 - **THEN** lowering fails with a located diagnostic naming array creation as not yet supported
 
 #### Scenario: Storing an array is refused
 
-- **WHEN** lowering an assignment of an array parameter to an attribute or a collection
+- **GIVEN** an assignment of an array parameter to an attribute or a collection
+- **WHEN** the unit is lowered
 - **THEN** lowering fails, because the view would outlive the call
 
 #### Scenario: A scalar return is accepted
 
-- **WHEN** lowering a function that reduces an array parameter to a scalar
+- **GIVEN** a function that reduces an array parameter to a scalar
+- **WHEN** the function is lowered by the `python` frontend
 - **THEN** lowering succeeds
 
 #### Scenario: In-place output is the supported idiom
 
-- **WHEN** a function writes its results into a mutably bound array parameter
+- **GIVEN** a function that writes its results into a mutably bound array parameter
+- **WHEN** the caller calls it
 - **THEN** lowering succeeds and the caller observes the results

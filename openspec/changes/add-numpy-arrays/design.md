@@ -12,7 +12,8 @@ Constraints:
   array parameter is decided by the same analysis.
 * Collections cross by value and may not be mutated. Arrays deliberately do not follow that rule,
   and the difference must be explained where a user meets it.
-* `Ty` has one integer type and one float type, by deliberate choice.
+* [`Ty`](../../../crates/compylr-ir/src/ir.rs#L103) has one integer type and one float type, by
+  deliberate choice.
 * Emission is a pure function of the unit; anything about the caller's memory is bridge work.
 
 ## Goals / Non-Goals
@@ -35,92 +36,193 @@ Constraints:
 
 ## Decisions
 
-### Rank is part of the type, and must be written down
+### 1. An array is a new `Ty` carrying storage and rank
 
-Indexing, the shape tuple's length, and the emitted view type all depend on the rank. Discovering it
-at runtime would mean the emitted signature could not be chosen, so it is declared.
+**Decision.** Add a variant to `Ty` in which both facts are static:
 
-`np.ndarray` alone carries neither storage nor rank, and `NDArray[np.float64]` carries storage only.
-So the accepted spelling is a compylr-provided ranked alias. This is not a new principle: the
-corpus already refuses a bare `list` annotation, because "an element type that is not written down
-is not a type compylr can use." Rank is the same kind of missing fact.
+```rust
+// before — every aggregate type carries an element type and nothing else
+List(Box<Ty>), Dict(Box<Ty>, Box<Ty>), Set(Box<Ty>), Tuple(Vec<Ty>),
+// after — an array also carries how many axes it has, because indexing depends on it
+Array { storage: Storage, rank: u8 },
 
-*Alternative considered: dynamic rank everywhere.* A dynamically-ranked view compiles, but then
+pub enum Storage { Float64, Int64 }
+```
+
+**Why.** Indexing, the shape tuple's length, and the emitted view type all depend on the rank.
+Discovering it at runtime would mean the emitted signature could not be chosen, so it is declared.
+
+**Alternatives considered.** *Dynamic rank everywhere.* A dynamically-ranked view compiles, but then
 `a[i, j]` cannot be checked at lowering, the shape tuple has no length, and every index costs a
 runtime rank check. The subset's premise is mandatory annotations; this is where that premise pays.
+*Reuse `List` with a marker.* Then every rule written for a by-value collection would silently apply
+to a view, including the mutation rule that this change deliberately reverses.
 
-### Storage is a property of the buffer; reads widen
+#### The IR, in both faces
 
-The IR has one integer type and one float type on purpose. Adding `float32` as a *scalar* type
-would introduce widths into a model that deliberately has none, and every backend and every
-operator rule would have to answer for them.
+The definition delta is above. The value, for the worked example's `dot`, as the JSON `--emit ir`
+writes. The envelope is real output from the tip of this branch; the `Array` type and the `passing`
+field are `expected`:
 
-So storage describes the buffer only, and reading an element yields the model's `Int` or `Float` —
-which is also exactly what CPython does when you read a numpy scalar into Python. The array type
-gets to be new without the scalar model changing.
+```json
+{
+  "version": 6,
+  "functions": [
+    {
+      "name": "dot",
+      "params": [
+        { "name": "a", "ty": { "Array": { "storage": "Float64", "rank": 1 } }, "passing": "Shared" },
+        { "name": "b", "ty": { "Array": { "storage": "Float64", "rank": 1 } }, "passing": "Shared" }
+      ],
+      "ret": "Float"
+    },
+    {
+      "name": "scale",
+      "params": [
+        { "name": "values", "ty": { "Array": { "storage": "Float64", "rank": 1 } },
+          "passing": "Mutable" },
+        { "name": "factor", "ty": "Float", "passing": "Owned" }
+      ],
+      "ret": "None"
+    }
+  ],
+  "origin": { "frontend": "python", "requires": ["IntegerOverflowReported", "FloatOrderPreserved"] }
+}
+```
 
-Restricting storage to `float64` and `int64` here follows from the same reasoning: with those two,
-a read is a widening of nothing and a write needs no narrowing rule. Adding `float32` means
-answering what writing an out-of-range value into a narrower cell means, which is a genuine
-semantic question and not one this change must answer to eliminate the copy.
+The five questions:
 
-### Mutation is visible to the caller, and the contrast is documented at the diagnostic
+- **Neutrality.** `Storage` names a buffer element width, not numpy's dtype and not Rust's `f64`.
+  `ArrayView1` appears only in [`rust.rs`](../../../crates/compylr-backend-rust/src/rust.rs), and
+  the numpy spelling only in the frontend's
+  [`spelling.rs`](../../../crates/compylr-frontend-python/src/spelling.rs). Nothing named `numpy`
+  reaches `compylr-ir`, which is what keeps
+  [`crate_boundaries.rs`](../../../crates/compylr-host-python/tests/crate_boundaries.rs) true.
+- **Mode or form?** A new **type**, which is the third answer the mode-or-form question admits. An
+  array is not a differently-checked list and not a differently-shaped operation: it has its own
+  representation, its own mutation rule, and its own boundary behavior. Rank and storage within it
+  are *modes* on that type, for the same reason a checking mode is a mode.
+- **Format version.** [`ARTIFACT_VERSION`](../../../crates/compylr-ir/src/ir.rs#L58) advances. This
+  change is last in the chain, so it takes the number after `add-borrowed-parameters`.
+- **Fingerprint.** [`Unit::fingerprint`](../../../crates/compylr-ir/src/ir.rs#L1299) must cover
+  storage and rank. Both change the emitted signature, so both are on the covered side of the
+  pre-pass line.
+- **Coverage.** A new `Ty` trips
+  [`demo_coverage.rs`](../../../crates/compylr-host-python/tests/demo_coverage.rs), which reads the
+  IR's enum definitions and fails when a type appears that the demo's tables do not list. Paid with
+  an array algorithm in the demo — which the change wants anyway, since the demo is where the
+  copy-elimination claim gets measured.
 
-This is the change's most surprising rule, because it contradicts the collections rule a user has
-already learned. The justification is representational, not a preference: a `list[int]` parameter is
-converted element by element into a Rust `Vec`, so a mutation could not be observed; an array
-parameter is a *view onto the caller's memory*, so a mutation is observed by construction.
+### 2. Storage is a property of the buffer; reads widen
 
-That is the same distinction the codebase already draws between a collection and an *instance* —
-"a collection parameter crosses by value and may not be mutated; an instance is not converted at
-all". Arrays join instances on the second side.
+**Decision.** Reading an element yields the model's existing scalar type:
 
-Because a rule that contradicts another rule is where users lose confidence, the *existing*
-diagnostic on a mutated collection parameter is extended to name the contrast. CLAUDE.md's standard
-applies: "a rule without its reason leaves the user no workaround."
+```python
+a: compylr.Array1[np.float64]
+x = a[0]          # x is `float` — the model's Float, not a width
+```
 
-### Strided views, not enforced contiguity
+**Why.** The IR has one integer type and one float type on purpose. Adding `float32` as a *scalar*
+type would introduce widths into a model that deliberately has none, and every backend and every
+operator rule would have to answer for them. Storage describes the buffer only, and a read yields
+`Int` or `Float` — which is also exactly what CPython does when you read a numpy scalar into Python.
+Restricting storage to `float64` and `int64` here follows from the same reasoning: with those two, a
+read is a widening of nothing and a write needs no narrowing rule.
 
-Requiring C-contiguity would be simpler to emit and would silently copy exactly the arrays people
-slice — `a[::2]`, a column of a matrix, a transposed view. Since the whole point is not copying,
-supporting strided views is the requirement rather than an optimization. Rust's array views are
-strided already, so this costs a view type, not an algorithm.
+**Alternatives considered.** *Add `float32` now.* It means answering what writing an out-of-range
+value into a narrower cell means — a genuine semantic question, and not one this change must answer
+to eliminate the copy.
 
-### Aliasing is checked at the boundary, and it is a safety requirement
+### 3. Mutation is visible to the caller, and the contrast is documented at the diagnostic
 
-`f(a, a)` with one parameter mutably bound produces two Rust references to one buffer, one mutable.
-That is **undefined behavior**, not a wrong answer — the compiler is entitled to assume it cannot
-happen, and the symptom would be a miscompilation that appears under optimization and not under
-debug.
+**Decision.** The existing collection diagnostic is extended to name the neighbouring rule:
 
-Nothing in the type system catches it, because both arguments are well-typed. So the bridge
-compares the arguments' memory ranges before running compiled code and raises on overlap. The check
+```text
+error: 4:9: 'values' is a parameter, and a collection parameter is a copy — this mutation could not
+be observed by the caller. Build a local collection and return it instead
+                                                    ^ extended to add: an array parameter is a view
+                                                      over the caller's buffer and may be mutated
+```
+
+**Why.** This is the change's most surprising rule, because it contradicts the collections rule a
+user has already learned. The justification is representational, not a preference: a `list[int]`
+parameter is converted element by element into a Rust `Vec`, so a mutation could not be observed; an
+array parameter is a *view onto the caller's memory*, so a mutation is observed by construction.
+That is the same distinction the codebase already draws between a collection and an *instance*.
+Arrays join instances on the second side. Because a rule that contradicts another rule is where
+users lose confidence, the explanation is put where they meet it —
+[`CLAUDE.md`](../../../CLAUDE.md)'s standard: "a rule without its reason leaves the user no
+workaround."
+
+**Alternatives considered.** *Make arrays copy, for consistency with collections.* Consistent and
+pointless: the copy is the entire cost this change exists to remove.
+
+### 4. Strided views, not enforced contiguity
+
+**Decision.** The emitted view type is the strided one:
+
+```rust
+ArrayView1<f64>      // strided, so a[::2] and a matrix column stay zero-copy
+```
+
+**Why.** Requiring C-contiguity would be simpler to emit and would silently copy exactly the arrays
+people slice — `a[::2]`, a column of a matrix, a transposed view. Since the whole point is not
+copying, supporting strided views is the requirement rather than an optimization. Rust's array views
+are strided already, so this costs a view type, not an algorithm.
+
+**Alternatives considered.** *Require contiguity and copy otherwise.* The failure is silent and hits
+precisely the users who know what a view is.
+
+### 5. Aliasing is checked at the boundary, and it is a safety requirement
+
+**Decision.** The bridge compares memory ranges before compiled code runs:
+
+```python
+scale_both(v, v)   # RuntimeError: array arguments overlap, and one is mutated
+```
+
+**Why.** `f(a, a)` with one parameter mutably bound produces two Rust references to one buffer, one
+mutable. That is **undefined behavior**, not a wrong answer — the compiler is entitled to assume it
+cannot happen, and the symptom would be a miscompilation that appears under optimization and not
+under debug. Nothing in the type system catches it, because both arguments are well-typed. The check
 runs only when it can matter — more than one array parameter, at least one mutable — so the common
 single-array call pays nothing.
 
-*Alternative considered: copy on overlap.* Silently copying would make a call that looks zero-copy
-occasionally not be, with no way for the user to know which. Refusing is louder and honest.
+**Alternatives considered.** *Copy on overlap.* Silently copying would make a call that looks
+zero-copy occasionally not be, with no way for the user to know which. *Trust the user.* The failure
+mode is undefined behavior in generated code, which is the single worst outcome this repository's
+design principles are organized against.
 
-*Alternative considered: trust the user.* The failure mode is undefined behavior in generated code,
-which is the single worst outcome this repository's design principles are organized against.
+### 6. Arrays are parameters only, in this change
 
-### Arrays are parameters only, in this change
+**Decision.** An array-typed return is refused, naming the deferred capability. A scoping decision
+with no type of its own.
 
-Returning an array requires creating one, which requires array creation operations, an owned array
-type crossing back to the host, and a decision about who owns the allocation. That is a coherent
-follow-on change.
+**Why.** Returning an array requires creating one, which requires array creation operations, an
+owned array type crossing back to the host, and a decision about who owns the allocation. That is a
+coherent follow-on change. Not having it is less limiting than it sounds, because in-place output
+through a parameter is numpy's own idiom — `out=` exists throughout numpy's own API — and reductions
+to scalars return normally.
 
-Not having it is less limiting than it sounds, because in-place output through a parameter is
-numpy's own idiom — `out=` exists throughout numpy's own API — and reductions to scalars return
-normally. The diagnostic names the deferred capability so a user knows it is coming rather than
-absent by design.
+**Alternatives considered.** *Ship creation in this change.* It doubles the surface and puts the
+ownership question for a heap allocation next to the ownership question for a borrow.
 
-### Partial indexing is refused
+### 7. Partial indexing is refused
 
-`a[i]` on a rank-two array yields a row *view* in numpy. A view is a borrow that would outlive the
-expression, which is the escaping case `add-borrowed-parameters` establishes. `a[i, j]` is required
-instead. This also removes a trap: in numpy `a[i][j]` and `a[i, j]` differ in cost, and refusing the
-first means nobody writes the slow one by accident.
+**Decision.** `a[i, j]` is required on a rank-two array; `a[i]` is refused.
+
+```python
+a[i, j]     # accepted
+a[i]        # error on a rank-2 array: a partial index yields a view, which cannot escape
+```
+
+**Why.** `a[i]` on a rank-two array yields a row *view* in numpy. A view is a borrow that would
+outlive the expression, which is the escaping case `add-borrowed-parameters` establishes. This also
+removes a trap: in numpy `a[i][j]` and `a[i, j]` differ in cost, and refusing the first means nobody
+writes the slow one by accident.
+
+**Alternatives considered.** *Materialize the row.* It is a copy, in the change whose purpose is
+removing copies.
 
 ## Risks / Trade-offs
 
