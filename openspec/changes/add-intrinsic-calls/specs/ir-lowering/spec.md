@@ -25,19 +25,33 @@ exception is a leading docstring, defined in "Docstrings are accepted and carry 
 
 #### Scenario: An import of a supported module is accepted
 
-- **WHEN** lowering a source containing an import of a supported module, with or without an alias
-- **THEN** lowering succeeds and the module name is available as a namespace in every function body
-  of that source
+- **GIVEN** a source whose first statement is
+
+  ```python
+  import math
+  ```
+
+- **WHEN** the source is lowered by the `python` frontend
+- **THEN** lowering succeeds
+- **AND** the module name is available as a namespace in every function body of that source
 
 #### Scenario: Import is rejected
 
-- **WHEN** lowering a source containing an import of a module the registry does not support
-- **THEN** lowering fails with a located diagnostic naming the module and listing the supported
-  ones, so the construct that was refused outright is now refused only where it cannot be honoured
+- **GIVEN** a source importing a module the registry does not support
+- **WHEN** the source is lowered by the `python` frontend
+- **THEN** lowering fails with a located diagnostic naming the module
+- **AND** the diagnostic lists the supported modules, so the construct that was refused outright is
+  now refused only where it cannot be honoured
 
 #### Scenario: A from-import is rejected
 
-- **WHEN** lowering a source containing `from math import sqrt`
+- **GIVEN** a source containing
+
+  ```python
+  from math import sqrt
+  ```
+
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** lowering fails with a located diagnostic naming the supported import form, because a
   bare name in the body cannot be distinguished from a function defined in the same source
 
@@ -65,7 +79,9 @@ exception is a leading docstring, defined in "Docstrings are accepted and carry 
 
 #### Scenario: Exponentiation stays rejected even though a power operation exists
 
-- **WHEN** lowering an expression using `**`
+- **GIVEN** a source whose body contains `2 ** 10`
+- **AND** a registry that supports `math.pow`
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** lowering fails, because `math.pow` always yields a float and is a different operation
   from Python's integer-preserving `**`
 
@@ -87,37 +103,56 @@ exception is a leading docstring, defined in "Docstrings are accepted and carry 
 Lowering SHALL treat an imported module name as a namespace usable only as the receiver of an
 attribute access. A module name SHALL NOT be bound to a local, passed as an argument, returned,
 stored in a collection or attribute, or compared. Each such use SHALL be a located diagnostic
-explaining that a module is not a value.
+explaining that a module is not a value. The rejection replaces the blanket refusal in
+[`lower.rs`](../../../../../crates/compylr-frontend-python/src/lower.rs#L585).
 
-#### Scenario: A module name cannot be bound
+#### Scenario Outline: A module name outside receiver position is a located diagnostic
 
-- **WHEN** lowering `m = math`
+- **GIVEN** a source that imports `math` and whose body contains `<use>`
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** lowering fails with a located diagnostic reporting that a module is not a value
 
-#### Scenario: A module name cannot be passed or returned
+**Examples:**
 
-- **WHEN** lowering a call that passes an imported module as an argument, or a `return` of one
-- **THEN** lowering fails with a located diagnostic reporting that a module is not a value
+| use              |
+| ---------------- |
+| `m = math`       |
+| `f(math)`        |
+| `return math`    |
+| `xs.append(math)`|
+| `math == math`   |
 
 #### Scenario: An alias names the same namespace
 
-- **WHEN** lowering `import math as m` and a body using `m.sqrt(x)`
+- **GIVEN** a source containing
+
+  ```python
+  import math as m
+
+
+  def root(x: float) -> float:
+      return m.sqrt(x)
+  ```
+
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** the intrinsic resolves to the same operation `math.sqrt` resolves to
 
 #### Scenario: An alias does not leak the original name
 
-- **WHEN** a source contains `import math as m` and a body using `math.sqrt(x)`
+- **GIVEN** a source containing `import math as m` and a body using `math.sqrt(x)`
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** lowering fails, because only the alias was introduced
 
 #### Scenario: A module namespace is scoped to its source
 
-- **WHEN** one source imports a module and another source in the same unit does not
-- **THEN** the second source's functions cannot use that module, and using it is an unbound-name
-  diagnostic
+- **GIVEN** a unit of two sources, only the first of which imports a module
+- **WHEN** a function in the second source uses that module
+- **THEN** lowering fails with an unbound-name diagnostic
 
 #### Scenario: An unknown attribute of a module is located
 
-- **WHEN** lowering an attribute of a supported module that the registry does not list
+- **GIVEN** a source that imports `math` and names an attribute the registry does not list
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** lowering fails with a located diagnostic naming the module and the attribute
 
 ### Requirement: An intrinsic call is typed from the registry
@@ -125,31 +160,40 @@ explaining that a module is not a value.
 Lowering SHALL determine an intrinsic's argument requirements and result type from the registry,
 SHALL apply the same numeric promotion it applies elsewhere, and SHALL reject a mismatch with a
 located diagnostic. An intrinsic result SHALL determine the type of a local bound to it, in the
-same way a call to a function in the same source does.
+same way a call to a function in the same source does. The checking mode SHALL come from the
+resolved behavior and never from the operation's name.
 
 #### Scenario: A binding infers its type from an intrinsic
 
-- **WHEN** lowering a local bound to an intrinsic result with no annotation
+- **GIVEN** a source whose body contains `n = math.floor(2.7)` with no annotation on `n`
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** the binding takes the result type the registry declares
+- **AND** `n` is bound at the integer type
 
 #### Scenario: An integer argument is promoted
 
-- **WHEN** lowering an operation declared over floating-point applied to an integer expression
+- **GIVEN** a source applying an operation declared over floating-point to an integer expression
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** lowering inserts the widening it inserts for any other numeric promotion
 
 #### Scenario: A mismatched argument is a located diagnostic
 
-- **WHEN** lowering an intrinsic applied to an argument of a type the signature does not accept
+- **GIVEN** a source applying an intrinsic to an argument of a type the signature does not accept
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** lowering fails with a located diagnostic naming the operation, the expected type, and
   the supplied type
 
 #### Scenario: An intrinsic result must still satisfy a declared type
 
-- **WHEN** a function declaring an integer return returns a floating-point intrinsic result
+- **GIVEN** a function declaring an integer return whose body returns a floating-point intrinsic
+  result
+- **WHEN** the source is lowered by the `python` frontend
 - **THEN** lowering fails with the existing declared-versus-inferred diagnostic
 
 #### Scenario: The checking mode comes from the resolved behavior
 
-- **WHEN** lowering a fallible intrinsic
-- **THEN** its checking mode is taken from the resolved behavior, in the same way a fallible
-  arithmetic operation's mode is, and not from the operation's name
+- **GIVEN** a source whose body contains a fallible intrinsic
+- **WHEN** the source is lowered by the `python` frontend
+- **THEN** the intrinsic's checking mode is taken from the resolved behavior, in the same way a
+  fallible arithmetic operation's mode is
+- **BUT** it is not taken from the operation's name
