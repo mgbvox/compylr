@@ -4,29 +4,38 @@
 
 The Rust backend SHALL emit each parameter according to its passing mode, and SHALL NOT infer
 ownership from the parameter's type or from whether it is mutated. A borrowed parameter SHALL NOT
-be cloned where it is read.
+be cloned where it is read. Emission SHALL read the mode as data, the way it already reads a
+checking mode rather than an operation's name.
 
-#### Scenario: An owned parameter emits an owned type
+#### Scenario Outline: Each mode emits its own spelling
 
-- **WHEN** emitting a parameter whose mode is owned
-- **THEN** the emitted signature takes the owned spelling of its type
+- **GIVEN** a parameter whose mode is <mode>
+- **WHEN** the unit is emitted for the `rust` backend
+- **THEN** the emitted signature takes <spelling>
 
-#### Scenario: A shared borrow emits a shared reference
+**Examples:**
 
-- **WHEN** emitting a parameter whose mode is a shared borrow
-- **THEN** the emitted signature takes a shared reference, and reads of it emit no clone
+| mode           | spelling                        |
+| -------------- | ------------------------------- |
+| owned          | the owned spelling of its type  |
+| shared borrow  | a shared reference              |
+| mutable borrow | a mutable reference             |
 
-#### Scenario: A mutable borrow emits a mutable reference
+#### Scenario: A shared borrow is not cloned where it is read
 
-- **WHEN** emitting a parameter whose mode is a mutable borrow
-- **THEN** the emitted signature takes a mutable reference
+- **GIVEN** a parameter whose mode is a shared borrow
+- **WHEN** the unit is emitted for the `rust` backend
+- **THEN** reads of it emit no clone
 
 #### Scenario: The mode is not re-derived
 
-- **WHEN** a parameter is never mutated but its mode is owned
-- **THEN** the emitted signature is owned, and the backend does not substitute a borrow
+- **GIVEN** a parameter that is never mutated but whose mode is owned
+- **WHEN** the unit is emitted for the `rust` backend
+- **THEN** the emitted signature is owned
+- **BUT** the backend does not substitute a borrow
 
 #### Scenario: Emitted code compiles for every shape
 
-- **WHEN** the corpus is emitted and built
-- **THEN** every generated crate compiles, including the shapes that force ownership
+- **GIVEN** the whole accepted corpus, including the shapes that force ownership
+- **WHEN** each is emitted and built
+- **THEN** every generated crate compiles
