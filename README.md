@@ -92,6 +92,7 @@ a single one-line function produced 238 lines and the translation was lines 200�
 | `semantic-behavior` | Behavior axes, how each language declares its stance, and how a request resolves |
 | `generated-code-performance` | What an optimization may not change, and how a speedup is measured and guarded |
 | `fixture-corpus` | The accepted and rejected corpora, their drivers, and CPython as the oracle |
+| `ir-diff-checker` | Comparing two frontends' IR: what divergence ignores, and the recorded score |
 
 Specs live in `openspec/specs/`; they are the authoritative description of behavior.
 
@@ -160,6 +161,22 @@ editing output.
 | `Gt` | operator | `branching.py` |
 <!-- /subset:matrix -->
 
+### What the two frontends agree on
+
+The IR is meant to be universal, so the interesting question is whether two frontends produce the
+same shape for the same program. That is measured rather than asserted. Members accepted by both
+the Python and TypeScript corpora under the same name are compared node by node, ignoring what the
+IR carries on purpose — the resolved semantic modes, source spans, and documentation — and the
+score is recorded in `crates/compylr-registry/tests/divergence.recorded`. There is no chosen
+threshold: the check recomputes and requires an exact match, so a score that rises fails, one that
+falls fails until it is recorded, and a value edited by hand fails.
+
+Fourteen members pair today and all of them score zero. Two Python programs have no counterpart,
+and both are real asymmetries rather than gaps in the corpus: the `range()` loops need a
+three-clause `for`, which the TypeScript frontend does not accept, and `halve_until_odd` reassigns
+its own parameter, which Python allows and TypeScript refuses. The recorded table names them as
+missing coverage instead of hiding them.
+
 Not built yet: `llm_assist` (accepted as a setting, refused when enabled), and the TypeScript,
 Go, and C++ backends (reserved names that fail with a message saying so).
 
@@ -176,7 +193,7 @@ Then the snippet at the top of this file works. There is also a CLI for seeing w
 compiles to, without a build:
 
 ```bash
-cargo run -p compylr-cli -- python/fixtures/accepted/inference.py
+cargo run -p compylr-cli -- frontends/python/fixtures/accepted/inference.py
 ```
 
 ```
@@ -190,9 +207,9 @@ unit fingerprint: bcddf18219a7c991
 gives you a usable file:
 
 ```bash
-cargo run -p compylr-cli -- --emit ir    python/fixtures/accepted/inference.py   # the IR, as JSON
-cargo run -p compylr-cli -- --emit rust  python/fixtures/accepted/inference.py   # just the translated code
-cargo run -p compylr-cli -- --emit crate --out ./out python/fixtures/accepted/inference.py
+cargo run -p compylr-cli -- --emit ir    frontends/python/fixtures/accepted/inference.py   # the IR, as JSON
+cargo run -p compylr-cli -- --emit rust  frontends/python/fixtures/accepted/inference.py   # just the translated code
+cargo run -p compylr-cli -- --emit crate --out ./out frontends/python/fixtures/accepted/inference.py
 ```
 
 Artifacts live in `.compylr/`, found by searching upward from the working directory for a
@@ -630,16 +647,16 @@ cargo fmt --all --check
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 pytest                                        # Python: the package and the native boundary
-ruff check python/ scripts/                   # lint
-ruff format --check python/ scripts/          # formatting
-ty check python/compylr                       # types
+ruff check frontends/python/ scripts/                   # lint
+ruff format --check frontends/python/ scripts/          # formatting
+ty check frontends/python/compylr                       # types
 ```
 
 The binary prints the unit fingerprint and each function's signature, and reports rejections
 with a `line:column` location:
 
 ```
-$ cargo run -p compylr-cli -- python/fixtures/rejected/boolean_arithmetic.py
+$ cargo run -p compylr-cli -- frontends/python/fixtures/rejected/boolean_arithmetic.py
 error: 2:12: operator '+' is not defined for 'bool' and 'bool'; booleans are not numbers in compylr
 ```
 
@@ -671,12 +688,15 @@ crates/
   compylr-host-typescript/          Node-API native addon exposing the compiler to TypeScript/Node.js
   compylr-registry/                 where implementations are registered; the one crate that knows them all
   compylr-cli/                      the `compylr` binary and its --emit surface
-python/
-  compylr/      the Python package: initialize, the decorator, the build pipeline
-  tests/        pytest suite for the package and the native boundary
-  fixtures/
-    accepted/   programs that must lower
-    rejected/   one program per rejection rule
+frontends/
+  python/
+    compylr/      the Python package: initialize, the decorator, the build pipeline
+    tests/        pytest suite for the package and the native boundary
+    fixtures/
+      accepted/   programs that must lower, each with a driver
+      rejected/   one program per rejection rule
+  typescript/
+    fixtures/     the TypeScript corpus, paired with the Python one by member name
 openspec/
   specs/        current behavior, by capability
   changes/      in-flight and archived change proposals
@@ -763,7 +783,7 @@ worth knowing about before a change surprises you. All but one live in
 
 **That a compiled function answers what the same Python answers.** CPython is the oracle: no
 expected value is written anywhere, so there is nothing for anyone to type incorrectly. Each
-accepted fixture has a *driver* in `python/fixtures/drivers/` naming the calls that exercise it,
+accepted fixture has a *driver* in `frontends/python/fixtures/drivers/` naming the calls that exercise it,
 and the same driver runs both ways.
 
 * `differential.rs` — the **translation tier**. Emits the crate, writes a `main` around it,

@@ -10,7 +10,7 @@ inputs:
   cache-dependency-path:
     description: "Path to go.sum or go.mod for caching"
     required: false
-    default: "demo-ts/.compylr/go/go.mod"
+    default: "demo/demo-ts-go/.compylr/go/go.mod"
 
 runs:
   using: composite

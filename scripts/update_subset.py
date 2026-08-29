@@ -34,7 +34,7 @@ from pathlib import Path
 from _regions import MarkerError, Region, find_region, replace_region
 
 REPO = Path(__file__).resolve().parents[1]
-ACCEPTED = REPO / "python/fixtures/accepted"
+ACCEPTED = REPO / "frontends/python/fixtures/accepted"
 
 #: The generated block this script owns.
 MATRIX = Region("matrix", REPO / "README.md", prefix="subset")

@@ -7,6 +7,7 @@
 pub mod backend;
 pub mod behavior;
 pub mod bridge;
+pub mod diff;
 pub mod folding;
 pub mod frontend;
 pub mod negotiation;
@@ -16,6 +17,7 @@ pub mod verify;
 pub use backend::{Backend, BackendError, GeneratedFiles, format_source};
 pub use behavior::{BehaviorError, BehaviorRequest, LanguagePair, resolve};
 pub use bridge::{BridgeError, BuildKey, HostArtifact, HostBridge};
+pub use diff::{Divergence, MemberDivergence, Shape, divergence, member_divergence, normalize};
 // Re-exported the way `Guarantee` is, and for the same reason: a frontend or a backend declaring
 // what its language means should name one type, not reach past this crate into the IR for it.
 pub use compylr_ir::{Axis, Behavior, Guarantee, LanguageBehavior, Stance};
