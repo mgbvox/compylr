@@ -1,31 +1,121 @@
 ## Context
 
-As described in `proposal.md`, we need to track and minimize the divergence between our existing Python and TypeScript frontends to ensure the viability of our universal IR. We must ensure that different frontends emit structurally equivalent IR for equivalent source operations, while preserving source-language semantics in the operator modes.
+Python and TypeScript already lower into the same IR, and Rust and Go already emit from it. What is
+missing is evidence that the middle is actually shared: that the two frontends produce the same
+shape for the same program, and that the shape does not depend on the target. This change builds the
+measurement and the ratchet, not the alignment work the measurement will motivate.
+
+The original framing was to minimize `D(I_xab, I_xac)` and `D(I_xab, I_xde)`. The first is not a
+minimization problem — a frontend is defined to be unaware of the target, so any nonzero value is a
+defect — and it is specified here as an invariant. The cross-language `D(I_xab, I_xde)` is the
+quantity this change tracks.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Implement an IR normalization pass that standardizes structural layout (e.g., ordering of independent locals, commutative operator ordering) without altering semantics.
-- Implement a semantic IR diff tool that computes a divergence score `D` between two normalized IR units, ignoring semantic mode differences (e.g., integer overflow behavior).
-- Enforce that `D(I_python, I_ts)` is minimized for the core feature set via the test suite.
+- A normalized comparison form that removes orderings carrying no meaning, without altering what is
+  compiled.
+- A divergence score that disregards resolved semantic modes, spans, and documentation, and reports
+  where the remaining divergence is.
+- A recorded per-pair baseline that CI refuses to let rise.
 
 **Non-Goals:**
-- Perfectly zero divergence for complex multi-statement constructs where languages fundamentally disagree on control flow paradigms (e.g., `for...of` vs Python's snapshotting `for`). We want to *minimize* D, not break execution correctness trying to force it to 0.
+- Zero divergence. Where the languages genuinely disagree on a construct, the honest outcome is a
+  recorded nonzero score, not a frontend contorted into emitting a shape that does not mean what its
+  source meant.
+- Changing the accepted subsets or the default resolved behavior. Those are the levers for lowering
+  `D`; this change only makes it visible enough to argue about them with numbers.
+- Any change to emitted code. If a build's output moves, this change is wrong.
 
 ## Decisions
 
-### 1. The Normalization Pass
-**Decision:** We will introduce a new `Canonicalize` pass in `compylr-core/src/pass.rs`. This pass will sort commutative operands (e.g., `b + a` -> `a + b` based on variable IDs), sort independent variable declarations, and normalize block structures.
-**Alternatives Considered:** Diffing directly without normalization. This was rejected because trivial structural changes (like the order variables are declared) would artificially inflate the divergence score.
+### 1. Normalization is a comparison-time view, not a pass
 
-### 2. The Semantic Diff Metric (D)
-**Decision:** `D` will be calculated by a recursive structural tree-walk over the normalized IR. It will compute a Levenshtein-like distance on node types and structural edges. Crucially, when comparing operator nodes (like `BinOp::Div`), the differ will *ignore* differences in the checking modes (e.g., `RoundingMode`) because those are required to preserve source language semantics.
-**Alternatives Considered:** A simple string/JSON diff of the IR. Rejected because it would flag expected semantic mode differences as divergence, which contradicts the core design principles of `compylr`.
+**Decision:** Normalization lives with the differ, over in the language-neutral middle end, and is
+applied to a copy on the way into a comparison. It is not registered in the pass pipeline and the
+`ir-optimization` capability is untouched.
 
-### 3. CI Integration
-**Decision:** We will add a new test tier to `tests/conformance.rs` (or create `tests/divergence.rs`) that runs both frontends on equivalent `fixtures/accepted/` files, normalizes the IR, calculates `D`, and fails if `D > threshold`.
+**Why:** Two independent reasons, either sufficient. First, a pass runs on the way to a backend, so
+putting it there would change the code every user compiles in order to serve a metric. Second,
+`ir-optimization` already requires that *a pass preserves observable behavior*, and reordering
+commutative operands does not: `Expr::Binary` takes arbitrary operands, so `f() + g()` is
+representable and swapping it changes evaluation order. As a comparison-time view neither problem
+arises.
+
+**Alternatives considered:** A real `Canonicalize` pass in the pipeline, with the reordering
+restricted to side-effect-free operands. Rejected: the restriction would be needed anyway (see
+below), and the pass would still be rewriting user programs for the benefit of a measurement.
+
+### 2. The side-effect restriction survives the move
+
+**Decision:** Even at comparison time, operand order is normalized only where both operands are free
+of side effects.
+
+**Why:** Here the reason is honesty rather than correctness. Python `f() + g()` and TypeScript
+`g() + f()` are different programs; normalizing them together would report agreement that is not
+there, and the whole value of `D` is that a zero means something.
+
+### 3. What `D` disregards, and why those three
+
+**Decision:** `D` is a structural comparison over normalized units that ignores resolved semantic
+modes, source spans, and documentation.
+
+**Why:** The modes are the point of the IR — Python and TypeScript *must* differ on overflow,
+division rounding, remainder sign, index origin, and text length units, because each preserves what
+its source meant, and a differ that counted those would be measuring the languages rather than the
+frontends. Spans are positions in two different files and would make every pair diverge in every
+node, so a differ that counted them would report a large constant and never reach zero. Documentation
+carries no runtime meaning. Note that `Function::fingerprint` already excludes spans and docstrings
+for the same reason; the differ states the same exclusions rather than inventing its own.
+
+**Alternatives considered:** A JSON or text diff of the serialized IR. Rejected on all three counts
+at once — it would count modes, spans, and prose as divergence, and its score would be dominated by
+noise.
+
+### 4. A recorded baseline, not a threshold
+
+**Decision:** Every pair's score is recorded in a generated table in the repository, regenerated by
+a script with a `--check` mode that CI runs. A score above its recorded value fails; lowering one
+means regenerating the table.
+
+**Why:** This is the "track progress and repeat" half of the request, and a bare constant would not
+provide it — a single threshold says nothing about which pair got worse, and the number would be
+invented rather than measured. The repository already has exactly this pattern in
+`scripts/update_benchmarks.py` and `scripts/update_subset.py`, both sharing `scripts/_regions.py`
+and both generating a marked block in `README.md`; a third generated block follows the convention,
+is enforced by the same kind of `--check`, and doubles as an honest public statement of how
+universal the IR currently is.
+
+**Alternatives considered:** Asserting `D == 0` on every pair. Rejected as unachievable today: it
+would fail on all five existing pairs and block the branch behind the alignment work this change
+exists to motivate.
+
+### 5. Where the cross-language test lives
+
+**Decision:** In `compylr-registry`.
+
+**Why:** Measuring a pair needs both frontends in one process. The existing corpus tests live in
+`compylr-host-python`, which does not depend on `compylr-frontend-typescript` — and adding that edge
+is precisely what `crate_boundaries.rs` exists to refuse. `compylr-registry` is documented as the one
+crate allowed to know every frontend, backend, and bridge at once, so a test needing two frontends
+belongs there and nowhere else.
+
+### 6. Pairing is by name
+
+**Decision:** A fixture pair is two accepted fixtures with the same stem in two frontends' corpora.
+
+**Why:** The convention already holds — `arithmetic`, `branching`, `classes`, `collections`, and
+`loops` exist in both `frontends/python/fixtures/accepted/` and
+`frontends/typescript/fixtures/accepted/`. A metadata file mapping them would be a second statement
+of a fact the filenames already carry, free to drift from them.
 
 ## Risks / Trade-offs
 
-- **Risk:** The normalization pass might be too aggressive and mask real structural bugs. → *Mitigation:* Ensure normalization rules are strictly commutative and identity-preserving, validated by execution tests.
-- **Risk:** Forcing identical IR structures might cause a frontend to adopt non-idiomatic behaviors. → *Mitigation:* We will rely on execution tests to prove that semantics are preserved. If identical IR breaks execution, we accept the higher divergence score `D` for that construct.
+- **Normalization masks a real difference.** → Restricted to orderings that carry no meaning, and
+  refused entirely where an operand can have an effect.
+- **The ratchet becomes something people route around.** Regenerating the table is how a score goes
+  down, and it is also how someone hides a score going up. → The check recomputes rather than trusts,
+  so a hand-edited table fails; a regenerated one shows up as a diff in review.
+- **Chasing `D` distorts a frontend.** Forcing a shape that does not mean what the source meant would
+  lower the score and break the program. → The corpus oracles stay authoritative: a change that
+  lowers `D` while any fixture stops agreeing with its oracle is a regression.
