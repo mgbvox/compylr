@@ -65,7 +65,13 @@ the existing guarantee that reformatting costs nothing.
 
 #### Scenario: An effectful intrinsic statement is accepted
 
-- **WHEN** lowering a body statement consisting of an effectful intrinsic call
+- **GIVEN** a function whose body contains
+
+  ```python
+  print(label, total)
+  ```
+
+- **WHEN** the function is lowered by the `python` frontend
 - **THEN** lowering succeeds and produces an effect statement, because the operation declares no
   result and so discards nothing
 
@@ -77,40 +83,49 @@ Lowering SHALL accept an output operation applied to any number of positional ar
 have a defined rendering, and SHALL reject an argument whose type does not, naming the type and the
 reason. A mapping or a set SHALL be rejected because its iteration order is not guaranteed.
 
-#### Scenario: Scalars and ordered containers are accepted
+#### Scenario Outline: A type with a defined rendering is accepted
 
-- **WHEN** lowering an output of an integer, float, boolean, string, sequence, or tuple
+- **GIVEN** a function whose body prints a value of type <type>
+- **WHEN** the function is lowered by the `python` frontend
 - **THEN** lowering succeeds
 
-#### Scenario: A mapping argument is refused with its reason
+**Examples:**
 
-- **WHEN** lowering an output of a mapping
-- **THEN** lowering fails with a located diagnostic naming the unspecified iteration order
+| type     |
+| -------- |
+| `int`    |
+| `float`  |
+| `bool`   |
+| `str`    |
+| `list`   |
+| `tuple`  |
 
-#### Scenario: A set argument is refused with its reason
+#### Scenario Outline: A type with no agreed rendering is refused with its reason
 
-- **WHEN** lowering an output of a set
-- **THEN** lowering fails with a located diagnostic naming the unspecified iteration order
+- **GIVEN** a function whose body prints a value of type <type>
+- **WHEN** the function is lowered by the `python` frontend
+- **THEN** lowering fails with a located diagnostic naming <reason>
 
-#### Scenario: A nested unordered container is refused
+**Examples:**
 
-- **WHEN** lowering an output of a sequence whose element type is a mapping or a set
-- **THEN** lowering fails, because rendering the sequence would render its unordered elements
-
-#### Scenario: An instance argument is refused
-
-- **WHEN** lowering an output of a class instance
-- **THEN** lowering fails with a located diagnostic, because the subset defines no rendering for a
-  user-defined type
+| type                        | reason                                            |
+| --------------------------- | ------------------------------------------------- |
+| `dict`                      | the unspecified iteration order                   |
+| `set`                       | the unspecified iteration order                   |
+| `list[dict[str, int]]`      | the unordered element the sequence would render   |
+| a class instance            | that the subset defines no rendering for the type |
 
 #### Scenario: Keyword arguments need no new refusal
 
-- **WHEN** lowering an output call written with a keyword argument such as `sep` or `end`
-- **THEN** lowering fails through the existing rejection of keyword arguments, and no separate
-  diagnostic is added
+- **GIVEN** a function whose body contains an output call written with a keyword argument such as
+  `sep` or `end`
+- **WHEN** the function is lowered by the `python` frontend
+- **THEN** lowering fails through the existing rejection of keyword arguments
+- **BUT** no separate diagnostic is added
 
 #### Scenario: Multiple arguments are separated as the source language separates them
 
-- **WHEN** lowering an output of several positional arguments
-- **THEN** the IR carries them in order, and the rendering convention determines the separator and
-  the terminator
+- **GIVEN** a function whose body prints several positional arguments
+- **WHEN** the function is lowered by the `python` frontend
+- **THEN** the IR carries them in order
+- **AND** the rendering convention determines the separator and the terminator
