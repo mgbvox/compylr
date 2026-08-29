@@ -1,29 +1,29 @@
 ## 1. Normalized comparison form
 
-- [ ] 1.1 Add a comparison-time normalizer over an IR unit in the language-neutral middle end,
+- [x] 1.1 Add a comparison-time normalizer over an IR unit in the language-neutral middle end,
       operating on a copy — not registered in the pass pipeline.
-- [ ] 1.2 Normalize the order of independent local bindings.
-- [ ] 1.3 Normalize commutative operand order deterministically, only where both operands are free
+- [x] 1.2 Normalize the order of independent local bindings.
+- [x] 1.3 Normalize commutative operand order deterministically, only where both operands are free
       of side effects.
-- [ ] 1.4 Test that normalizing does not change the unit a backend emits from, nor its fingerprint.
-- [ ] 1.5 Test that two units differing only in a reorderable ordering normalize to the same form,
+- [x] 1.4 Test that normalizing does not change the unit a backend emits from, nor its fingerprint.
+- [x] 1.5 Test that two units differing only in a reorderable ordering normalize to the same form,
       and that `f() + g()` and `g() + f()` do not.
 
 ## 2. Divergence score
 
-- [ ] 2.1 Implement the structural comparison over normalized units, producing a score `D`.
-- [ ] 2.2 Disregard resolved semantic modes (overflow and division checking, division rounding,
+- [x] 2.1 Implement the structural comparison over normalized units, producing a score `D`.
+- [x] 2.2 Disregard resolved semantic modes (overflow and division checking, division rounding,
       remainder sign, index origin, text length units), source spans, and documentation.
-- [ ] 2.3 Report which members and which nodes account for a nonzero score, not only the number.
-- [ ] 2.4 Test `D == 0` for units differing only in modes, only in spans, and only in docstrings;
+- [x] 2.3 Report which members and which nodes account for a nonzero score, not only the number.
+- [x] 2.4 Test `D == 0` for units differing only in modes, only in spans, and only in docstrings;
       test `D > 0` for a genuine structural difference.
 - [ ] 2.5 Expose the comparison as a library API the tests and the measurement script both use.
 
 ## 3. The backend-independence invariant
 
-- [ ] 3.1 Add a test that lowers one source file with one frontend for two different backends and
+- [x] 3.1 Add a test that lowers one source file with one frontend for two different backends and
       asserts the units are identical.
-- [ ] 3.2 Fail naming the differing member and node, so a target leak reads as a located defect
+- [x] 3.2 Fail naming the differing member and node, so a target leak reads as a located defect
       rather than as a score.
 
 ## 4. Recorded cross-language divergence
