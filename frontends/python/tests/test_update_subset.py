@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 
 import update_subset  # noqa: E402
 from _regions import MarkerError, Region, find_region, replace_region  # noqa: E402

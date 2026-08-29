@@ -24,7 +24,7 @@ from conftest import needs_toolchain
 
 pytestmark = [pytest.mark.slow, needs_toolchain]
 
-DEMO = Path(__file__).resolve().parents[2] / "demo"
+DEMO = Path(__file__).resolve().parents[3] / "demo" / "demo-python-rust"
 
 
 @pytest.fixture(scope="module")

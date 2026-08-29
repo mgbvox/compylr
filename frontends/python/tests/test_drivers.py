@@ -261,7 +261,7 @@ class TestTolerance:
 
     def test_it_matches_the_tolerance_the_demo_already_uses(self) -> None:
         source = (
-            Path(__file__).resolve().parents[2] / "demo/src/algorithms/__main__.py"
+            Path(__file__).resolve().parents[3] / "demo/demo-python-rust/src/algorithms/__main__.py"
         ).read_text()
         spelled = re.search(r"rel_tol=([0-9eE.+-]+)", source)
         assert spelled is not None, "the demo must still compare floats with a tolerance"
