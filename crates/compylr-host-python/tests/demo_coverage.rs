@@ -68,8 +68,10 @@ fn variants_of(enum_name: &str) -> BTreeSet<String> {
 
 /// The entries of one tuple constant in the demo's coverage tables.
 fn table(name: &str) -> BTreeSet<String> {
-    let source = std::fs::read_to_string(repo_root().join("demo/demo-python-rust/src/algorithms/ir_coverage.py"))
-        .expect("the demo must have an ir_coverage.py");
+    let source = std::fs::read_to_string(
+        repo_root().join("demo/demo-python-rust/src/algorithms/ir_coverage.py"),
+    )
+    .expect("the demo must have an ir_coverage.py");
     let header = format!("{name} = (");
     let start = source
         .find(&header)

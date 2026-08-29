@@ -17,3 +17,7 @@ compylr-backend-rust.workspace = true
 compylr-backend-golang.workspace = true
 compylr-bridge-python-rust.workspace = true
 compylr-bridge-typescript-golang.workspace = true
+
+[dev-dependencies]
+compylr-core.workspace = true
+compylr-ir.workspace = true

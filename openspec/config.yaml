@@ -1,72 +1,150 @@
-schema: spec-driven
+schema: compylr-schema-main
 
 context: |
-  compylr transpiles a strict, fully annotated Python subset to Rust.
+  compylr transpiles a strict, fully annotated source subset to a compiled target language and
+  makes the result callable from the language it came from. Python -> Rust is the mature path;
+  TypeScript -> Go is the second one, and exists so the shared middle end has more than one
+  consumer to be honest against.
 
-  Target end state (see CLAUDE.md). The user-facing API is a configured manager:
+  ## The user-facing surface (Python host)
 
       import compylr
 
-      # Global configuration. `backend` names the transpilation target.
-      c = compylr.initialize(backend="rust", llm_assist=False)
+      # Global configuration. `backend` names the target; `behavior` names whose semantics win.
+      c = compylr.initialize(backend="rust", behavior="python", llm_assist=False)
 
-      # Per-function override of any global setting.
-      @c.compyle(backend="typescript", llm_assist=True)
-      def my_cool_fn(a: int) -> int: ...
-
-      # Bare form inherits the global settings (rust, here).
       @c.compyle
-      def other_fn(a: int) -> int: ...
+      def add(a: int, b: int) -> int:
+          return a + b
 
     - `uv add compylr` installs the package; the decorator does the rest.
-    - The decorator compiles decorated Python to the Rust BACKEND, emitting the IR and
-      Rust source as artifacts, then building the Rust into a Python extension module
-      via maturin and installing it into the project venv.
-    - Subsequent runs: the decorator swaps in the compiled implementation at runtime.
-    - ALL decorated functions in a project are exposed by ONE shared maturin crate.
-    - Adding or editing a decorated function rebuilds that one shared artifact.
+    - Marking validates the member immediately. The first *call* compiles EVERY marked member in
+      the project into ONE shared maturin crate, builds it, installs it into the venv, and swaps
+      the compiled implementations in. Adding or editing one member rebuilds that one artifact.
+    - Both intermediates are written under `.compylr/` on every build: the IR as JSON, and the
+      generated target source.
+    - `COMPYLR_DISABLE=1` (or `enabled=False`) hands back every marked member untouched, without
+      validating it. That is what makes an interpreted measurement honest.
+    - `compylr compyle <path>` precompiles ahead of the first run; `compylr-cli` is the Rust binary
+      and keeps `--emit ir|rust|crate`. Both ends are selectable there (`--frontend`, `--backend`).
+    - `llm_assist` is DECLARED BUT NOT IMPLEMENTED. The API accepts the flag and refuses enabling
+      it with a clear error, so the surface does not have to change when it lands.
 
-  Pipeline, with both intermediate artifacts written to disk for inspection:
+  ## Pipeline
 
-      source text -> ruff AST -> compylr IR -> Rust source -> maturin -> extension
+      source text --frontend--> tree --lower--> IR --verify--> passes --backend--> target source
+        --bridge--> extension
 
-  `llm_assist` is DECLARED BUT NOT IMPLEMENTED. Reserved intent: when enabled it pipes
-  the source to a user-configurable backend agent that assists translation into the IR
-  and into the target backend. The API must accept the flag and reject enabling it with
-  a clear error, so the surface does not have to change when it lands.
+  Both ends are *named components* resolved through `compylr-registry`, and there is a third: a
+  **host bridge**, keyed by the `(source, target)` PAIR. The asymmetry is deliberate — a calling
+  convention is a negotiation between two runtimes, so it belongs to neither language alone, and
+  bridges cost N x M where frontends and backends cost N + M.
 
-  Architecture constraints:
-    - Input arrives as source TEXT from inspect.getsource(fn), not as a file path.
-    - The IR is independent of both Python and any target language. Rust is the first
-      backend; Go, C++, and TypeScript should be able to consume the same IR. Concrete
-      type spellings (int -> i64, str -> String) belong to a backend capability, never
-      to the IR itself. Backend names are a registry: unimplemented targets are valid
-      names that fail with a clear error, not unknown-key errors.
-    - IR operators carry PYTHON semantics: floor division rounds toward negative
-      infinity, remainder takes the sign of the divisor, and true division always
-      yields a float. Backends must emit semantics-preserving code rather than mapping
-      to same-named native operators, which differ on negative and integer operands.
-    - Rebuild decisions key off an IR fingerprint, not source text, so comments and
-      reformatting do not trigger recompiles. Unit fingerprints are order-independent.
-    - Python reaches the compiler through a PyO3 extension module built from THIS crate.
-      Note the two distinct PyO3 roles: one exposes the compiler to Python, the other is
-      generated onto the user's compiled functions.
+  Today: frontends `python` and `typescript` (`go`, `cpp` reserved); backends `rust` and `go`
+  (`typescript`, `cpp` reserved); bridges `(python, rust)` and `(typescript, go)`. A reserved name
+  is a THIRD answer, distinct from an unknown one: it fails saying the language is planned. A pair
+  with a backend and no bridge is a fourth — compylr can generate it and cannot yet call it back.
 
-  Tech stack: Rust (edition 2024); ruff parser and AST vendored at vendored/ruff and
-  consumed via path dependencies. Python tooling is run with uv. PyO3 and maturin for
-  the native boundary.
+  ## Architecture constraints
 
-  Testing: TDD - write tests before implementation. Run cargo test and
-  cargo clippy -- -D warnings before committing. Target >80% coverage.
+    - The workspace is 13 crates and the root is a virtual manifest: no language's crate sits above
+      the others. Three crates name Python, each named for the JOB — a frontend that reads it
+      (`compylr-frontend-python`), a bridge that makes generated Rust callable from it
+      (`compylr-bridge-python-rust`), and a host binding that exposes the compiler to it
+      (`compylr-host-python`). The dependency edges are the enforcement mechanism rather than a
+      convention: `crates/compylr-host-python/tests/crate_boundaries.rs` reads the manifests and
+      fails when an edge appears that would let `compylr-backend-rust` name Python, or
+      `compylr-ir` name Rust.
+    - Anything added to `compylr-diagnostics` or `compylr-ir` reaches every crate in the workspace.
+      Wanting a dependency there is the signal to stop.
+    - The IR is independent of the source language AND of any target language. Concrete type
+      spellings (`int` -> `i64`) belong to a backend; how a construct is spelled BACK to the
+      programmer belongs to the frontend that read it, which is why `python_name` and
+      `python_symbol` are extension traits in `compylr-frontend-python::spelling` rather than
+      methods on the IR.
+    - IR operations carry the semantics THE RESOLVED BEHAVIOR DECLARED, not one language's by
+      default. Six axes: integer overflow, integer division, exact division, remainder, sequence
+      indexing, text length. `BinOp::Div` carries rounding and checking modes, `BinOp::Rem` a sign
+      convention and checking mode, `Expr::Subscript` an index origin and checking mode, and
+      `Expr::Len` the units text is counted in. A backend matches on the MODES, never on the
+      operation's name — reading the name would be silently wrong for the other stance.
+    - Three container behaviours deliberately have NO mode: a missing mapping key always reports,
+      mapping iteration yields keys, and string membership tests substrings. A difference in the
+      SHAPE of an operation is a distinct IR form, not a setting on one.
+    - A **guarantee** is what a source language needs preserved for a translation to still mean
+      what the source meant: overflow reported, division by zero reported, float order preserved.
+      The frontend declares what it requires, the backend what it preserves, and core refuses the
+      combination by name before any target source exists. It gates optimization passes the same
+      way: a pass that would break a required guarantee is withheld, with a reason.
+    - Rebuild decisions key off `Unit::fingerprint()` over the IR, not source text, so comments and
+      reformatting never trigger a recompile. It is taken BEFORE the optimization passes: turning a
+      pass on must not look like the user editing their code. Unit fingerprints are
+      order-independent, and the pass configuration is recorded in build state beside the
+      compiler version.
+    - Emission is a PURE FUNCTION of the unit: no I/O, no environment, no shelling out. That is
+      what makes output byte-reproducible and therefore safe to key a cache on. Formatting is
+      `Backend::post_process`, applied by whoever writes the files out.
+    - Input arrives as source TEXT (`inspect.getsource`), not as a file path.
+    - Two distinct PyO3 roles, never conflated: `compylr-host-python` LINKS PyO3 to expose the
+      compiler as `compylr._core` and is the only crate that links it;
+      `compylr-bridge-python-rust` GENERATES PyO3 code as text onto the user's functions and does
+      not itself depend on PyO3. `compylr-host-typescript` is the same role for napi-rs.
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+  ## The accepted subset, in one paragraph
+
+  Top-level `def`s and classes, fully annotated, over `int`/`float`/`bool`/`str`, `list`/`dict`/
+  `set`/`tuple`, and `None` as a return type. Recursion works, including mutual recursion. Three
+  rules are STRICTER than Python and each looks like a bug until you know why: a test must be a
+  `bool`, a block is a scope for names, and a name keeps the type it was first bound at. Mutation
+  is confined to locals and to instance attributes — collections cross the boundary by value, so a
+  mutated parameter could not be observed by the caller, while an instance is not converted at all
+  and a mutated attribute is what the caller sees next call. A function declaring a return type
+  must return one on every path. CLAUDE.md carries the full list and the reasoning; do not restate
+  it in a proposal, cite it.
+
+  ## Layout
+
+      crates/                 the 13 workspace crates
+      frontends/python/       the `compylr` package, its tests, and its fixture corpus + drivers
+      frontends/typescript/   the TypeScript corpus
+      demo/demo-python-rust/  the Python -> Rust demo project (where cost shows up)
+      demo/demo-ts-go/        the TypeScript -> Go demo project
+      scripts/                generated-documentation and reporting tooling
+      vendored/ruff           a submodule; `cargo build` fails without `git submodule update --init`
+      openspec/               planning: changes/, specs/, schemas/
+
+  ## Tech stack
+
+  Rust, edition 2024. Python parsed with the vendored ruff parser and AST (path dependencies),
+  TypeScript with oxc. PyO3 + maturin for the Python boundary, napi-rs for the Node one, and a
+  c-shared build for the Go one. Python tooling runs under uv, and the type checker is **ty** —
+  mypy is not a dependency.
+
+  ## Testing and conventions
+
+    - TDD: write tests before implementation. `make check` is exactly what CI runs —
+      `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, rustdoc
+      with warnings denied, `cargo test --workspace`, the Python / TypeScript / Go suites, and the
+      generated-documentation checks. `.pre-commit-config.yaml` is the subset fast enough to run on
+      a commit. A new check goes in CI, the Makefile, and the hooks, or it is a check people
+      discover in a pull request.
+    - Target > 80% coverage. Run `cargo llvm-cov` with the venv DEACTIVATED, or the bridge tests
+      abort with "no Python frame", which looks like a real failure and is not.
+    - Fixture corpora are compiler inputs and are NEVER linted; `rejected/` is deliberately invalid
+      and has an inverted guard — a rejected program that starts lowering fails the suite. Every
+      accepted fixture owes a driver naming the calls that exercise it as literal data, and a
+      driver carries NO expected values: what a call should answer is what the source language
+      answers.
+    - Generated documentation is generated: the README benchmark tables and the subset matrix are
+      rewritten from a real run by `scripts/`, and their `--check` modes run in CI. Editing one by
+      hand is editing output.
+    - Keep `README.md` in sync in the SAME change, not afterwards; `tests/readme.rs` enforces the
+      mechanical half and the prose half is on you.
+    - When a change touches emission or the manager, run the demo and compare — three real costs
+      were invisible to every correctness test in the repository. A backend change needs
+      `.compylr/` removed first, because the rebuild key is the IR fingerprint and the compiler's
+      version does not move during development.
+    - Commit at each checkpoint rather than batching.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

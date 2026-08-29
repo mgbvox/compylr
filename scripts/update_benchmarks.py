@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    demo_dirs = sorted([d for d in DEMOS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")])
+    demo_dirs = sorted(d for d in DEMOS_DIR.iterdir() if d.is_dir() and not d.name.startswith("."))
     regions = [SUMMARY]
     for demo_dir in demo_dirs:
         regions.append(Region("algorithms", demo_dir / "README.md"))
@@ -203,22 +203,30 @@ def main(argv: list[str] | None = None) -> int:
     bodies = {}
     for demo_dir in demo_dirs:
         if (demo_dir / "pyproject.toml").exists():
-            algorithms = run_benchmark(demo_dir, "algorithms.benchmark", ["--scale", str(args.scale)])
-            nth_prime = run_benchmark(demo_dir, "algorithms.nth_prime.benchmark", ["--n", str(args.n)])
+            algorithms = run_benchmark(
+                demo_dir, "algorithms.benchmark", ["--scale", str(args.scale)]
+            )
+            nth_prime = run_benchmark(
+                demo_dir, "algorithms.nth_prime.benchmark", ["--n", str(args.n)]
+            )
             prov = provenance(f"scale {args.scale}")
             prov_n = provenance(f"n = {args.n}")
-            
+
             if demo_dir.name == "demo-python-rust":
                 bodies[SUMMARY] = f"{summarise(algorithms)}\n\n{prov}"
         elif (demo_dir / "package.json").exists():
-            algorithms = run_ts_benchmark(demo_dir, "src/algorithms/benchmark.ts", ["--scale", str(args.scale)])
-            nth_prime = run_ts_benchmark(demo_dir, "src/algorithms/nth_prime/benchmark.ts", ["--n", str(args.n)])
+            algorithms = run_ts_benchmark(
+                demo_dir, "src/algorithms/benchmark.ts", ["--scale", str(args.scale)]
+            )
+            nth_prime = run_ts_benchmark(
+                demo_dir, "src/algorithms/nth_prime/benchmark.ts", ["--n", str(args.n)]
+            )
             prov = ts_provenance(f"scale {args.scale}")
             prov_n = ts_provenance(f"n = {args.n}")
         else:
             print(f"warning: unknown demo type for {demo_dir.name}", file=sys.stderr)
             continue
-            
+
         bodies[Region("algorithms", demo_dir / "README.md")] = f"{fenced(algorithms)}\n\n{prov}"
         bodies[Region("nth-prime", demo_dir / "README.md")] = f"{fenced(nth_prime)}\n\n{prov_n}"
 

@@ -10,7 +10,7 @@ inputs:
   cache-dependency-path:
     description: "Path to package-lock.json or package.json for caching"
     required: false
-    default: "demo-ts/package.json"
+    default: "demo/demo-ts-go/package.json"
 
 runs:
   using: composite
