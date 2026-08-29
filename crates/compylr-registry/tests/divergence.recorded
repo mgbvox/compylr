@@ -1,0 +1,103 @@
+# Cross-language IR divergence between the python and typescript accepted corpora.
+#
+# GENERATED. Regenerate from a real run with:
+#   UPDATE_DIVERGENCE=1 cargo test -p compylr-registry --test divergence
+#
+# A member is listed when BOTH corpora define it, under the same name. The check
+# recomputes rather than trusting this file, and requires it to match exactly: a
+# score that rises fails, a score that falls fails until it is recorded, and a
+# value edited by hand fails. The only way the numbers move is a real run.
+#
+# total 0
+# pairs 14
+
+add 0
+build_list 0
+characters 0
+clamp 0
+describe 0
+difference 0
+first_and_count 0
+first_over 0
+halve 0
+modulo 0
+negate 0
+product 0
+sign 0
+skip_negatives 0
+
+# Members only one corpus defines. Not divergence -- missing coverage. Listed so
+# that dropping a pair, which would lower the total by measuring less, is a diff.
+# only-python Cache
+# only-python Counter
+# only-python Grid
+# only-python Tally
+# only-python accumulate
+# only-python alias_chain
+# only-python alias_local
+# only-python alias_parameter
+# only-python annotated_alias
+# only-python at_most
+# only-python bucket
+# only-python build
+# only-python build_and_forward
+# only-python caller
+# only-python compare_mixed
+# only-python comparisons
+# only-python countdown
+# only-python counts
+# only-python described
+# only-python diagonal
+# only-python differs
+# only-python double
+# only-python evens_below
+# only-python expressions
+# only-python f
+# only-python forward
+# only-python forward_tally
+# only-python from_end
+# only-python greeting
+# only-python halve_until_odd
+# only-python halves
+# only-python has_element
+# only-python has_key
+# only-python has_member
+# only-python has_substring
+# only-python helper
+# only-python increment
+# only-python is_even
+# only-python key_lengths
+# only-python lacks_element
+# only-python later
+# only-python literals
+# only-python lookup
+# only-python mapping
+# only-python mixed
+# only-python mutate
+# only-python mutate_method
+# only-python nested
+# only-python nested_expression
+# only-python nothing
+# only-python pair
+# only-python promoted
+# only-python quadruple
+# only-python ratio
+# only-python read
+# only-python remainder
+# only-python remote_helper
+# only-python replace_first
+# only-python scale
+# only-python scale_float
+# only-python stepped
+# only-python summed
+# only-python total
+# only-python truthy
+# only-python undocumented
+# only-python unique
+# only-python widen
+# only-python widened
+# only-python zeros
+# only-typescript Accumulator
+# only-typescript compute
+# only-typescript sumList
+# only-typescript sumTo

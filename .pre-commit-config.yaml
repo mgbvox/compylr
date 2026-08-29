@@ -118,3 +118,16 @@ repos:
         language: system
         pass_filenames: false
         files: ^(README\.md|scripts/update_subset\.py|scripts/_regions\.py|frontends/python/fixtures/accepted/.*\.py)$
+
+      # -- Cross-language IR divergence --------------------------------------------------
+      #
+      # Unlike the two hooks above this one really measures, because it can afford to: lowering
+      # two fixture corpora is milliseconds, and there is no build and nothing to run. It fires
+      # only when a corpus or the differ moves, which is exactly when the recorded table can go
+      # stale.
+      - id: divergence-recorded
+        name: cross-language IR divergence is recorded
+        entry: cargo test -p compylr-registry --test divergence
+        language: system
+        pass_filenames: false
+        files: ^(frontends/(python|typescript)/fixtures/accepted/.*|crates/compylr-core/src/diff\.rs|crates/compylr-registry/tests/divergence\.(rs|recorded))$

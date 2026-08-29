@@ -94,10 +94,16 @@ is to be acted on.
 
 ### Requirement: Cross-language divergence is recorded and may not increase
 
-Fixtures accepted by two frontends under the **same name** SHALL be treated as a pair stating the
-same program in two languages. For every such pair the divergence between the two frontends' units
+**Members** accepted by two frontends under the **same name** SHALL be treated as a pair stating
+the same program in two languages. Pairing is per member and not per file: two corpora may share a
+filename without stating the same programs, and a file-level score would be dominated by members
+one corpus does not define at all. For every pair the divergence between the two frontends' units
 SHALL be measured and **recorded in the repository**, generated from a real run rather than written
 by hand.
+
+A member only one corpus defines SHALL be recorded as missing **coverage** rather than counted as
+divergence, and SHALL be recorded by name. Counting it as divergence would mean a corpus scored
+better by expressing less; leaving it out entirely would let a pair be dropped silently.
 
 A check SHALL fail when a measured score exceeds its recorded score. Lowering a score is a change to
 the recorded table, made by regenerating it. There SHALL be no hand-chosen threshold: the baseline
@@ -109,8 +115,13 @@ not an improvement.
 
 #### Scenario: A pair is measured
 
-- **WHEN** a fixture name appears in the accepted corpus of two frontends
+- **WHEN** a member name appears in the accepted corpus of two frontends
 - **THEN** the pair's divergence is measured and appears in the recorded table
+
+#### Scenario: A member only one corpus defines
+
+- **WHEN** a member appears in one frontend's accepted corpus and not the other's
+- **THEN** it is recorded by name as missing coverage, and contributes nothing to the score
 
 #### Scenario: Divergence increases
 

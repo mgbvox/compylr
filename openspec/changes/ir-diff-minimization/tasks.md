@@ -17,7 +17,7 @@
 - [x] 2.3 Report which members and which nodes account for a nonzero score, not only the number.
 - [x] 2.4 Test `D == 0` for units differing only in modes, only in spans, and only in docstrings;
       test `D > 0` for a genuine structural difference.
-- [ ] 2.5 Expose the comparison as a library API the tests and the measurement script both use.
+- [x] 2.5 Expose the comparison as a library API, re-exported from the crate root.
 
 ## 3. The backend-independence invariant
 
@@ -28,15 +28,15 @@
 
 ## 4. Recorded cross-language divergence
 
-- [ ] 4.1 Add a cross-language tier in `compylr-registry` — the only crate permitted both frontends
-      — that pairs accepted fixtures by matching stem and measures each pair.
-- [ ] 4.2 Add `scripts/update_divergence.py`, sharing `scripts/_regions.py`, writing a generated
-      table into a marked block in `README.md` beside the benchmark and subset blocks.
-- [ ] 4.3 Give it a `--check` mode that recomputes and fails on any pair scoring above its recorded
-      value, and on a table edited by hand to a value a run does not produce.
-- [ ] 4.4 Wire `--check` into the Makefile, `.pre-commit-config.yaml`, and CI together, so it is not
-      a check people discover in a pull request.
-- [ ] 4.5 Generate the initial table from a real run and record the five existing pairs
-      (`arithmetic`, `branching`, `classes`, `collections`, `loops`).
-- [ ] 4.6 Confirm the corpus oracles still pass, so the recorded baseline reflects a project that
+- [x] 4.1 Add a cross-language tier in `compylr-registry` — the only crate permitted both frontends
+      — that pairs accepted corpus **members** by name and measures each pair.
+- [x] 4.2 Record the measured table in a generated file beside the test, listing every pair's score
+      and, separately, the members only one corpus defines.
+- [x] 4.3 Have the test recompute and require an exact match, so a score that rises fails, one that
+      falls fails until recorded, and a hand-edited value fails. Regenerate under an env var.
+- [x] 4.4 Confirm the check runs in the Makefile, CI, and the pre-commit hooks, so it is not a check
+      people discover in a pull request.
+- [x] 4.5 Grow the TypeScript corpus toward the Python one so the metric has something to measure,
+      naming each member for its Python counterpart, and record what cannot be ported and why.
+- [x] 4.6 Confirm the corpus oracles still pass, so the recorded baseline reflects a project that
       still agrees with its source languages.
