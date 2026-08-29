@@ -10,12 +10,12 @@ boundary walks it and converts element by element whatever signature the target 
 array is the exception: the bytes are already laid out the way Rust wants them, so the generated
 code can take a *view* over the caller's buffer and never copy at all.
 
-The cost of not doing this is not a constant factor. CLAUDE.md records the boundary at roughly
-**4 ns per element** for integers — so a function handed a million-element array pays milliseconds
-before it computes anything, and "a body doing O(log n) work over an O(n) argument can therefore
-lose compiled." For array workloads, copying at the boundary means the compiled version is slower
-than numpy, which is the one outcome that makes the whole tool pointless for the users most likely
-to want it.
+The cost of not doing this is not a constant factor. [`CLAUDE.md`](../../../CLAUDE.md) records the
+boundary at roughly **4 ns per element** for integers — so a function handed a million-element array
+pays milliseconds before it computes anything, and "a body doing O(log n) work over an O(n) argument
+can therefore lose compiled." For array workloads, copying at the boundary means the compiled
+version is slower than numpy, which is the one outcome that makes the whole tool pointless for the
+users most likely to want it.
 
 Rust already has the counterpart: `ndarray` for the array type and the `numpy` crate for the
 zero-copy binding, which hands back a view over the same allocation.
@@ -36,8 +36,10 @@ the repository's history inside a change about a new type, where the type would 
 
 - **Rank must be written down.** `compylr.Array1[np.float64]` and `compylr.Array2[np.float64]` are
   the accepted spellings; a bare `np.ndarray` or an unranked `NDArray[...]` is rejected naming the
-  ranked form. This is the rule `rejected/bare_list_annotation.py` already states for `list`: an
-  element type — here also a rank — that is not written down is not a type compylr can use.
+  ranked form. This is the rule
+  [`bare_list_annotation.py`](../../../frontends/python/fixtures/rejected/bare_list_annotation.py)
+  already states for `list`: an element type — here also a rank — that is not written down is not a
+  type compylr can use.
 
 - **Storage is `float64` and `int64` in this change.** `float32` and `int32` are reserved and
   diagnosed as planned. Supporting them means defining what assigning an out-of-range value into a
@@ -45,8 +47,9 @@ the repository's history inside a change about a new type, where the type would 
   deliver the copy elimination.
 
 - **Reading an element widens to the existing scalar types.** Storage describes the buffer; a read
-  yields the IR's `Int` or `Float`, exactly as CPython yields a Python scalar. This keeps the new
-  type from introducing integer widths into a model that deliberately has one.
+  yields the IR's `Int` or `Float` from [`Ty`](../../../crates/compylr-ir/src/ir.rs#L103), exactly
+  as CPython yields a Python scalar. This keeps the new type from introducing integer widths into a
+  model that deliberately has one.
 
 - **Arrays are parameters, not returns, in this change.** A function may read and mutate array
   parameters and return a scalar. Returning or constructing an array needs array *creation*
@@ -70,7 +73,81 @@ the repository's history inside a change about a new type, where the type would 
   merely a wrong answer. The bridge compares the underlying buffers and raises when a mutably
   borrowed parameter overlaps another array parameter.
 
-- **BREAKING (artifact format).** A type is added, so the version advances.
+- **BREAKING (artifact format).** A type is added, so
+  [`ARTIFACT_VERSION`](../../../crates/compylr-ir/src/ir.rs#L58) advances.
+
+## Worked Example
+
+Two functions over the same array type: one reads and reduces to a scalar, one writes in place. That
+pair is the whole change — a shared view, a mutable view, and the mutation rule that contradicts the
+one users already learned for collections.
+
+**Input** — `arrays.py`:
+
+```python
+import numpy as np
+import compylr
+
+
+def dot(a: compylr.Array1[np.float64], b: compylr.Array1[np.float64]) -> float:
+    total = 0.0
+    i = 0
+    while i < len(a):
+        total = total + a[i] * b[i]
+        i = i + 1
+    return total
+
+
+def scale(values: compylr.Array1[np.float64], factor: float) -> None:
+    i = 0
+    while i < len(values):
+        values[i] = values[i] * factor
+        i = i + 1
+```
+
+**Today** — the import stops it, and the second function would be refused even without one. Both
+are real runs against the CLI at the tip of this branch:
+
+```text
+$ cargo run -p compylr-cli -- arrays.py
+error: 1:1: imports are not supported; only function definitions may appear at top level
+
+$ cargo run -p compylr-cli -- arrays.py    # imports deleted, annotation changed to list[float]
+error: 4:9: 'values' is a parameter, and a collection parameter is a copy — this mutation could not be observed by the caller. Build a local collection and return it instead
+```
+
+That second diagnostic is the one this change has to sit beside without contradicting. It stays
+exactly true for `list[float]`, and it is extended to name the contrast, because a rule that
+silently reverses for a neighbouring type is where users stop trusting the compiler.
+
+**After** — the two functions take views, and the difference between them is decided from the body:
+
+```rust
+// expected — the mechanism does not exist yet
+pub fn dot(a: ArrayView1<f64>, b: ArrayView1<f64>) -> Result<f64, RuntimeError> { /* ... */ }
+pub fn scale(values: ArrayViewMut1<f64>, factor: f64) -> Result<(), RuntimeError> { /* ... */ }
+```
+
+Neither signature copies anything. `ArrayViewMut1` is what makes `scale`'s write land in the
+caller's buffer.
+
+**At the boundary** — the reduction answers a scalar and the in-place write is visible on return:
+
+```pycon
+>>> import numpy as np, arrays
+>>> a = np.array([1.0, 2.0, 3.0]); b = np.array([4.0, 5.0, 6.0])
+>>> arrays.dot(a, b)
+32.0
+>>> v = np.array([1.0, 2.0, 3.0])
+>>> arrays.scale(v, 2.0)
+>>> v
+array([2., 4., 6.])
+```
+
+Those two answers are numpy's own, run while writing this proposal (`a @ b` and `v *= 2.0`), so they
+are what the fixture's driver compares against rather than expected values. The second one is the
+divergence stated as a transcript: the caller's `v` changed, which the same code over a
+`list[float]` parameter could never do.
 
 ## Capabilities
 
@@ -96,13 +173,18 @@ the repository's history inside a change about a new type, where the type would 
 ## Impact
 
 **Modified**
-- `crates/compylr-ir/src/ir.rs` — the array type, the artifact version, the fingerprint.
-- `crates/compylr-frontend-python/src/lower.rs` — the annotation, indexing, shape, and refusals.
-- `crates/compylr-frontend-python/src/spelling.rs` — how an array type is quoted back.
-- `crates/compylr-backend-rust/src/rust.rs` — view types and element access.
-- `crates/compylr-bridge-python-rust/src/bindings.rs` — the zero-copy binding and the aliasing check.
+- [`ir.rs`](../../../crates/compylr-ir/src/ir.rs#L103) — the array type, the artifact version, the
+  fingerprint.
+- [`lower.rs`](../../../crates/compylr-frontend-python/src/lower.rs) — the annotation, indexing,
+  shape, and refusals.
+- [`spelling.rs`](../../../crates/compylr-frontend-python/src/spelling.rs) — how an array type is
+  quoted back.
+- [`rust.rs`](../../../crates/compylr-backend-rust/src/rust.rs) — view types and element access.
+- [`compylr-bridge-python-rust`](../../../crates/compylr-bridge-python-rust/src/lib.rs) — the
+  zero-copy binding and the aliasing check.
 - The generated manifest — the array and numpy-binding dependencies.
-- `frontends/python/`, `README.md`, `CLAUDE.md`.
+- [`frontends/python/`](../../../frontends/python/), [`README.md`](../../../README.md),
+  [`CLAUDE.md`](../../../CLAUDE.md).
 
 **New**
 - `compylr.Array1` / `compylr.Array2` annotation aliases in the Python package, written so `ty`
