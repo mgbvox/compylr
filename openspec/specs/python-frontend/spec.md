@@ -16,16 +16,19 @@ a function's own source, not a path.
 
 #### Scenario: Valid Python source is parsed
 
+- **GIVEN** syntactically valid Python source text
 - **WHEN** the frontend is given syntactically valid Python source text
 - **THEN** it returns a successful result carrying the parsed module tree
 
 #### Scenario: Valid Python file is parsed
 
+- **GIVEN** a file containing syntactically valid Python
 - **WHEN** the frontend is given a path to a file containing syntactically valid Python
 - **THEN** it returns a successful result carrying the parsed module tree
 
 #### Scenario: Empty file is parsed
 
+- **GIVEN** a file containing no statements
 - **WHEN** the frontend is given a path to a file containing no statements
 - **THEN** it returns a successful result carrying a module tree with an empty body
 
@@ -36,12 +39,14 @@ that identifies the failure as an input/output problem and names the offending p
 
 #### Scenario: File does not exist
 
+- **GIVEN** a path that does not exist on disk
 - **WHEN** the frontend is given a path that does not exist on disk
 - **THEN** it returns a failure identified as an input/output problem
 - **AND** the human-readable message contains the requested path
 
 #### Scenario: Path refers to a directory
 
+- **GIVEN** a path that exists but is a directory
 - **WHEN** the frontend is given a path that exists but is a directory
 - **THEN** it returns a failure identified as an input/output problem rather than panicking
 
@@ -53,12 +58,14 @@ error within the source.
 
 #### Scenario: Malformed Python source
 
+- **GIVEN** a file whose contents are not valid Python
 - **WHEN** the frontend parses a file whose contents are not valid Python
 - **THEN** it returns a failure identified as a syntax problem
 - **AND** the failure carries the source position at which parsing failed
 
 #### Scenario: Caller can distinguish failure kinds
 
+- **GIVEN** a caller holding a frontend failure
 - **WHEN** a caller receives a frontend failure
 - **THEN** the caller can determine whether it was an input/output problem or a syntax
   problem without inspecting message text
@@ -71,6 +78,7 @@ can be propagated by callers.
 
 #### Scenario: Failure is displayed
 
+- **GIVEN** a frontend failure
 - **WHEN** a frontend failure is rendered for display
 - **THEN** the message names what went wrong and the file involved
 - **AND** the message does not expose internal debug formatting of the underlying cause
@@ -84,16 +92,19 @@ backend.
 
 #### Scenario: Selected by name
 
+- **GIVEN** a registry with the implemented frontends
 - **WHEN** the frontend named `python` is resolved
 - **THEN** resolution succeeds and lowering Python source through it produces the same IR as before
 
 #### Scenario: The parser is confined to the frontend
 
+- **GIVEN** the workspace manifests
 - **WHEN** the dependencies of the IR, the pass pipeline, and each backend are inspected
 - **THEN** none of them depends on a Python parser
 
 #### Scenario: Building a backend does not build a Python parser
 
+- **GIVEN** a workspace with the Python frontend present
 - **WHEN** a target backend is built on its own
 - **THEN** the Python parser is not compiled
 
@@ -108,22 +119,26 @@ and every fallible operation reports its failure.
 
 #### Scenario: Floor division is declared
 
-- **WHEN** `a // b` is lowered under Python's stance
+- **GIVEN** a module whose function computes `a // b`
+- **WHEN** it is lowered under Python's stance
 - **THEN** the resulting node declares rounding toward negative infinity
 
 #### Scenario: Remainder is declared
 
-- **WHEN** `a % b` is lowered under Python's stance
+- **GIVEN** a module whose function computes `a % b`
+- **WHEN** it is lowered under Python's stance
 - **THEN** the resulting node declares the sign of the divisor
 
 #### Scenario: True division is declared
 
-- **WHEN** `a / b` is lowered with integer operands
+- **GIVEN** a module whose function computes `a / b` over integer operands
+- **WHEN** it is lowered
 - **THEN** the resulting node declares float promotion, under every behavior
 
 #### Scenario: The behavior selects the rounding, not the frontend
 
-- **WHEN** `a // b` is lowered under a behavior taking the target's stance on integer division
+- **GIVEN** a module whose function computes `a // b`
+- **WHEN** it is lowered under a behavior taking the target's stance on integer division
 - **THEN** the resulting node declares that target's rounding, and the frontend consults no
   constant of its own
 
@@ -135,17 +150,20 @@ spelling SHALL be obtainable from the IR itself.
 
 #### Scenario: A type is named the way the programmer wrote it
 
+- **GIVEN** a program whose types disagree, one of them a mapping from strings to integers
 - **WHEN** a diagnostic reports a mismatch involving a mapping from strings to integers
 - **THEN** it names the type `dict[str, int]`
 
 #### Scenario: An operator is named the way the programmer wrote it
 
+- **GIVEN** a program with a problem in a floor division
 - **WHEN** a diagnostic reports a problem with floor division
 - **THEN** it names the operator `//`
 
 #### Scenario: The IR offers no Python spelling
 
-- **WHEN** the IR's public surface is inspected
+- **GIVEN** the IR crate
+- **WHEN** its public surface is inspected
 - **THEN** it exposes no way to render a type or operator in Python
 
 ### Requirement: The Python frontend declares the guarantees Python requires
@@ -163,22 +181,26 @@ the user asked to leave undefined would refuse the very thing they asked for.
 
 #### Scenario: Guarantees are declared
 
-- **WHEN** the Python frontend is asked what Python requires preserved under Python's own stance
+- **GIVEN** a unit resolved entirely from Python's own stance
+- **WHEN** it is asked what it requires preserved
 - **THEN** it lists overflow reporting, division-by-zero reporting, and floating-point ordering
 
 #### Scenario: A backend lacking a guarantee is refused
 
+- **GIVEN** a unit requiring a guarantee a backend does not declare
 - **WHEN** compilation is attempted with a backend that does not declare a guarantee the unit
   requires
 - **THEN** compilation fails before emission, naming the guarantee
 
 #### Scenario: A behavior drops the guarantee it waives
 
+- **GIVEN** a behavior taking the target's stance on integer overflow
 - **WHEN** the resolved behavior takes the target's stance on integer overflow
 - **THEN** the unit does not require that integer overflow be reported
 
 #### Scenario: Float ordering is not an axis and is never dropped
 
+- **GIVEN** any resolved behavior
 - **WHEN** any behavior is resolved
 - **THEN** the unit still requires that floating-point arithmetic not be reordered, because
   reassociation is a target transformation rather than an operation the programmer wrote
@@ -192,24 +214,28 @@ negative index from the end and reports a failure, and a length counts code poin
 
 #### Scenario: Subscripting declares counting from either end
 
-- **WHEN** `xs[i]` is lowered under Python's stance
+- **GIVEN** a module whose function evaluates `xs[i]`
+- **WHEN** it is lowered under Python's stance
 - **THEN** the resulting node declares that a negative index counts from the end, and that a
   failure is reported
 
 #### Scenario: Length declares code points
 
-- **WHEN** `len(s)` is lowered under Python's stance
+- **GIVEN** a module whose function evaluates `len(s)`
+- **WHEN** it is lowered under Python's stance
 - **THEN** the resulting node declares that it counts code points
 
 #### Scenario: The declaration is asserted, not the node's name
 
-- **WHEN** the lowered form of a subscript or a length is examined
+- **GIVEN** a lowered subscript or length
+- **WHEN** its meaning is determined
 - **THEN** its meaning is determined by the declared mode rather than by which variant it is
 
 #### Scenario: The behavior selects the container semantics
 
-- **WHEN** `xs[i]` and `len(s)` are lowered under a behavior taking the target's stance on
-  indexing and on text length
+- **GIVEN** a module whose function evaluates `xs[i]` and `len(s)`
+- **WHEN** it is lowered under a behavior taking the target's stance on indexing and on text
+  length
 - **THEN** the nodes declare that target's index origin, checking mode, and text units
 
 ### Requirement: The Python frontend declares Python's stance on every behavior axis
@@ -226,16 +252,19 @@ counts code points.
 
 #### Scenario: The stance is complete
 
-- **WHEN** the Python frontend is asked what Python means on each axis
+- **GIVEN** the `python` frontend
+- **WHEN** it is asked what Python means on each axis
 - **THEN** it answers for every axis defined by the behavior model
 
 #### Scenario: The stance names only Python
 
-- **WHEN** the Python frontend's declared stance is inspected
+- **GIVEN** the `python` frontend
+- **WHEN** its declared stance is inspected
 - **THEN** it describes Python's meanings and refers to no other language
 
 #### Scenario: The default behavior reproduces today's output
 
-- **WHEN** a source is lowered under a behavior resolved entirely from the Python frontend's stance
+- **GIVEN** a behavior resolved entirely from the Python frontend's stance
+- **WHEN** a source is lowered under it
 - **THEN** every declared mode on every node matches what the frontend produced before behavior
   selection existed
