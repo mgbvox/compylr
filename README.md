@@ -83,6 +83,11 @@ a single one-line function produced 238 lines and the translation was lines 200â
 | `rust-backend` | IR to Rust source: concrete type spellings, and the semantics each node declares |
 | `python-bindings` | The PyO3 layer generated onto compiled functions, and how failures become exceptions |
 | `native-bridge` | `compylr._core`, exposing the compiler to Python and its diagnostics as exceptions |
+| `typescript-frontend` | Parsing TypeScript source text into a syntax tree, and what TypeScript means by each operator |
+| `golang-backend` | IR to Go source: concrete type spellings, and the semantics each node declares |
+| `typescript-go-bridge` | The layer generated onto compiled Go so a TypeScript runtime can call it |
+| `typescript-bindings` | The Node-API addon exposing the compiler to Node, built with napi-rs |
+| `typescript-api` | `initialize`, the decorator, build orchestration with the Go toolchain, and swapping in |
 | `build-pipeline` | The shared crate, the artifacts on disk, and the fingerprint-keyed rebuild decision |
 | `python-api` | `initialize`, the decorator's two forms, settings resolution, and swapping in |
 | `cli` | The command line: precompiling a project, what it emits, and how it reports rejections |
