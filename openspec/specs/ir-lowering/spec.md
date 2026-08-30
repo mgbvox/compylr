@@ -14,31 +14,35 @@ Lowering a source SHALL NOT require knowledge of any other source.
 
 #### Scenario: Single annotated function
 
-- **WHEN** lowering a source containing `def add(a: int, b: int) -> int:` whose body returns
-  `a + b`
+- **GIVEN** a source containing `def add(a: int, b: int) -> int:` whose body returns their sum
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 - **AND** it yields one function named `add` with two integer parameters, an integer return
   type, and a body returning the sum of both parameter references
 
 #### Scenario: Multiple functions in one source
 
-- **WHEN** lowering a source defining three annotated functions
+- **GIVEN** a source defining three annotated functions
+- **WHEN** it is lowered
 - **THEN** lowering yields all three functions, in source order
 
 #### Scenario: Supported statement and expression coverage
 
-- **WHEN** lowering a function that uses a typed local binding, arithmetic, a comparison, a
-  string literal, and a call
+- **GIVEN** a function using a typed local binding, arithmetic, a comparison, a call, and a
+  return
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and each construct is present in the resulting IR body
 
 #### Scenario: Empty source
 
-- **WHEN** lowering a source containing no statements
+- **GIVEN** a source containing no statements
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and yields no functions
 
 #### Scenario: The behavior travels with the source
 
-- **WHEN** two sources are lowered under different behaviors into one unit
+- **GIVEN** two sources and two different behaviors
+- **WHEN** they are lowered into one unit
 - **THEN** each resulting function carries the modes of the behavior its own source was lowered
   under
 
@@ -53,29 +57,35 @@ parameter, function, or variable.
 
 #### Scenario: Unannotated parameter
 
-- **WHEN** lowering a function declared as `def add(a, b: int) -> int:`
+- **GIVEN** a function declared as `def add(a, b: int) -> int:`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming parameter `a` as missing a type annotation
 
 #### Scenario: Missing return annotation
 
-- **WHEN** lowering a function declared as `def add(a: int, b: int):`
+- **GIVEN** a function declared as `def add(a: int, b: int):`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming function `add` as missing a return type
   annotation
 
 #### Scenario: Unannotated local assignment from a literal
 
-- **WHEN** lowering a function body containing `x = 1`
+- **GIVEN** a function body containing `x = 1`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the IR body binds `x` with the IR integer type, reversing the
   previous rule that required an annotation here
 
 #### Scenario: Annotated local assignment is accepted
 
-- **WHEN** lowering a function body containing `x: int = 1`
+- **GIVEN** a function body containing `x: int = 1`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the IR body binds `x` with the IR integer type
 
 #### Scenario: Undetermined initializer still requires an annotation
 
-- **WHEN** lowering a function body containing `b = helper(a)`
+- **GIVEN** a function body containing `b = helper(a)`, with `helper` defined nowhere in the
+  sources
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming `b` as requiring an explicit type
   annotation, because a call's type is not determined during lowering
 
@@ -93,83 +103,97 @@ candidates. Direct aliasing (`b = a`) is a case of this rule, not a rule of its 
 
 #### Scenario: String literal is inferred
 
-- **WHEN** lowering a body containing `a = "x"`
+- **GIVEN** a body containing `a = "x"`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `a` is bound with the IR string type
 
 #### Scenario: Integer literal is inferred
 
-- **WHEN** lowering a body containing `b = 3`
+- **GIVEN** a body containing `b = 3`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `b` is bound with the IR integer type
 
 #### Scenario: Floating-point literal is inferred
 
-- **WHEN** lowering a body containing `c = 1.3`
+- **GIVEN** a body containing `c = 1.3`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `c` is bound with the IR floating-point type
 
 #### Scenario: Boolean literal is inferred
 
-- **WHEN** lowering a body containing `d = True`
+- **GIVEN** a body containing `d = True`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `d` is bound with the IR boolean type
 
 #### Scenario: Alias of a parameter is inferred
 
-- **WHEN** lowering `def foo(a: int) -> int:` whose body contains `b = a` and returns `b`
+- **GIVEN** `def foo(a: int) -> int:` whose body contains `b = a` and returns `b`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 - **AND** the IR binds `b` with the IR integer type
 
 #### Scenario: Alias of a previously bound local is inferred
 
-- **WHEN** lowering a body that binds `x: str = "hi"` and then contains `y = x`
+- **GIVEN** a body binding `x: str = "hi"` and then containing `y = x`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the IR binds `y` with the IR string type
 
 #### Scenario: Chained aliases are inferred
 
-- **WHEN** lowering a body where `b = a` is followed by `c = b`, with `a` a boolean parameter
+- **GIVEN** a body where `b = a` is followed by `c = b`, with `a` a boolean parameter
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and both `b` and `c` are bound with the IR boolean type
 
 #### Scenario: Arithmetic expression is inferred
 
-- **WHEN** lowering a body containing `b = a + 1`, where `a` is an integer parameter
+- **GIVEN** a body containing `b = a + 1`, where `a` is an integer parameter
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `b` is bound with the IR integer type
 
 #### Scenario: Comparison expression is inferred as boolean
 
-- **WHEN** lowering a body containing `b = a < 10`, where `a` is an integer parameter
+- **GIVEN** a body containing `b = a < 10`, where `a` is an integer parameter
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `b` is bound with the IR boolean type
 
 #### Scenario: Negation preserves the operand type
 
-- **WHEN** lowering a body containing `b = -c`, where `c` is a floating-point local
+- **GIVEN** a body containing `b = -c`, where `c` is a floating-point local
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `b` is bound with the IR floating-point type
 
 #### Scenario: Deeply nested expression is inferred
 
-- **WHEN** lowering a body containing `b = (a + 1) * 2 - 3`, where `a` is an integer parameter
+- **GIVEN** a body containing `b = (a + 1) * 2 - 3`, where `a` is an integer parameter
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `b` is bound with the IR integer type
 
 #### Scenario: A call initializer is inferred
 
-- **WHEN** lowering a source defining `def double(n: int) -> int:` and a second function whose
-  body contains `b = double(n)`
+- **GIVEN** a source defining `def double(n: int) -> int:` and a second function whose body binds
+  `b = double(n)`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `b` is bound with the IR integer type, reversing the previous
   rule that required an annotation here
 
 #### Scenario: A call nested inside an expression is inferred
 
-- **WHEN** lowering a body containing `b = double(n) + 1`
+- **GIVEN** a body containing `b = double(n) + 1`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `b` is bound with the callee's return type combined by the
   operator rules
 
 #### Scenario: Reference to an unbound name is unresolved
 
-- **WHEN** lowering a body containing `b = q` where `q` is neither a parameter nor a
-  previously bound local
+- **GIVEN** a body containing `b = q`, where `q` is neither a parameter nor a local
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting `q` as unresolved, not as a missing
   annotation
 
 #### Scenario: Explicit annotation still wins over inference
 
-- **WHEN** lowering a body containing `b: int = a` where `a` is an integer parameter
+- **GIVEN** a body containing `b: int = a`, where `a` is an integer parameter
+- **WHEN** it is lowered
 - **THEN** lowering succeeds using the declared type
 
 ### Requirement: Reject unsupported type annotations
@@ -199,91 +223,106 @@ is not a type compylr can compile against.
 
 #### Scenario: Floating-point annotation is accepted
 
-- **WHEN** lowering a function whose parameter is annotated `float`
+- **GIVEN** a function whose parameter is annotated `float`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the parameter has the IR floating-point type
 
 #### Scenario: Collection annotations are accepted
 
-- **WHEN** lowering a function whose parameters are annotated `list[int]`, `dict[str, int]`,
-  `set[int]`, and `tuple[int, str]`
+- **GIVEN** a function whose parameters are annotated with each collection form
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and each parameter has the corresponding IR collection type
 
 #### Scenario: Nested collection annotations are accepted
 
-- **WHEN** lowering a function whose parameter is annotated `dict[str, list[int]]`
+- **GIVEN** a function whose parameter is annotated `dict[str, list[int]]`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the nesting is preserved in the IR type
 
 #### Scenario: Direct class annotations are accepted on a free function
 
-- **WHEN** a unit contains class `Tally` and a top-level free function takes a borrow-only `Tally`
-  parameter or returns a newly owned `Tally`
+- **GIVEN** a unit containing class `Tally` and a free function taking a borrow-only `Tally`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the signature carries the `Tally` instance type
 
 #### Scenario: A class annotation resolves across sources
 
-- **WHEN** a free function is lowered before the separate source defining its annotated class
+- **GIVEN** a free function lowered before the separate source defining its annotated class
+- **WHEN** the complete unit is assembled
 - **THEN** the complete unit resolves the annotation regardless of source order
 
 #### Scenario: An unknown class annotation is located
 
-- **WHEN** a complete unit contains a direct annotation `Taly` but defines no class of that name
+- **GIVEN** a complete unit containing a direct annotation `Taly` but no class of that name
+- **WHEN** it is lowered
 - **THEN** lowering fails at the annotation's location and reports `Taly` as unknown
 
 #### Scenario: A nested class-valued boundary annotation is rejected
 
-- **WHEN** a top-level free function has a parameter or return annotated `list[Tally]`
+- **GIVEN** a top-level free function with a parameter or return annotated `list[Tally]`
+- **WHEN** it is lowered
 - **THEN** lowering fails at that annotation before target source is emitted
 
 #### Scenario: A class-valued method boundary is not accepted accidentally
 
-- **WHEN** an exported method other than its implicit receiver directly takes or returns `Tally`
+- **GIVEN** an exported method that directly takes or returns `Tally` other than as its receiver
+- **WHEN** it is lowered
 - **THEN** lowering fails with a located diagnostic explaining that the position is not supported
 
 #### Scenario: An unparameterised collection annotation is rejected
 
-- **WHEN** lowering a function whose parameter is annotated bare `list`
+- **GIVEN** a function whose parameter is annotated bare `list`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that an element type is required
 
 #### Scenario: Wrong parameter count is rejected
 
-- **WHEN** lowering a function whose parameter is annotated `dict[str]`
+- **GIVEN** a function whose parameter is annotated `dict[str]`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the annotation as unsupported
 
 #### Scenario: An unsupported parameter is rejected
 
-- **WHEN** lowering a function whose parameter is annotated `list[complex]`
+- **GIVEN** a function whose parameter is annotated `list[complex]`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting `complex` as an unsupported type
 
 #### Scenario: A floating-point mapping key is rejected
 
-- **WHEN** lowering a function whose parameter is annotated `dict[float, int]`
+- **GIVEN** a function whose parameter is annotated `dict[float, int]`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic explaining that a floating-point value cannot be a key
 
 #### Scenario: A floating-point set element is rejected
 
-- **WHEN** lowering a function whose parameter is annotated `set[float]`
+- **GIVEN** a function whose parameter is annotated `set[float]`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic explaining that a floating-point value cannot be a set
   element
 
 #### Scenario: Unsupported scalar annotation
 
-- **WHEN** lowering a function whose parameter is annotated `complex`
+- **GIVEN** a function whose parameter is annotated `complex`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting `complex` as an unsupported type
 
 #### Scenario: Unsupported generic annotation
 
-- **WHEN** lowering a function whose parameter is annotated `frozenset[int]`
+- **GIVEN** a function whose parameter is annotated `frozenset[int]`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the annotation as unsupported
 
 #### Scenario: Type parameters are rejected
 
-- **WHEN** lowering a function declared as `def f[T](a: T) -> T:`
+- **GIVEN** a function declared as `def f[T](a: T) -> T:`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that type parameters are not yet
   supported
 
 #### Scenario: None is rejected as a parameter type
 
-- **WHEN** lowering a function whose parameter is annotated `None`
+- **GIVEN** a function whose parameter is annotated `None`
+- **WHEN** it is lowered
 - **THEN** lowering fails, because `None` is supported only as a return annotation
 
 ### Requirement: Reject constructs outside the subset
@@ -295,56 +334,64 @@ leading docstring, defined in "Docstrings are accepted and carry no runtime mean
 
 #### Scenario: Control flow is rejected
 
-- **WHEN** lowering a function body containing an `if` statement
+- **GIVEN** a function body containing an `if` statement
+- **WHEN** it is lowered by a frontend whose subset excludes control flow
 - **THEN** lowering fails with a diagnostic naming the conditional as unsupported
 
 #### Scenario: Top-level statement is rejected
 
-- **WHEN** lowering a source containing an `if __name__ == '__main__':` guard
+- **GIVEN** a source containing an `if __name__ == '__main__':` guard
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that only function definitions are
   permitted at top level
 
 #### Scenario: A module-level docstring is still rejected
 
-- **WHEN** lowering a source whose first statement is a module-level string literal
+- **GIVEN** a source whose first statement is a module-level string literal
+- **WHEN** it is lowered
 - **THEN** lowering fails, because the docstring exception applies only inside a function body
 
 #### Scenario: Import is rejected
 
-- **WHEN** lowering a source containing an import statement
+- **GIVEN** a source containing an import statement
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the import as unsupported
 
 #### Scenario: Non-simple parameter forms are rejected
 
-- **WHEN** lowering a function declaring variadic parameters (`*args` or `**kwargs`),
-  keyword-only or positional-only parameters, or a parameter with a default value
+- **GIVEN** a function declaring variadic, keyword-only, or defaulted parameters
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the unsupported parameter form
 
 #### Scenario: Decorated or async function is rejected
 
-- **WHEN** lowering a function that carries a decorator or is declared `async def`
+- **GIVEN** a function carrying a decorator or declared `async def`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the unsupported function form
 
 #### Scenario: True division is accepted
 
-- **WHEN** lowering an expression using `/`
+- **GIVEN** an expression using `/`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds, because true division is now part of the supported subset
 
 #### Scenario: Unsupported operator is rejected
 
-- **WHEN** lowering an expression using an operator outside the supported set, such as
-  exponentiation or a bitwise operator
+- **GIVEN** an expression using an operator outside the supported set
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the operator as unsupported
 
 #### Scenario: Out-of-range integer literal is rejected
 
-- **WHEN** lowering an integer literal too large to be represented as an `i64`
+- **GIVEN** an integer literal too large to be represented as an `i64`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that the literal exceeds the supported
   integer range, rather than silently truncating it
 
 #### Scenario: Non-finite float literal is not producible
 
-- **WHEN** lowering any floating-point literal written in source
+- **GIVEN** any floating-point literal written in source
+- **WHEN** it is lowered
 - **THEN** lowering succeeds, since Python source cannot spell infinity or NaN as a literal
 
 ### Requirement: Operator type rules
@@ -358,52 +405,62 @@ so that a backend never has to decide what a boolean means in arithmetic.
 
 #### Scenario: Integer arithmetic yields an integer
 
-- **WHEN** lowering `a + b`, `a - b`, `a * b`, `a // b`, or `a % b` with two integer operands
+- **GIVEN** `a + b`, `a - b`, `a * b`, `a // b`, or `a % b` with two integer operands
+- **WHEN** it is lowered
 - **THEN** the expression's type is the IR integer type
 
 #### Scenario: Floating-point arithmetic yields a float
 
-- **WHEN** lowering an arithmetic expression with two floating-point operands
+- **GIVEN** an arithmetic expression with two floating-point operands
+- **WHEN** it is lowered
 - **THEN** the expression's type is the IR floating-point type
 
 #### Scenario: True division always yields a float
 
-- **WHEN** lowering `a / b` with two integer operands
+- **GIVEN** the expression `a / b` with two integer operands
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the expression's type is the IR floating-point type
 
 #### Scenario: Floor division of integers stays an integer
 
-- **WHEN** lowering `a // b` with two integer operands
+- **GIVEN** the expression `a // b` with two integer operands
+- **WHEN** it is lowered
 - **THEN** the expression's type is the IR integer type, distinguishing it from `a / b`
 
 #### Scenario: String concatenation yields a string
 
-- **WHEN** lowering `a + b` with two string operands
+- **GIVEN** the expression `a + b` with two string operands
+- **WHEN** it is lowered
 - **THEN** the expression's type is the IR string type
 
 #### Scenario: Comparison yields a boolean
 
-- **WHEN** lowering any supported comparison between two operands of compatible type
+- **GIVEN** any supported comparison between two operands of compatible type
+- **WHEN** it is lowered
 - **THEN** the expression's type is the IR boolean type
 
 #### Scenario: Arithmetic on a string and a number is rejected
 
-- **WHEN** lowering `a + b` where `a` is a string and `b` is an integer
+- **GIVEN** the expression `a + b` where `a` is a string and `b` is an integer
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the operand types
 
 #### Scenario: Arithmetic on booleans is rejected
 
-- **WHEN** lowering `a + b` where both operands are booleans
+- **GIVEN** the expression `a + b` where both operands are booleans
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that booleans are not numeric
 
 #### Scenario: Negating a non-numeric value is rejected
 
-- **WHEN** lowering `-a` where `a` is a string
+- **GIVEN** the expression `-a` where `a` is a string
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the operand type
 
 #### Scenario: Comparing unrelated types is rejected
 
-- **WHEN** lowering `a < b` where `a` is a string and `b` is an integer
+- **GIVEN** the expression `a < b` where `a` is a string and `b` is an integer
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the operand types
 
 ### Requirement: Numeric promotion
@@ -416,17 +473,20 @@ correct conversion.
 
 #### Scenario: Mixed arithmetic promotes to float
 
-- **WHEN** lowering `a + b` where `a` is an integer and `b` is a floating-point number
+- **GIVEN** the expression `a + b` where `a` is an integer and `b` is a floating-point number
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the expression's type is the IR floating-point type
 
 #### Scenario: Mixed comparison is permitted
 
-- **WHEN** lowering `a < b` where `a` is an integer and `b` is a floating-point number
+- **GIVEN** the expression `a < b` where `a` is an integer and `b` is a floating-point number
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the expression's type is the IR boolean type
 
 #### Scenario: Promotion is visible in the IR
 
-- **WHEN** an integer operand is used where the expression's type is floating-point
+- **GIVEN** an integer operand used where the expression's type is floating-point
+- **WHEN** it is lowered
 - **THEN** the IR makes the conversion explicit, so a backend does not need to re-derive it
 
 ### Requirement: Check declared types against inferred types
@@ -438,39 +498,46 @@ Catching these here is strictly better than handing a backend IR it cannot rende
 
 #### Scenario: Annotation conflicting with the initializer is rejected
 
-- **WHEN** lowering a body containing `b: str = 1`
+- **GIVEN** a body containing `b: str = 1`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the declared and actual types
 
 #### Scenario: Annotation conflicting with an aliased name is rejected
 
-- **WHEN** lowering a body containing `b: str = a` where `a` is an integer parameter
+- **GIVEN** a body containing `b: str = a`, where `a` is an integer parameter
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the declared and actual types
 
 #### Scenario: Returned value conflicting with the declared return type is rejected
 
-- **WHEN** lowering `def f() -> int:` whose body returns `"x"`
+- **GIVEN** `def f() -> int:` whose body returns `"x"`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the declared and actual types
 
 #### Scenario: Returning a value from a unit function is rejected
 
-- **WHEN** lowering `def f() -> None:` whose body returns `1`
+- **GIVEN** `def f() -> None:` whose body returns `1`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that the function returns no value
 
 #### Scenario: Integer initializer for a float annotation is accepted
 
-- **WHEN** lowering a body containing `c: float = 1`
+- **GIVEN** a body containing `c: float = 1`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds, because numeric promotion makes an integer acceptable where a
   float is declared
 
 #### Scenario: Float initializer for an integer annotation is rejected
 
-- **WHEN** lowering a body containing `n: int = 1.5`
+- **GIVEN** a body containing `n: int = 1.5`
+- **WHEN** it is lowered
 - **THEN** lowering fails, because narrowing a float to an integer would silently lose
   information
 
 #### Scenario: Undetermined initializer is not type checked
 
-- **WHEN** lowering a body containing `b: int = helper(a)`
+- **GIVEN** a body containing `b: int = helper(a)`, with `helper` defined nowhere in the source
+- **WHEN** it is lowered
 - **THEN** lowering succeeds using the declared type, because the initializer's type is not
   determined during lowering
 
@@ -482,30 +549,33 @@ nothing SHALL be rejected.
 
 #### Scenario: Parameter and local references resolve
 
-- **WHEN** lowering a body that binds `x: int = a + 1` and then returns `x`
+- **GIVEN** a body binding `x: int = a + 1` and then returning `x`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: Reference to an unbound name
 
-- **WHEN** lowering a body that references a name that is neither a parameter nor a
-  previously bound local
+- **GIVEN** a body referencing a name that is neither a parameter nor a local
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the name as unresolved
 
 #### Scenario: Reference before binding
 
-- **WHEN** lowering a body that references a local before the statement that binds it
+- **GIVEN** a body referencing a local before the statement that binds it
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the name as unresolved
 
 #### Scenario: Rebinding an existing local is rejected
 
-- **WHEN** lowering a body that assigns to a name already bound in that function, whether or
-  not the new type matches
+- **GIVEN** a body assigning to a name already bound in that function
+- **WHEN** it is lowered by a frontend whose subset excludes reassignment
 - **THEN** lowering fails with a diagnostic reporting that reassignment is not yet supported,
   keeping every IR binding a single introduction of a new name
 
 #### Scenario: Binding over a parameter name is rejected
 
-- **WHEN** lowering a body that assigns to a name that is already a parameter of the function
+- **GIVEN** a body assigning to a name that is already a parameter
+- **WHEN** it is lowered by a frontend whose subset excludes reassignment
 - **THEN** lowering fails with a diagnostic reporting that reassignment is not yet supported
 
 ### Requirement: Validate calls against the assembled unit
@@ -517,24 +587,26 @@ any call whose argument count differs from the target's parameter count.
 
 #### Scenario: Call across sources resolves
 
-- **WHEN** a function lowered from one source calls a function lowered from another source,
-  and both have been added to the same unit
+- **GIVEN** a function in one source calling a function lowered from another
+- **WHEN** the unit is validated
 - **THEN** validating the unit succeeds
 
 #### Scenario: Call to a function added later resolves
 
-- **WHEN** a unit is validated after its called function has been added
+- **GIVEN** a unit whose called function has since been added
+- **WHEN** it is validated
 - **THEN** validation succeeds regardless of the order the two functions were added
 
 #### Scenario: Call to an unknown function
 
-- **WHEN** validating a unit containing a call to a name that is not a function in the unit
+- **GIVEN** a unit containing a call to a name that is not a function in it
+- **WHEN** it is validated
 - **THEN** validation fails with a diagnostic reporting the name as unresolved
 
 #### Scenario: Argument count mismatch
 
-- **WHEN** validating a unit containing a call that passes a different number of arguments
-  than the target function declares
+- **GIVEN** a unit containing a call passing the wrong number of arguments
+- **WHEN** it is validated
 - **THEN** validation fails with a diagnostic reporting the expected and actual argument
   counts
 
@@ -552,22 +624,26 @@ against Python that was not written for this compiler.
 
 #### Scenario: Rejection does not panic
 
-- **WHEN** lowering any source that violates the subset rules
+- **GIVEN** any source violating the subset rules
+- **WHEN** it is lowered
 - **THEN** lowering returns a failure result and the process continues running
 
 #### Scenario: Diagnostic carries a position
 
-- **WHEN** lowering fails on a construct at a known position in the source
+- **GIVEN** a source whose offending construct is at a known position
+- **WHEN** it is lowered
 - **THEN** the diagnostic carries that source position
 
 #### Scenario: First violation is reported
 
-- **WHEN** lowering a source containing more than one subset violation
+- **GIVEN** a source containing more than one subset violation
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the first violation in source order
 
 #### Scenario: Python written for other purposes is refused rather than crashed on
 
-- **WHEN** lowering a parsed program that was not written to exercise a subset rule
+- **GIVEN** a parsed program not written to exercise a subset rule
+- **WHEN** it is lowered
 - **THEN** the outcome is a lowered unit or a failure carrying a source position, and never a panic
 
 ### Requirement: Docstrings are accepted and carry no runtime meaning
@@ -587,47 +663,56 @@ the existing guarantee that reformatting costs nothing.
 
 #### Scenario: A documented function lowers
 
-- **WHEN** lowering a function whose first body statement is a string literal
+- **GIVEN** a function whose first body statement is a string literal
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: The docstring does not become a statement
 
-- **WHEN** a function with a docstring and a single `return` is lowered
+- **GIVEN** a function with a docstring and a single `return`
+- **WHEN** it is lowered
 - **THEN** the IR body contains only the return statement
 
 #### Scenario: The docstring is retained on the function
 
-- **WHEN** a function with a docstring is lowered
+- **GIVEN** a function with a docstring
+- **WHEN** it is lowered
 - **THEN** the IR function carries the docstring's text
 
 #### Scenario: A function with only a docstring and no return
 
-- **WHEN** lowering a function annotated `-> None` whose body is just a docstring
+- **GIVEN** a function annotated `-> None` whose body is just a docstring
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the body produces no value
 
 #### Scenario: Editing a docstring does not change the fingerprint
 
-- **WHEN** the same function is lowered twice with different docstring text
+- **GIVEN** one function, written twice with different docstring text
+- **WHEN** both are lowered and fingerprinted
 - **THEN** both produce the same fingerprint
 
 #### Scenario: Adding a docstring does not change the fingerprint
 
-- **WHEN** a function is lowered with and without a docstring, its code otherwise identical
+- **GIVEN** one function, written with and without a docstring and otherwise identical
+- **WHEN** both are lowered and fingerprinted
 - **THEN** both produce the same fingerprint
 
 #### Scenario: A string statement after the first is rejected
 
-- **WHEN** lowering a body whose second statement is a bare string literal
+- **GIVEN** a body whose second statement is a bare string literal
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the unsupported statement
 
 #### Scenario: A non-string expression statement is still rejected
 
-- **WHEN** lowering a body whose first statement is a bare expression such as `a + 1`
+- **GIVEN** a body whose first statement is a bare expression such as `a + 1`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the unsupported statement
 
 #### Scenario: A bare call statement is still rejected
 
-- **WHEN** lowering a body whose first statement is a bare call, discarding its result
+- **GIVEN** a body whose first statement is a bare call, discarding its result
+- **WHEN** it is lowered
 - **THEN** lowering fails, because the subset cannot express a call made for its side effect
 
 ### Requirement: Signatures are collected before bodies are lowered
@@ -652,60 +737,71 @@ is still caught, by unit validation, once every source has been assembled.
 
 #### Scenario: A function may call one defined later
 
-- **WHEN** lowering a source where the first function calls the second
+- **GIVEN** a source where the first function calls the second
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the call is typed from the second function's signature
 
 #### Scenario: Definition order does not change the result
 
-- **WHEN** the same two mutually-referencing functions are lowered in both definition orders
+- **GIVEN** two mutually-referencing functions
+- **WHEN** they are lowered in both definition orders
 - **THEN** both produce identical IR
 
 #### Scenario: A callee in another source leaves the type undetermined
 
-- **WHEN** lowering a body containing a call to a name not defined in this source
+- **GIVEN** a body containing a call to a name not defined in this source
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the call's type is undetermined, so a binding from it still
   requires an annotation
 
 #### Scenario: A genuinely unknown callee is still caught
 
-- **WHEN** a unit is assembled from every source and one call resolves to no function anywhere
+- **GIVEN** a unit assembled from every source, with one call resolving to no function anywhere
+- **WHEN** it is validated
 - **THEN** unit validation reports the unresolved callee
 
 #### Scenario: A call with the wrong arity is rejected
 
-- **WHEN** lowering a call passing two arguments to a function taking one
+- **GIVEN** a call passing two arguments to a function taking one
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting both counts
 
 #### Scenario: An argument of the wrong type is rejected
 
-- **WHEN** lowering a call passing a string where the signature declares an integer
+- **GIVEN** a call passing a string where the signature declares an integer
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the declared and actual types
 
 #### Scenario: Promotion applies to arguments
 
-- **WHEN** lowering a call passing an integer where the signature declares a float
+- **GIVEN** a call passing an integer where the signature declares a float
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the argument carries an explicit conversion
 
 #### Scenario: A self-recursive function types
 
-- **WHEN** lowering a function whose body calls itself
+- **GIVEN** a function whose body calls itself
+- **WHEN** it is lowered
 - **THEN** lowering succeeds, since its own signature is in the table
 
 #### Scenario: Signatures may be supplied from outside the source
 
-- **WHEN** a source is lowered together with signatures gathered from other sources
+- **GIVEN** a source and signatures gathered from other sources
+- **WHEN** it is lowered together with them
 - **THEN** a call to one of those functions is typed from its signature, exactly as a call within
   the source would be
 
 #### Scenario: A source's own definitions take precedence
 
-- **WHEN** a source defines a function whose name also appears in the supplied signatures
+- **GIVEN** a source defining a function whose name also appears in the supplied signatures
+- **WHEN** it is lowered
 - **THEN** the source's own definition is used, so a source is always typed against what it
   actually contains
 
 #### Scenario: Cross-source calls still resolve at the unit
 
-- **WHEN** two functions in separate sources call each other and both are added to one unit
+- **GIVEN** two functions in separate sources calling each other
+- **WHEN** both are lowered and added to one unit
 - **THEN** lowering each source succeeds only if resolution is deferred, and unit validation
   resolves the call across sources
 
@@ -728,57 +824,68 @@ describes the compiler's difficulty rather than the user's mistake.
 
 #### Scenario: A body of only pass is rejected
 
-- **WHEN** lowering `def f() -> int:` whose body is `pass`
+- **GIVEN** `def f() -> int:` whose body is `pass`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming `f` and reporting its location
 
 #### Scenario: A body ending in a binding is rejected
 
-- **WHEN** lowering a function declaring an integer return whose body binds a local and stops
+- **GIVEN** a function declaring an integer return whose body binds a local and stops
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the function
 
 #### Scenario: A conditional returning on both branches is accepted
 
-- **WHEN** lowering a function whose body is an `if`/`else` where both branches return
+- **GIVEN** a function whose body is an `if`/`else` where both branches return
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A conditional with no alternative does not return
 
-- **WHEN** lowering a function whose only `return` is inside an `if` with no `else`
+- **GIVEN** a function whose only `return` is inside an `if` with no `else`
+- **WHEN** it is lowered
 - **THEN** lowering fails, because the path where the test is false produces no value
 
 #### Scenario: One branch returning is not enough
 
-- **WHEN** lowering a function whose `if` returns but whose `else` does not
+- **GIVEN** a function whose `if` returns but whose `else` does not
+- **WHEN** it is lowered
 - **THEN** lowering fails
 
 #### Scenario: A return after a conditional covers it
 
-- **WHEN** lowering a function with an `if` that returns, followed by a `return`
+- **GIVEN** a function with an `if` that returns, followed by a `return`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A loop is not assumed to run
 
-- **WHEN** lowering a function whose only `return` is inside a `while`
+- **GIVEN** a function whose only `return` is inside a `while`
+- **WHEN** it is lowered
 - **THEN** lowering fails, because the loop body may never execute
 
 #### Scenario: Nested conditionals are analysed through
 
-- **WHEN** lowering a function whose branches each contain further conditionals that all return
+- **GIVEN** a function whose branches each contain further conditionals that all return
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A unit-returning function needs no return
 
-- **WHEN** lowering `def f() -> None:` whose body is `pass`
+- **GIVEN** `def f() -> None:` whose body is `pass`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A function that does return is unaffected
 
-- **WHEN** lowering a function whose body ends in a `return`
+- **GIVEN** a function whose body ends in a `return`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: The diagnostic distinguishes this from a type mismatch
 
-- **WHEN** a function that cannot return is rejected
+- **GIVEN** a function that cannot return its declared type
+- **WHEN** it is lowered
 - **THEN** the diagnostic reports a missing return rather than a mismatch between two types
 
 ### Requirement: Collection literals unify their element types
@@ -796,53 +903,63 @@ require an annotation, on the same terms as any other undetermined initializer.
 
 #### Scenario: A sequence literal infers its element type
 
-- **WHEN** lowering a body containing `xs = [1, 2, 3]`
+- **GIVEN** a body containing `xs = [1, 2, 3]`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `xs` is a sequence of the integer type
 
 #### Scenario: A mapping literal infers its key and value types
 
-- **WHEN** lowering a body containing `d = {"a": 1}`
+- **GIVEN** a body containing `d = {"a": 1}`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `d` is a mapping from the string type to the integer type
 
 #### Scenario: A set literal infers its element type
 
-- **WHEN** lowering a body containing `s = {1, 2}`
+- **GIVEN** a body containing `s = {1, 2}`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `s` is a set of the integer type
 
 #### Scenario: A tuple literal takes a type per position
 
-- **WHEN** lowering a body containing `t = (1, "a")`
+- **GIVEN** a body containing `t = (1, "a")`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `t` is a two-element tuple of the integer and string types
 
 #### Scenario: Mismatched sequence elements are rejected
 
-- **WHEN** lowering a body containing `xs = [1, "a"]`
+- **GIVEN** a body containing `xs = [1, "a"]`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting both element types
 
 #### Scenario: Mismatched mapping values are rejected
 
-- **WHEN** lowering a body containing `d = {"a": 1, "b": "x"}`
+- **GIVEN** a body containing `d = {"a": 1, "b": "x"}`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting both value types
 
 #### Scenario: Numeric promotion applies within a literal
 
-- **WHEN** lowering a sequence literal mixing integer and floating-point elements
+- **GIVEN** a sequence literal mixing integer and floating-point elements
+- **WHEN** it is lowered
 - **THEN** the literal is a sequence of the floating-point type, and each integer element carries
   an explicit conversion, matching promotion elsewhere in the subset
 
 #### Scenario: An empty literal requires an annotation
 
-- **WHEN** lowering a body containing `xs = []`
+- **GIVEN** a body containing `xs = []`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming `xs` as requiring an explicit type annotation
 
 #### Scenario: An annotated empty literal is accepted
 
-- **WHEN** lowering a body containing `xs: list[int] = []`
+- **GIVEN** a body containing `xs: list[int] = []`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `xs` is a sequence of the integer type
 
 #### Scenario: A literal conflicting with its annotation is rejected
 
-- **WHEN** lowering a body containing `xs: list[str] = [1, 2]`
+- **GIVEN** a body containing `xs: list[str] = [1, 2]`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the declared and actual types
 
 ### Requirement: Subscript typing
@@ -858,52 +975,62 @@ Subscripting a set, or a scalar, SHALL be rejected. Slicing SHALL be rejected.
 
 #### Scenario: Sequence subscript yields the element type
 
-- **WHEN** lowering `xs[0]` where `xs` is a sequence of integers
+- **GIVEN** the expression `xs[0]`, where `xs` is a sequence of integers
+- **WHEN** it is lowered
 - **THEN** the expression's type is the integer type
 
 #### Scenario: Mapping subscript yields the value type
 
-- **WHEN** lowering `d[k]` where `d` maps strings to integers and `k` is a string
+- **GIVEN** the expression `d[k]`, where `d` maps strings to integers and `k` is a string
+- **WHEN** it is lowered
 - **THEN** the expression's type is the integer type
 
 #### Scenario: A mapping subscript with the wrong key type is rejected
 
-- **WHEN** lowering `d[1]` where `d` maps strings to integers
+- **GIVEN** the expression `d[1]`, where `d` maps strings to integers
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the key type
 
 #### Scenario: A sequence subscript with a non-integer index is rejected
 
-- **WHEN** lowering `xs["a"]` where `xs` is a sequence
+- **GIVEN** the expression `xs["a"]`, where `xs` is a sequence
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the index type
 
 #### Scenario: Tuple subscript yields the type at that position
 
-- **WHEN** lowering `t[1]` where `t` is a tuple of an integer and a string
+- **GIVEN** the expression `t[1]`, where `t` is a tuple of an integer and a string
+- **WHEN** it is lowered
 - **THEN** the expression's type is the string type
 
 #### Scenario: A computed tuple index is rejected
 
-- **WHEN** lowering `t[i]` where `i` is an integer variable
+- **GIVEN** the expression `t[i]`, where `i` is an integer variable
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic explaining that a tuple index must be a literal
 
 #### Scenario: An out-of-range tuple index is rejected
 
-- **WHEN** lowering `t[5]` where `t` has two positions
+- **GIVEN** the expression `t[5]`, where `t` has two positions
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the index and the tuple's length
 
 #### Scenario: Subscripting a set is rejected
 
-- **WHEN** lowering `s[0]` where `s` is a set
+- **GIVEN** the expression `s[0]`, where `s` is a set
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that sets are not subscriptable
 
 #### Scenario: Slicing is rejected
 
-- **WHEN** lowering `xs[1:3]`
+- **GIVEN** the expression `xs[1:3]`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming slicing as unsupported
 
 #### Scenario: A subscript composes
 
-- **WHEN** lowering `d["a"][0]` where `d` maps strings to sequences of integers
+- **GIVEN** the expression `d["a"][0]`, where `d` maps strings to sequences of integers
+- **WHEN** it is lowered
 - **THEN** the expression's type is the integer type
 
 ### Requirement: Length of a collection or string
@@ -917,37 +1044,44 @@ compilation, which is exactly the order-dependence the unit's design exists to a
 
 #### Scenario: Length of a sequence
 
-- **WHEN** lowering `len(xs)` where `xs` is a sequence
+- **GIVEN** the expression `len(xs)`, where `xs` is a sequence
+- **WHEN** it is lowered
 - **THEN** the expression's type is the integer type
 
 #### Scenario: Length of a mapping, set, and tuple
 
-- **WHEN** lowering `len` applied to a mapping, a set, and a tuple
+- **GIVEN** `len` applied to a mapping, a set, and a tuple
+- **WHEN** each is lowered
 - **THEN** each expression's type is the integer type
 
 #### Scenario: Length of a string
 
-- **WHEN** lowering `len(s)` where `s` is a string
+- **GIVEN** the expression `len(s)`, where `s` is a string
+- **WHEN** it is lowered
 - **THEN** the expression's type is the integer type
 
 #### Scenario: Length of a number is rejected
 
-- **WHEN** lowering `len(n)` where `n` is an integer
+- **GIVEN** the expression `len(n)`, where `n` is an integer
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the operand type
 
 #### Scenario: Length takes exactly one argument
 
-- **WHEN** lowering `len(a, b)`
+- **GIVEN** the expression `len(a, b)`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting the argument count
 
 #### Scenario: A user function named len is rejected
 
-- **WHEN** lowering a source defining `def len(x: int) -> int:`
+- **GIVEN** a source defining `def len(x: int) -> int:`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that `len` is reserved
 
 #### Scenario: Length is not treated as a call to be resolved
 
-- **WHEN** a unit containing `len(xs)` and no function named `len` is validated
+- **GIVEN** a unit containing `len(xs)` and no function named `len`
+- **WHEN** it is validated
 - **THEN** validation succeeds, because `len` is a builtin rather than an unresolved callee
 
 ### Requirement: Conditionals
@@ -961,27 +1095,32 @@ test written down rather than inferred.
 
 #### Scenario: A conditional lowers
 
-- **WHEN** lowering a body containing `if a < b:` with a returning branch
+- **GIVEN** a body containing `if a < b:` with a returning branch
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: An alternative lowers
 
-- **WHEN** lowering a body containing `if`/`else`
+- **GIVEN** a body containing `if`/`else`
+- **WHEN** it is lowered
 - **THEN** both branches appear in the IR
 
 #### Scenario: elif lowers as a nested conditional
 
-- **WHEN** lowering a body containing `if`/`elif`/`else`
+- **GIVEN** a body containing `if`/`elif`/`else`
+- **WHEN** it is lowered
 - **THEN** the IR nests the second conditional inside the first one's alternative
 
 #### Scenario: A non-boolean test is rejected
 
-- **WHEN** lowering `if n:` where `n` is an integer
+- **GIVEN** the statement `if n:`, where `n` is an integer
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that a test must be a boolean
 
 #### Scenario: A branch is a scope for reachability but not for names
 
-- **WHEN** a name is bound inside a branch and read after the conditional
+- **GIVEN** a name bound inside a branch and read after the conditional
+- **WHEN** it is lowered
 - **THEN** lowering rejects the read, because the binding may not have happened
 
 ### Requirement: Loops
@@ -995,52 +1134,62 @@ Python; a set SHALL bind its element type; and a range SHALL bind an integer.
 
 #### Scenario: A while loop lowers
 
-- **WHEN** lowering a body containing `while a < b:`
+- **GIVEN** a body containing `while a < b:`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A non-boolean while test is rejected
 
-- **WHEN** lowering `while n:` where `n` is an integer
+- **GIVEN** the statement `while n:`, where `n` is an integer
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting that a test must be a boolean
 
 #### Scenario: Iterating a range binds an integer
 
-- **WHEN** lowering `for i in range(n):`
+- **GIVEN** the loop `for i in range(n):`
+- **WHEN** it is lowered
 - **THEN** `i` is bound with the integer type
 
 #### Scenario: Iterating a sequence binds its element type
 
-- **WHEN** lowering `for x in xs:` where `xs` is a sequence of strings
+- **GIVEN** the loop `for x in xs:`, where `xs` is a sequence of strings
+- **WHEN** it is lowered
 - **THEN** `x` is bound with the string type
 
 #### Scenario: Iterating a mapping binds its key type
 
-- **WHEN** lowering `for k in d:` where `d` maps strings to integers
+- **GIVEN** the loop `for k in d:`, where `d` maps strings to integers
+- **WHEN** it is lowered
 - **THEN** `k` is bound with the string type, matching Python
 
 #### Scenario: Iterating a scalar is rejected
 
-- **WHEN** lowering `for x in n:` where `n` is an integer
+- **GIVEN** the loop `for x in n:`, where `n` is an integer
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the type
 
 #### Scenario: The loop variable does not escape
 
-- **WHEN** a name bound by a `for` is read after the loop
+- **GIVEN** a name bound by a `for` and read after the loop
+- **WHEN** it is lowered
 - **THEN** lowering rejects the read
 
 #### Scenario: Loop control inside a loop
 
-- **WHEN** lowering a loop body containing `break` and `continue`
+- **GIVEN** a loop body containing `break` and `continue`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: Loop control outside a loop is rejected
 
-- **WHEN** lowering `break` in a function body with no enclosing loop
+- **GIVEN** a `break` in a function body with no enclosing loop
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting that it is not inside a loop
 
 #### Scenario: Loop control reaches the nearest enclosing loop
 
-- **WHEN** lowering a `break` inside a conditional inside a loop
+- **GIVEN** a `break` inside a conditional inside a loop
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 ### Requirement: Reassignment keeps a name's type
@@ -1055,32 +1204,38 @@ and which every backend would then have to model.
 
 #### Scenario: Reassignment lowers
 
-- **WHEN** lowering a body binding `i = 0` and then `i = i + 1`
+- **GIVEN** a body binding `i = 0` and then `i = i + 1`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and `i` keeps the integer type
 
 #### Scenario: A different type is rejected
 
-- **WHEN** lowering a body binding `i = 0` and then `i = "x"`
+- **GIVEN** a body binding `i = 0` and then `i = "x"`
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting both types
 
 #### Scenario: Promotion applies to a reassignment
 
-- **WHEN** lowering a body binding `x: float = 1.0` and then `x = 2`
+- **GIVEN** a body binding `x: float = 1.0` and then `x = 2`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the integer carries an explicit conversion
 
 #### Scenario: An annotation on a rebinding is rejected
 
-- **WHEN** lowering a body binding `i = 0` and then `i: int = 1`
+- **GIVEN** a body binding `i = 0` and then `i: int = 1`
+- **WHEN** it is lowered
 - **THEN** lowering fails, because the second annotation re-declares a name that already exists
 
 #### Scenario: A parameter may be reassigned
 
-- **WHEN** lowering a body assigning to one of its own parameters
+- **GIVEN** a body assigning to one of its own parameters
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the parameter keeps its declared type
 
 #### Scenario: Reassignment inside a loop is the point
 
-- **WHEN** lowering a `while` whose body increments a counter bound before it
+- **GIVEN** a `while` whose body increments a counter bound before it
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 ### Requirement: range is reserved
@@ -1092,32 +1247,38 @@ builtin at all.
 
 #### Scenario: One argument
 
-- **WHEN** lowering `range(n)`
+- **GIVEN** the expression `range(n)`
+- **WHEN** it is lowered
 - **THEN** the IR carries a start of zero, a stop of `n`, and a step of one
 
 #### Scenario: Two and three arguments
 
-- **WHEN** lowering `range(a, b)` and `range(a, b, c)`
+- **GIVEN** the expressions `range(a, b)` and `range(a, b, c)`
+- **WHEN** each is lowered
 - **THEN** each component is carried as written
 
 #### Scenario: A non-integer argument is rejected
 
-- **WHEN** lowering `range(x)` where `x` is a string
+- **GIVEN** the expression `range(x)`, where `x` is a string
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the type
 
 #### Scenario: range with the wrong arity is rejected
 
-- **WHEN** lowering `range()` or a call with four arguments
+- **GIVEN** the expression `range()`, or a call with four arguments
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the argument count
 
 #### Scenario: A user function named range is rejected
 
-- **WHEN** lowering a source defining `def range(n: int) -> int:`
+- **GIVEN** a source defining `def range(n: int) -> int:`
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting that `range` is reserved
 
 #### Scenario: A range outside a loop is rejected
 
-- **WHEN** lowering a binding whose initializer is a bare `range(n)`
+- **GIVEN** a binding whose initializer is a bare `range(n)`
+- **WHEN** it is lowered
 - **THEN** lowering fails, because a range is only meaningful as something to iterate
 
 ### Requirement: Element assignment
@@ -1129,37 +1290,44 @@ scalar SHALL be rejected.
 
 #### Scenario: Sequence element assignment
 
-- **WHEN** lowering `xs[0] = 1` where `xs` is a local sequence of integers
+- **GIVEN** the statement `xs[0] = 1`, where `xs` is a local sequence of integers
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: Mapping element assignment
 
-- **WHEN** lowering `d["a"] = 1` where `d` is a local mapping from strings to integers
+- **GIVEN** the statement `d["a"] = 1`, where `d` is a local mapping from strings to integers
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A wrong value type is rejected
 
-- **WHEN** lowering `xs[0] = "a"` where `xs` holds integers
+- **GIVEN** the statement `xs[0] = "a"`, where `xs` holds integers
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting both types
 
 #### Scenario: A wrong index type is rejected
 
-- **WHEN** lowering `xs["a"] = 1` where `xs` is a sequence
+- **GIVEN** the statement `xs["a"] = 1`, where `xs` is a sequence
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the index type
 
 #### Scenario: Promotion applies to an assigned element
 
-- **WHEN** lowering `xs[0] = 1` where `xs` holds floats
+- **GIVEN** the statement `xs[0] = 1`, where `xs` holds floats
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the value carries an explicit conversion
 
 #### Scenario: A tuple is immutable
 
-- **WHEN** lowering an assignment to a tuple element
+- **GIVEN** an assignment to a tuple element
+- **WHEN** it is lowered
 - **THEN** lowering fails, matching Python, where tuples cannot be assigned into
 
 #### Scenario: A set has no elements to assign
 
-- **WHEN** lowering an assignment to a set element
+- **GIVEN** an assignment to a set element
+- **WHEN** it is lowered
 - **THEN** lowering fails
 
 ### Requirement: Mutation is confined to locals
@@ -1187,57 +1355,67 @@ also unaffected, and is the workaround the diagnostic points at.
 
 #### Scenario: A local collection may be mutated
 
-- **WHEN** lowering a body that binds an empty sequence, appends to it, and returns it
+- **GIVEN** a body binding an empty sequence, appending to it, and returning it
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A parameter may not be mutated
 
-- **WHEN** lowering a body that appends to one of its sequence parameters
+- **GIVEN** a body appending to one of its sequence parameters
+- **WHEN** it is lowered
 - **THEN** lowering fails, explaining that the parameter is a copy and the caller would not see it
 
 #### Scenario: Assigning into a parameter is rejected
 
-- **WHEN** lowering a body that assigns to an element of a mapping parameter
+- **GIVEN** a body assigning to an element of a mapping parameter
+- **WHEN** it is lowered
 - **THEN** lowering fails
 
 #### Scenario: Reading a parameter is unaffected
 
-- **WHEN** lowering a body that reads elements of a parameter without mutating it
+- **GIVEN** a body reading elements of a parameter without mutating it
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A local aliasing a parameter may not be mutated
 
-- **WHEN** lowering a body that binds a local to a collection parameter and then mutates the local
+- **GIVEN** a body binding a local to a collection parameter and then mutating the local
+- **WHEN** it is lowered
 - **THEN** lowering fails, because in Python the local and the parameter denote one object and the
   caller would have observed the mutation
 
 #### Scenario: The diagnostic names the alias and its origin
 
-- **WHEN** mutating a local that aliases a parameter is rejected
+- **GIVEN** a body mutating a local that aliases a parameter
+- **WHEN** it is lowered
 - **THEN** the diagnostic names both the local and the parameter it came from, because a refusal
   pointing only at a local the user just created gives them no reason to look at the signature
 
 #### Scenario: Aliasing is transitive
 
-- **WHEN** lowering a body that binds one local to a parameter, a second local to the first, and
-  mutates the second
+- **GIVEN** a body binding one local to a parameter, a second to the first, and mutating the
+  second
+- **WHEN** it is lowered
 - **THEN** lowering fails, because otherwise one more binding defeats the rule
 
 #### Scenario: Copying a parameter's contents explicitly may be mutated
 
-- **WHEN** a body builds a fresh collection, fills it from a parameter, and mutates it
+- **GIVEN** a body building a fresh collection, filling it from a parameter, and mutating it
+- **WHEN** it is lowered
 - **THEN** lowering succeeds, because the fresh collection is not the parameter under any semantics
 
 #### Scenario: Aliasing a non-collection is unaffected
 
-- **WHEN** a body binds a local to a scalar parameter
+- **GIVEN** a body binding a local to a scalar parameter
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and nothing about it is restricted, because a scalar has no mutation
   to observe
 
 #### Scenario: A local that stops aliasing may be mutated
 
-- **WHEN** a body binds a local to a parameter, rebinds it to a fresh collection, and then mutates
-  it
+- **GIVEN** a body binding a local to a parameter, rebinding it to a fresh collection, then
+  mutating it
+- **WHEN** it is lowered
 - **THEN** lowering succeeds, because after the rebinding the local no longer denotes the caller's
   collection
 
@@ -1248,27 +1426,32 @@ element type. Any other method SHALL remain rejected, and the diagnostic SHALL n
 
 #### Scenario: Appending lowers
 
-- **WHEN** lowering `xs.append(1)` where `xs` is a local sequence of integers
+- **GIVEN** the statement `xs.append(1)`, where `xs` is a local sequence of integers
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A wrong element type is rejected
 
-- **WHEN** lowering `xs.append("a")` where `xs` holds integers
+- **GIVEN** the statement `xs.append("a")`, where `xs` holds integers
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting both types
 
 #### Scenario: append with the wrong arity is rejected
 
-- **WHEN** lowering `xs.append()` or `xs.append(1, 2)`
+- **GIVEN** the statement `xs.append()`, or `xs.append(1, 2)`
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the argument count
 
 #### Scenario: Appending to a non-sequence is rejected
 
-- **WHEN** lowering `d.append(1)` where `d` is a mapping
+- **GIVEN** the statement `d.append(1)`, where `d` is a mapping
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the type
 
 #### Scenario: Another method is rejected by name
 
-- **WHEN** lowering `xs.pop()`
+- **GIVEN** the statement `xs.pop()`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming `pop` as unsupported
 
 ### Requirement: Membership
@@ -1279,32 +1462,38 @@ match what the container holds — its element type, its key type, or a string f
 
 #### Scenario: Membership yields a boolean
 
-- **WHEN** lowering `x in xs` where `xs` is a sequence of integers and `x` an integer
+- **GIVEN** the expression `x in xs`, where `xs` is a sequence of integers and `x` an integer
+- **WHEN** it is lowered
 - **THEN** the expression's type is boolean
 
 #### Scenario: Mapping membership tests keys
 
-- **WHEN** lowering `k in d` where `d` maps strings to integers
+- **GIVEN** the expression `k in d`, where `d` maps strings to integers
+- **WHEN** it is lowered
 - **THEN** `k` must be a string, matching Python
 
 #### Scenario: Negated membership
 
-- **WHEN** lowering `x not in xs`
+- **GIVEN** the expression `x not in xs`
+- **WHEN** it is lowered
 - **THEN** the expression's type is boolean
 
 #### Scenario: A mismatched value type is rejected
 
-- **WHEN** lowering `"a" in xs` where `xs` holds integers
+- **GIVEN** the expression `"a" in xs`, where `xs` holds integers
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting both types
 
 #### Scenario: Membership in a scalar is rejected
 
-- **WHEN** lowering `x in n` where `n` is an integer
+- **GIVEN** the expression `x in n`, where `n` is an integer
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the type
 
 #### Scenario: Membership in a string tests substrings
 
-- **WHEN** lowering `a in s` where both are strings
+- **GIVEN** the expression `a in s`, where both are strings
+- **WHEN** it is lowered
 - **THEN** the expression's type is boolean, matching Python's substring test
 
 ### Requirement: Class definitions
@@ -1319,47 +1508,56 @@ SHALL be rejected, each naming what was found.
 
 #### Scenario: A class lowers
 
-- **WHEN** lowering a class with an `__init__` and one method
+- **GIVEN** a class with an `__init__` and one method
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the unit contains the class
 
 #### Scenario: A class without __init__ is rejected
 
-- **WHEN** lowering a class with no `__init__`
+- **GIVEN** a class with no `__init__`
+- **WHEN** it is lowered
 - **THEN** lowering fails, because a class's attributes are declared there and nowhere else
 
 #### Scenario: A method must take self
 
-- **WHEN** lowering a method whose first parameter is not `self`
+- **GIVEN** a method whose first parameter is not `self`
+- **WHEN** it is lowered
 - **THEN** lowering fails naming the method
 
 #### Scenario: self must not be annotated
 
-- **WHEN** lowering a method annotating `self`
+- **GIVEN** a method annotating `self`
+- **WHEN** it is lowered
 - **THEN** lowering fails, because its type is the class being defined
 
 #### Scenario: Method parameters and returns are mandatory
 
-- **WHEN** lowering a method missing a return annotation
+- **GIVEN** a method missing a return annotation
+- **WHEN** it is lowered
 - **THEN** lowering fails naming the method
 
 #### Scenario: Inheritance is rejected
 
-- **WHEN** lowering a class declaring a base
+- **GIVEN** a class declaring a base
+- **WHEN** it is lowered
 - **THEN** lowering fails naming inheritance as unsupported
 
 #### Scenario: A class-level statement is rejected
 
-- **WHEN** lowering a class whose body contains a statement other than a method definition
+- **GIVEN** a class whose body contains a statement other than a method definition
+- **WHEN** it is lowered
 - **THEN** lowering fails naming the construct
 
 #### Scenario: A dunder other than __init__ is rejected
 
-- **WHEN** lowering a class defining `__eq__`
+- **GIVEN** a class defining `__eq__`
+- **WHEN** it is lowered
 - **THEN** lowering fails naming the method
 
 #### Scenario: Two methods of the same name are rejected
 
-- **WHEN** lowering a class defining the same method twice
+- **GIVEN** a class defining the same method twice
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the conflict
 
 ### Requirement: Attributes are declared in __init__
@@ -1374,32 +1572,38 @@ front is the same rule the subset already applies to parameters and returns.
 
 #### Scenario: An attribute is declared and typed
 
-- **WHEN** lowering `__init__` containing `self.count: int = 0`
+- **GIVEN** an `__init__` containing `self.count: int = 0`
+- **WHEN** it is lowered
 - **THEN** the class carries an attribute `count` of the integer type
 
 #### Scenario: An undeclared attribute is rejected
 
-- **WHEN** lowering a method assigning to an attribute not declared in `__init__`
+- **GIVEN** a method assigning to an attribute not declared in `__init__`
+- **WHEN** it is lowered
 - **THEN** lowering fails naming the attribute
 
 #### Scenario: An unannotated declaration is rejected
 
-- **WHEN** lowering `__init__` containing `self.count = 0`
+- **GIVEN** an `__init__` containing `self.count = 0`
+- **WHEN** it is lowered
 - **THEN** lowering fails, because an attribute's type must be written down
 
 #### Scenario: A declaration outside __init__ is rejected
 
-- **WHEN** lowering a method containing an annotated assignment to a new attribute
+- **GIVEN** a method containing an annotated assignment to a new attribute
+- **WHEN** it is lowered
 - **THEN** lowering fails
 
 #### Scenario: An attribute may hold a collection
 
-- **WHEN** lowering `__init__` containing `self._cache: dict[int, int] = {}`
+- **GIVEN** an `__init__` containing `self._cache: dict[int, int] = {}`
+- **WHEN** it is lowered
 - **THEN** the class carries an attribute of that mapping type
 
 #### Scenario: Every declared attribute must be initialised
 
-- **WHEN** lowering an `__init__` that declares an attribute without a value
+- **GIVEN** an `__init__` declaring an attribute without a value
+- **WHEN** it is lowered
 - **THEN** lowering fails, because a struct cannot be constructed with a field missing
 
 ### Requirement: Attribute access and assignment
@@ -1413,32 +1617,38 @@ state that outlives a call possible.
 
 #### Scenario: An attribute read is typed
 
-- **WHEN** lowering `self.count` where `count` is an integer attribute
+- **GIVEN** the expression `self.count`, where `count` is an integer attribute
+- **WHEN** it is lowered
 - **THEN** the expression's type is the integer type
 
 #### Scenario: An attribute is assigned
 
-- **WHEN** lowering `self.count = 1`
+- **GIVEN** the statement `self.count = 1`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A wrong type is rejected
 
-- **WHEN** lowering `self.count = "x"` where `count` is an integer
+- **GIVEN** the statement `self.count = "x"`, where `count` is an integer
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting both types
 
 #### Scenario: An unknown attribute is rejected
 
-- **WHEN** lowering `self.missing`
+- **GIVEN** the expression `self.missing`
+- **WHEN** it is lowered
 - **THEN** lowering fails naming the attribute and the class
 
 #### Scenario: An attribute is read from another object
 
-- **WHEN** lowering `obj.count` where `obj` is an instance parameter
+- **GIVEN** the expression `obj.count`, where `obj` is an instance parameter
+- **WHEN** it is lowered
 - **THEN** the expression's type is the attribute's type
 
 #### Scenario: A collection attribute may be mutated
 
-- **WHEN** lowering a method that assigns into a mapping attribute
+- **GIVEN** a method assigning into a mapping attribute
+- **WHEN** it is lowered
 - **THEN** lowering succeeds, unlike the same operation on a collection parameter
 
 ### Requirement: Methods and construction
@@ -1453,37 +1663,44 @@ unit validation catches one that exists nowhere.
 
 #### Scenario: A method call is typed
 
-- **WHEN** lowering `obj.value()` where `value` returns an integer
+- **GIVEN** the expression `obj.value()`, where `value` returns an integer
+- **WHEN** it is lowered
 - **THEN** the expression's type is the integer type
 
 #### Scenario: Construction is typed
 
-- **WHEN** lowering `Counter()` where `Counter` is a class in the source
+- **GIVEN** the expression `Counter()`, where `Counter` is a class in the source
+- **WHEN** it is lowered
 - **THEN** the expression's type is that class's instance type
 
 #### Scenario: Constructor arguments are checked
 
-- **WHEN** lowering a construction whose arguments do not match `__init__`
+- **GIVEN** a construction whose arguments do not match `__init__`
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting the mismatch
 
 #### Scenario: Method arity is checked
 
-- **WHEN** lowering a method call with the wrong number of arguments
+- **GIVEN** a method call with the wrong number of arguments
+- **WHEN** it is lowered
 - **THEN** lowering fails reporting both counts
 
 #### Scenario: An unknown method is rejected
 
-- **WHEN** lowering a call to a method the class does not define
+- **GIVEN** a call to a method the class does not define
+- **WHEN** it is lowered
 - **THEN** lowering fails naming the method and the class
 
 #### Scenario: A method may call another on the same object
 
-- **WHEN** lowering a method whose body calls `self.other()`
+- **GIVEN** a method whose body calls `self.other()`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: A class in another source leaves construction undetermined
 
-- **WHEN** lowering a construction of a class this source does not define
+- **GIVEN** a construction of a class this source does not define
+- **WHEN** it is lowered
 - **THEN** lowering succeeds with an undetermined type, and unit validation resolves it
 
 ### Requirement: Lowering takes a resolved behavior and sets every mode from it
@@ -1498,16 +1715,19 @@ behaviors SHALL produce IR that differs in exactly the modes the two behaviors d
 
 #### Scenario: Every mode comes from the behavior
 
-- **WHEN** a source containing division, remainder, subscripting, length, and arithmetic is lowered
+- **GIVEN** a source containing division, remainder, subscripting, length, and arithmetic
+- **WHEN** it is lowered under a resolved behavior
 - **THEN** each resulting node's declared modes match what the resolved behavior says for that axis
 
 #### Scenario: Two behaviors differ only where the behaviors differ
 
-- **WHEN** the same source is lowered under two behaviors that differ on one axis
+- **GIVEN** one source and two behaviors differing on one axis
+- **WHEN** it is lowered under each
 - **THEN** the two units differ only in the modes that axis governs, and are otherwise identical
 
 #### Scenario: A behavior is required
 
+- **GIVEN** a source about to be lowered
 - **WHEN** lowering is invoked
 - **THEN** a resolved behavior is supplied, and there is no lowering path that supplies its own
 
@@ -1524,23 +1744,26 @@ result has.
 
 #### Scenario: Acceptance is behavior-independent
 
-- **WHEN** every accepted fixture is lowered under each behavior
+- **GIVEN** every accepted fixture and every behavior
+- **WHEN** each is lowered under each
 - **THEN** all of them lower successfully under all of them
 
 #### Scenario: Rejection is behavior-independent
 
-- **WHEN** every rejected fixture is lowered under each behavior
+- **GIVEN** every rejected fixture and every behavior
+- **WHEN** each is lowered under each
 - **THEN** all of them are rejected under all of them, with the same diagnostic code
 
 #### Scenario: Division's result type does not move
 
-- **WHEN** `a / b` with integer operands is lowered under a behavior that selects the target's
-  meaning for exact division
+- **GIVEN** the expression `a / b` with integer operands
+- **WHEN** it is lowered under a behavior selecting the target's stance on exact division
 - **THEN** the result is still typed as a float, and the operands are still promoted
 
 #### Scenario: A negative index is not rejected statically
 
-- **WHEN** `xs[-1]` is lowered under a behavior in which a negative index is out of range
+- **GIVEN** the expression `xs[-1]`
+- **WHEN** it is lowered under a behavior in which a negative index is out of range
 - **THEN** lowering succeeds, because the index is a runtime value and refusing a literal one would
   reject only the cases that are visible
 
@@ -1573,65 +1796,77 @@ by cloning it.
 
 #### Scenario: A borrowed parameter may be read
 
-- **WHEN** a free function reads an attribute of a direct instance parameter
+- **GIVEN** a free function reading an attribute of a direct instance parameter
+- **WHEN** it is lowered
 - **THEN** lowering succeeds without transferring ownership of the parameter
 
 #### Scenario: A borrowed parameter may be mutated
 
-- **WHEN** a free function assigns an attribute or invokes a mutating method on a direct instance
-  parameter
+- **GIVEN** a free function assigning an attribute or invoking a mutating method on a direct
+  instance parameter
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the use remains a borrow of the caller's instance
 
 #### Scenario: A borrowed parameter may be forwarded compatibly
 
-- **WHEN** a free function passes its direct instance parameter to another free function whose
-  corresponding direct instance parameter is borrow-only
+- **GIVEN** a free function passing its direct instance parameter to another whose parameter is
+  compatible
+- **WHEN** it is lowered
 - **THEN** lowering succeeds without cloning or moving the instance
 
 #### Scenario: Returning a borrowed parameter is rejected
 
-- **WHEN** lowering `def identity(t: Tally) -> Tally: return t`
+- **GIVEN** the function `def identity(t: Tally) -> Tally: return t`
+- **WHEN** it is lowered
 - **THEN** lowering fails at the returned `t` with the borrowed-instance-escape category before
   target source is emitted
 
 #### Scenario: An alias cannot hide a borrowed return
 
-- **WHEN** a function binds `same = t` from a direct instance parameter and later returns `same`
+- **GIVEN** a function binding `same = t` from a direct instance parameter and later returning
+  `same`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a located borrowed-instance-escape diagnostic rather than cloning
   the instance
 
 #### Scenario: An instance reached through a borrow cannot be consumed
 
-- **WHEN** a function returns `holder.item` or `holder.items[0]`, where `holder` is a direct
-  instance parameter and the attribute or element is class-typed
+- **GIVEN** a function returning `holder.item` or `holder.items[0]`, where `holder` is a direct
+  instance parameter
+- **WHEN** it is lowered
 - **THEN** lowering fails at that expression with the borrowed-instance-escape category, rather
   than emitting a clone whose later mutation the caller never observes
 
 #### Scenario: An instance reached through a borrow may still be read and forwarded
 
-- **WHEN** a function reads `holder.item.value`, or passes `holder.item` to a function whose
-  corresponding parameter is a borrow-only direct instance parameter
+- **GIVEN** a function reading `holder.item.value`, or passing `holder.item` to a function that
+  borrows it
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the instance is borrowed rather than copied
 
 #### Scenario: Storing a borrowed parameter is rejected
 
-- **WHEN** a function places a direct instance parameter in a collection or another instance's
+- **GIVEN** a function placing a direct instance parameter in a collection or another instance's
   attribute
+- **WHEN** it is lowered
 - **THEN** lowering fails at the storing use before target source is emitted
 
 #### Scenario: Rebinding a borrowed parameter is rejected
 
-- **WHEN** a function assigns a newly constructed instance to the name of a direct instance
+- **GIVEN** a function assigning a newly constructed instance to the name of a direct instance
   parameter
+- **WHEN** it is lowered
 - **THEN** lowering fails at the assignment because that parameter binding is borrow-only
 
 #### Scenario: A newly constructed return is owned
 
-- **WHEN** a function annotated `-> Tally` returns `Tally(start)`
+- **GIVEN** a function annotated `-> Tally` returning `Tally(start)`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds because the returned instance is newly owned by the call
 
 #### Scenario: An owned callee result may be returned
 
-- **WHEN** a function annotated `-> Tally` returns the result of another function that produces a
-  newly owned `Tally`
+- **GIVEN** a function annotated `-> Tally` returning the result of another function that
+  produces a new one
+- **WHEN** it is lowered
 - **THEN** lowering succeeds

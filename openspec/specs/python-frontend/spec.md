@@ -17,19 +17,19 @@ a function's own source, not a path.
 #### Scenario: Valid Python source is parsed
 
 - **GIVEN** syntactically valid Python source text
-- **WHEN** the frontend is given syntactically valid Python source text
+- **WHEN** it is given to the `python` frontend
 - **THEN** it returns a successful result carrying the parsed module tree
 
 #### Scenario: Valid Python file is parsed
 
 - **GIVEN** a file containing syntactically valid Python
-- **WHEN** the frontend is given a path to a file containing syntactically valid Python
+- **WHEN** its path is given to the `python` frontend
 - **THEN** it returns a successful result carrying the parsed module tree
 
 #### Scenario: Empty file is parsed
 
 - **GIVEN** a file containing no statements
-- **WHEN** the frontend is given a path to a file containing no statements
+- **WHEN** its path is given to the `python` frontend
 - **THEN** it returns a successful result carrying a module tree with an empty body
 
 ### Requirement: Report unreadable input as a structured error
@@ -40,14 +40,14 @@ that identifies the failure as an input/output problem and names the offending p
 #### Scenario: File does not exist
 
 - **GIVEN** a path that does not exist on disk
-- **WHEN** the frontend is given a path that does not exist on disk
+- **WHEN** it is given to the `python` frontend
 - **THEN** it returns a failure identified as an input/output problem
 - **AND** the human-readable message contains the requested path
 
 #### Scenario: Path refers to a directory
 
 - **GIVEN** a path that exists but is a directory
-- **WHEN** the frontend is given a path that exists but is a directory
+- **WHEN** it is given to the `python` frontend
 - **THEN** it returns a failure identified as an input/output problem rather than panicking
 
 ### Requirement: Report invalid syntax as a structured error
@@ -59,7 +59,7 @@ error within the source.
 #### Scenario: Malformed Python source
 
 - **GIVEN** a file whose contents are not valid Python
-- **WHEN** the frontend parses a file whose contents are not valid Python
+- **WHEN** it is parsed by the `python` frontend
 - **THEN** it returns a failure identified as a syntax problem
 - **AND** the failure carries the source position at which parsing failed
 
@@ -188,14 +188,13 @@ the user asked to leave undefined would refuse the very thing they asked for.
 #### Scenario: A backend lacking a guarantee is refused
 
 - **GIVEN** a unit requiring a guarantee a backend does not declare
-- **WHEN** compilation is attempted with a backend that does not declare a guarantee the unit
-  requires
+- **WHEN** compilation is attempted
 - **THEN** compilation fails before emission, naming the guarantee
 
 #### Scenario: A behavior drops the guarantee it waives
 
 - **GIVEN** a behavior taking the target's stance on integer overflow
-- **WHEN** the resolved behavior takes the target's stance on integer overflow
+- **WHEN** the guarantees the unit requires are computed
 - **THEN** the unit does not require that integer overflow be reported
 
 #### Scenario: Float ordering is not an axis and is never dropped
