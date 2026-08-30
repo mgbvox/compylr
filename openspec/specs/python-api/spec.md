@@ -14,29 +14,34 @@ behavior, and all SHALL have defaults so that initialization with no arguments i
 
 #### Scenario: Explicit configuration
 
+- **GIVEN** a project about to configure compylr
 - **WHEN** initialization is called with a backend, assist mode, and behavior
 - **THEN** a manager carrying those settings is returned
 
 #### Scenario: Defaults
 
+- **GIVEN** a project about to configure compylr
 - **WHEN** initialization is called with no arguments
 - **THEN** a manager is returned whose backend is the implemented default, whose assist mode
   is disabled, and whose behavior is the source language's on every axis
 
 #### Scenario: One manager per project
 
-- **WHEN** initialization is called a second time with the same settings
+- **GIVEN** a project already initialized
+- **WHEN** initialization is called again with the same settings
 - **THEN** the same manager is returned, preserving the one-shared-artifact invariant
 
 #### Scenario: Conflicting reconfiguration is refused
 
-- **WHEN** initialization is called a second time with different settings
+- **GIVEN** a project already initialized
+- **WHEN** initialization is called again with different settings
 - **THEN** an error is raised naming the conflicting setting, rather than silently changing the
   defaults of a project that is already partly configured
 
 #### Scenario: A differing default behavior is a conflicting reconfiguration
 
-- **WHEN** initialization is called a second time with the same backend but a different behavior
+- **GIVEN** a project already initialized
+- **WHEN** initialization is called again with the same backend but a different behavior
 - **THEN** an error is raised, because members marked before the change would otherwise compile
   under a behavior their author never chose
 
@@ -48,16 +53,19 @@ apart from the settings in effect.
 
 #### Scenario: Bare form
 
-- **WHEN** the decorator is applied directly to a supported function
+- **GIVEN** a supported function and an initialized manager
+- **WHEN** the decorator is applied directly to it
 - **THEN** the function is marked for compilation under the manager's settings
 
 #### Scenario: Called form with no arguments
 
+- **GIVEN** a supported function and an initialized manager
 - **WHEN** the decorator is called with no arguments and then applied
 - **THEN** the result is identical to the bare form
 
 #### Scenario: Called form with settings
 
+- **GIVEN** a supported function and an initialized manager
 - **WHEN** the decorator is called with settings and then applied
 - **THEN** the function is marked for compilation under those settings
 
@@ -70,16 +78,19 @@ SHALL be inherited individually rather than the whole setting being replaced.
 
 #### Scenario: Override applies to one function only
 
-- **WHEN** one function overrides the backend and another uses the bare decorator
+- **GIVEN** two supported functions and an initialized manager
+- **WHEN** one overrides the backend and the other uses the bare decorator
 - **THEN** the first uses the override and the second uses the manager's backend
 
 #### Scenario: Unspecified settings are inherited
 
+- **GIVEN** a supported function and an initialized manager
 - **WHEN** the decorator is called specifying only the assist mode
 - **THEN** the backend and the behavior are inherited from the manager
 
 #### Scenario: An unnamed axis is inherited, not reset
 
+- **GIVEN** a supported function and an initialized manager
 - **WHEN** the decorator is called with a behavior object naming one axis
 - **THEN** the remaining axes keep the manager's stances rather than reverting to any default
 
@@ -92,12 +103,14 @@ first call, so that the failure points at the decorator that caused it.
 
 #### Scenario: Reserved backend
 
-- **WHEN** a function is marked with a reserved but unimplemented backend
+- **GIVEN** a backend name that is reserved but unimplemented
+- **WHEN** a function is marked with it
 - **THEN** an error is raised stating that the backend is not implemented yet
 
 #### Scenario: Unknown backend
 
-- **WHEN** a function is marked with a backend name that is not in the registry
+- **GIVEN** a backend name absent from the registry
+- **WHEN** a function is marked with it
 - **THEN** an error is raised naming the available backends
 
 ### Requirement: The assist mode is declared but not implemented
@@ -108,16 +121,19 @@ default and SHALL be accepted silently.
 
 #### Scenario: Enabled globally
 
+- **GIVEN** a project about to configure compylr
 - **WHEN** initialization enables the assist mode
 - **THEN** an error is raised stating it is not implemented yet
 
 #### Scenario: Enabled for one function
 
-- **WHEN** the decorator enables the assist mode for a single function
+- **GIVEN** a supported function
+- **WHEN** the decorator enables the assist mode for it
 - **THEN** an error is raised stating it is not implemented yet
 
 #### Scenario: Disabled is accepted
 
+- **GIVEN** a supported function
 - **WHEN** the assist mode is disabled or omitted
 - **THEN** no error is raised
 
@@ -144,67 +160,76 @@ location, before generated Rust is written.
 
 #### Scenario: Missing annotation
 
-- **WHEN** a function with an unannotated parameter is marked
+- **GIVEN** a function with an unannotated parameter
+- **WHEN** it is marked
 - **THEN** an error is raised naming the parameter and its location
 
 #### Scenario: Unsupported construct
 
-- **WHEN** a function containing a loop is marked
+- **GIVEN** a function containing an unsupported construct
+- **WHEN** it is marked
 - **THEN** an error is raised naming the unsupported construct and its location
 
 #### Scenario: Failure is immediate
 
-- **WHEN** an unsupported function is marked
+- **GIVEN** an unsupported function
+- **WHEN** it is marked
 - **THEN** the error is raised at that point, before the function is ever called
 
 #### Scenario: A call to another marked function needs no annotation
 
-- **WHEN** a function is marked whose body binds the result of calling another marked function,
-  without an annotation
+- **GIVEN** a function whose body binds the result of calling another marked function
+- **WHEN** it is marked
 - **THEN** marking succeeds, and the binding is typed when the project is built
 
 #### Scenario: A class annotation can precede its class
 
-- **WHEN** a top-level function taking a borrow-only `Tally` or returning a newly owned `Tally` is
-  marked before the `Tally` class is marked
+- **GIVEN** a top-level function taking a borrow-only `Tally` or returning a newly owned `Tally`
+- **WHEN** it is marked before `Tally` is
 - **THEN** marking succeeds and the annotation resolves during the whole-project build
 
 #### Scenario: Marking order does not matter
 
-- **WHEN** a calling function or class-annotated function is marked before the member it needs
+- **GIVEN** a calling function or class-annotated function
+- **WHEN** it is marked before the member it needs
 - **THEN** both are accepted, since the check that needs both is deferred to the build
 
 #### Scenario: Only that category is deferred
 
-- **WHEN** a marked function uses `complex`, a malformed generic, or contains another subset
-  violation outside the two explicitly deferrable categories
+- **GIVEN** a marked function using an unsupported type, a malformed generic, or another subset
+  violation
+- **WHEN** it is marked
 - **THEN** it is still reported at the point of marking
 
 #### Scenario: A callee that is never marked is still reported
 
-- **WHEN** a deferred binding's callee is never marked and the project is built
+- **GIVEN** a deferred binding whose callee is never marked
+- **WHEN** the project is built
 - **THEN** the build fails, since deferring a check is not the same as skipping it
 
 #### Scenario: A class annotation typo is still reported
 
-- **WHEN** a deferred `Taly` annotation matches no class when the complete project is built
+- **GIVEN** a deferred `Taly` annotation matching no class
+- **WHEN** the complete project is built
 - **THEN** the build fails with a diagnostic at the `Taly` annotation
 
 #### Scenario: A nested class annotation is reported once resolvable
 
-- **WHEN** a marked function has a `list[Tally]` boundary annotation and the complete project
-  defines `Tally`
+- **GIVEN** a marked function with a `list[Tally]` boundary annotation
+- **WHEN** the complete project is built
 - **THEN** the build fails with a located unsupported-boundary-type diagnostic before Rust emission
 
 #### Scenario: A borrowed instance escape is reported before emission
 
-- **WHEN** a marked `identity(t: Tally) -> Tally` returns `t` and the project defines `Tally`
+- **GIVEN** a marked `identity(t: Tally) -> Tally` returning `t`, in a project defining `Tally`
+- **WHEN** the whole project is built
 - **THEN** the whole-project build fails at the returned `t` before writing generated Rust rather
   than cloning the instance or deferring the failure to rustc
 
 #### Scenario: No silent fallback
 
-- **WHEN** a function is rejected
+- **GIVEN** a function the decorator rejects
+- **WHEN** it is marked
 - **THEN** it is not left silently interpreted
 
 ### Requirement: Source is captured from the live function
@@ -215,12 +240,14 @@ SHALL NOT cause a rejection.
 
 #### Scenario: Source obtained by introspection
 
-- **WHEN** a function defined in a module is marked
+- **GIVEN** a function defined in a module
+- **WHEN** it is marked
 - **THEN** its source is captured without the user supplying a path
 
 #### Scenario: Decorator line is not part of the compiled source
 
-- **WHEN** a marked function's source is captured
+- **GIVEN** a marked function
+- **WHEN** its source is captured
 - **THEN** the decorator line itself is not treated as part of the function to compile
 
 ### Requirement: Calls reach the compiled implementation
@@ -231,22 +258,26 @@ function, so that marking N functions does not cost N builds.
 
 #### Scenario: A call returns the compiled result
 
-- **WHEN** a marked function is called
+- **GIVEN** a marked function
+- **WHEN** it is called
 - **THEN** the compiled implementation runs and returns its result
 
 #### Scenario: One build for many functions
 
-- **WHEN** several functions are marked and one of them is called
+- **GIVEN** several marked functions
+- **WHEN** one of them is called
 - **THEN** a single build covering all of them is performed
 
 #### Scenario: Later calls do not rebuild
 
-- **WHEN** a marked function is called repeatedly
+- **GIVEN** a marked function
+- **WHEN** it is called repeatedly
 - **THEN** the build happens at most once per process
 
 #### Scenario: Results match the interpreted function
 
-- **WHEN** a marked function is called with arguments inside the supported ranges
+- **GIVEN** a marked function and arguments inside the supported ranges
+- **WHEN** it is called
 - **THEN** the result equals what the original Python function would have returned
 
 ### Requirement: Marked functions remain ordinary Python objects
@@ -256,19 +287,22 @@ name, its docstring, its module, and its annotations — and SHALL expose the or
 uncompiled function, so that a compiled function can still be introspected, documented, and
 compared against its source implementation.
 
-#### Scenario: Identity attributes are preserved
+#### Scenario: A marked function keeps its identity attributes
 
-- **WHEN** a marked function's name, docstring, module, and annotations are read
+- **GIVEN** a marked function
+- **WHEN** its name, docstring, module, and annotations are read
 - **THEN** they match those of the function as written
 
 #### Scenario: The original function is reachable
 
+- **GIVEN** a marked function
 - **WHEN** a caller needs the uncompiled implementation
 - **THEN** it is accessible from the marked function
 
 #### Scenario: Usable as a normal callable
 
-- **WHEN** a marked function is passed to code that accepts any callable
+- **GIVEN** a marked function
+- **WHEN** it is passed to code that accepts any callable
 - **THEN** it behaves as a callable
 
 ### Requirement: The decorator accepts a class
@@ -282,37 +316,44 @@ and interpreted behaviour can be compared.
 
 #### Scenario: A class is marked
 
-- **WHEN** the decorator is applied to a supported class
+- **GIVEN** a supported class and an initialized manager
+- **WHEN** the decorator is applied to it
 - **THEN** the class is marked for compilation under the manager's settings
 
 #### Scenario: Both decorator forms work on a class
 
-- **WHEN** the decorator is applied to a class bare and called with settings
+- **GIVEN** a supported class and an initialized manager
+- **WHEN** the decorator is applied bare and, separately, called with settings
 - **THEN** both mark it, differing only in the settings in effect
 
 #### Scenario: An unsupported class is rejected when marked
 
-- **WHEN** a class declaring a base is marked
+- **GIVEN** a class declaring a base
+- **WHEN** it is marked
 - **THEN** an error is raised naming the unsupported construct and its location
 
-#### Scenario: Identity attributes are preserved
+#### Scenario: A marked class keeps its identity attributes
 
-- **WHEN** a marked class's name, docstring, and module are read
+- **GIVEN** a marked class
+- **WHEN** its name, docstring, and module are read
 - **THEN** they match those of the class as written
 
 #### Scenario: The original class is reachable
 
+- **GIVEN** a marked class
 - **WHEN** a caller needs the uncompiled implementation
 - **THEN** it is accessible from the marked class
 
 #### Scenario: Instantiating a marked class builds the project
 
-- **WHEN** a marked class is instantiated for the first time
+- **GIVEN** a marked class in an unbuilt project
+- **WHEN** it is instantiated for the first time
 - **THEN** the project is built and the compiled type is used, as calling a marked function does
 
 #### Scenario: Classes and functions share one build
 
-- **WHEN** a project marks both classes and functions
+- **GIVEN** a project marking both classes and functions
+- **WHEN** any marked member is used
 - **THEN** one build covers all of them
 
 ### Requirement: A project can be compiled programmatically
@@ -326,33 +367,39 @@ should not have to work out which one they are looking at.
 
 #### Scenario: A root is compiled programmatically
 
-- **WHEN** the entry point is called with a project root containing marked functions
+- **GIVEN** a project root containing marked functions
+- **WHEN** the entry point is called with it
 - **THEN** the artifact is built and a report is returned
 
 #### Scenario: The report names what was found
 
+- **GIVEN** a project compiled through the entry point
 - **WHEN** the entry point returns
 - **THEN** the report carries the modules imported, the functions and classes found, and whether a
   build occurred
 
 #### Scenario: An empty project is not an error
 
-- **WHEN** the root contains nothing marked
+- **GIVEN** a root containing nothing marked
+- **WHEN** the entry point is called with it
 - **THEN** the report says so and no build is attempted
 
 #### Scenario: Import failures are reported rather than raised
 
-- **WHEN** one module cannot be imported
+- **GIVEN** a project with one module that cannot be imported
+- **WHEN** the entry point is called with it
 - **THEN** the report carries the failure and the others are still processed
 
 #### Scenario: A build failure raises
 
-- **WHEN** the toolchain fails
+- **GIVEN** a project whose toolchain invocation fails
+- **WHEN** the entry point is called with it
 - **THEN** the same error is raised as when a call triggers the build, carrying the toolchain output
 
 #### Scenario: The command adds no behaviour of its own
 
-- **WHEN** the same root is compiled through the command and through the entry point
+- **GIVEN** one project root
+- **WHEN** it is compiled through the command and through the entry point
 - **THEN** both produce the same artifact and the same outcome
 
 ### Requirement: Behavior is settable globally and per member
@@ -370,39 +417,41 @@ exactly as it did before the setting existed.
 
 #### Scenario: A global behavior applies to every member
 
-- **WHEN** initialization sets the behavior to the target language and two functions are marked
-  with the bare decorator
+- **GIVEN** a project whose initialization sets the behavior to the target language
+- **WHEN** two functions are marked and built
 - **THEN** both compile under the target language's stance on every axis
 
 #### Scenario: A per-member behavior overrides the global
 
-- **WHEN** initialization sets the behavior to the source language and one function is marked with
-  the target language
+- **GIVEN** a project whose initialization sets the behavior to the source language
+- **WHEN** one function is marked with the target's and the project is built
 - **THEN** that function compiles under the target's stance and every other member under the
   source's
 
 #### Scenario: A behavior object inherits the axes it does not name
 
-- **WHEN** a member is marked with a behavior object naming one axis, under a global default of the
-  source language
+- **GIVEN** a project whose global default is the source language
+- **WHEN** a member is marked with a behavior object naming one axis
 - **THEN** that axis takes the named language's stance and every other axis takes the source
   language's
 
 #### Scenario: A behavior object inherits from a non-default global
 
-- **WHEN** the global behavior is the target language and a member names one axis as the source
-  language
+- **GIVEN** a project whose global behavior is the target language
+- **WHEN** a member names one axis as the source language
 - **THEN** that axis takes the source language's stance and every other axis takes the target's
 
 #### Scenario: The two spellings are equivalent
 
-- **WHEN** one function is marked with the target language's name and another with a behavior
-  object naming the target for every axis
+- **GIVEN** a project under one global default
+- **WHEN** one function is marked with the target language's name and another with an equivalent
+  behavior object
 - **THEN** the two compile to identical code
 
 #### Scenario: Omitting behavior changes nothing
 
-- **WHEN** a project marks members without mentioning behavior anywhere
+- **GIVEN** a project marking members without mentioning behavior anywhere
+- **WHEN** it is built
 - **THEN** the generated code is identical to what the same project produced before the setting
   existed
 
@@ -418,30 +467,33 @@ SHALL likewise be rejected, with the valid axis names listed.
 
 #### Scenario: An unknown language is rejected at the decorator
 
-- **WHEN** a function is marked with a behavior naming a language compylr has no component for
+- **GIVEN** a behavior naming a language compylr has no component for
+- **WHEN** a function is marked with it
 - **THEN** an error is raised as the decorator runs, naming the two languages that would have been
   accepted
 
 #### Scenario: A reserved language is rejected distinctly
 
-- **WHEN** a function in a Python-to-Rust project is marked with a behavior naming a language
-  compylr has reserved but which is neither Python nor Rust
+- **GIVEN** a Python-to-Rust project and a behavior naming a reserved language that is neither
+- **WHEN** a function is marked with it
 - **THEN** an error is raised whose message distinguishes it from an unknown name
 
 #### Scenario: An invalid global behavior is rejected at initialization
 
-- **WHEN** initialization is called with a behavior naming a language that is neither the source nor
-  the target
+- **GIVEN** a behavior naming a language that is neither the source nor the target
+- **WHEN** initialization is called with it
 - **THEN** an error is raised before any member is marked
 
 #### Scenario: An unknown axis is rejected
 
-- **WHEN** a behavior object is constructed naming an axis that does not exist
+- **GIVEN** an axis name that does not exist
+- **WHEN** a behavior object is constructed naming it
 - **THEN** an error is raised listing the axes that do
 
 #### Scenario: A per-axis value is validated like a bare name
 
-- **WHEN** a behavior object names a valid axis with an invalid language
+- **GIVEN** a behavior object naming a valid axis with an invalid language
+- **WHEN** it is constructed
 - **THEN** an error is raised naming both the axis and the two languages that would have been
   accepted
 
@@ -457,19 +509,22 @@ meanings.
 
 #### Scenario: Mixed behavior builds one artifact
 
-- **WHEN** one function is marked with the source language's behavior and another with the target's
+- **GIVEN** a project with one function under the source language's behavior and another under
+  the target's
+- **WHEN** it is built
 - **THEN** both are built into the same artifact and both are callable
 
 #### Scenario: A mixed-behavior call keeps each side's meaning
 
-- **WHEN** a function under the source language's behavior calls one under the target's, and both
-  compute a floor division of a negative dividend
+- **GIVEN** a function under the source language's behavior calling one under the target's
+- **WHEN** both are built and called
 - **THEN** the caller's result follows the source language's rounding and the callee's follows the
   target's
 
 #### Scenario: A mixed backend is still refused
 
-- **WHEN** two members of one project are marked with different backends
+- **GIVEN** two members of one project marked with different backends
+- **WHEN** it is built
 - **THEN** the build is still refused, because a project compiles to one shared artifact
 
 ### Requirement: A behavior change rebuilds
@@ -480,10 +535,12 @@ rebuild key distinguishes.
 
 #### Scenario: Changing a behavior rebuilds
 
-- **WHEN** a project is built, a member's behavior is then changed, and the project is run again
+- **GIVEN** a built project whose member's behavior has since changed
+- **WHEN** it is run again
 - **THEN** the toolchain runs again and the new behavior is what executes
 
 #### Scenario: An unchanged behavior does not rebuild
 
-- **WHEN** a project is built and run again with nothing changed
+- **GIVEN** a built project with nothing changed
+- **WHEN** it is run again
 - **THEN** the cached artifact is reused
