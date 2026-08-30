@@ -177,7 +177,20 @@ candidates. Direct aliasing (`b = a`) is a case of this rule, not a rule of its 
 Lowering SHALL reject any annotation outside the supported set, and the diagnostic SHALL
 report the annotation as written in the source. The supported set is `int`, `float`, `bool`, and
 `str`; the parameterised forms `list[T]`, `dict[K, V]`, `set[T]`, and `tuple[T, ...]`, nested to
-any depth; plus `None` as a return annotation only.
+any depth over supported non-instance types; `None` as a return annotation only; and a class in the
+assembled unit as a direct parameter or return annotation of a top-level free function.
+
+Class names SHALL be gathered from every source before direct class-valued annotations are
+resolved, so support does not depend on source or decoration order. A bare identifier that could
+name a class in another source MAY remain unresolved while one source is validated, but SHALL
+resolve when the complete unit is assembled or fail with a diagnostic at the annotation's source
+location. This deferral SHALL NOT make built-in unsupported annotations such as `complex`, or
+malformed annotations, temporarily valid.
+
+A class-valued type nested beneath a collection in a Python-boundary signature, such as
+`list[Tally]`, SHALL be rejected with a located diagnostic before target source is emitted. Direct
+class annotations on method parameters or returns other than the implicit `self` receiver remain
+outside this initial support and SHALL be rejected on the same terms.
 
 A parameterised annotation SHALL be rejected when its parameters are missing, when their number
 does not match the form, or when a parameter is itself unsupported. A bare `list`, `dict`, `set`,
@@ -199,6 +212,32 @@ is not a type compylr can compile against.
 
 - **WHEN** lowering a function whose parameter is annotated `dict[str, list[int]]`
 - **THEN** lowering succeeds and the nesting is preserved in the IR type
+
+#### Scenario: Direct class annotations are accepted on a free function
+
+- **WHEN** a unit contains class `Tally` and a top-level free function takes a borrow-only `Tally`
+  parameter or returns a newly owned `Tally`
+- **THEN** lowering succeeds and the signature carries the `Tally` instance type
+
+#### Scenario: A class annotation resolves across sources
+
+- **WHEN** a free function is lowered before the separate source defining its annotated class
+- **THEN** the complete unit resolves the annotation regardless of source order
+
+#### Scenario: An unknown class annotation is located
+
+- **WHEN** a complete unit contains a direct annotation `Taly` but defines no class of that name
+- **THEN** lowering fails at the annotation's location and reports `Taly` as unknown
+
+#### Scenario: A nested class-valued boundary annotation is rejected
+
+- **WHEN** a top-level free function has a parameter or return annotated `list[Tally]`
+- **THEN** lowering fails at that annotation before target source is emitted
+
+#### Scenario: A class-valued method boundary is not accepted accidentally
+
+- **WHEN** an exported method other than its implicit receiver directly takes or returns `Tally`
+- **THEN** lowering fails with a located diagnostic explaining that the position is not supported
 
 #### Scenario: An unparameterised collection annotation is rejected
 
@@ -1504,3 +1543,95 @@ result has.
 - **WHEN** `xs[-1]` is lowered under a behavior in which a negative index is out of range
 - **THEN** lowering succeeds, because the index is a runtime value and refusing a literal one would
   reject only the cases that are visible
+
+### Requirement: Borrowed instance parameters do not escape
+
+A direct instance parameter of a top-level free function SHALL be borrow-only for the duration of
+the call. Lowering SHALL permit it to be read, mutated directly or through a mutating method, or
+passed as an argument to another direct instance parameter whose use is likewise borrow-compatible.
+Lowering SHALL reject any use that would require owning, copying, moving, or storing that borrowed
+instance.
+
+Rejected ownership uses SHALL include returning the parameter, binding or assigning it into another
+storage slot, placing it in a collection or another instance's attribute, rebinding the parameter
+name to an owned instance, or passing it to a position that consumes an owned value. The rejection
+SHALL carry a stable diagnostic category and the source location of the consuming use, and SHALL
+occur before target source is emitted. Lowering SHALL follow direct aliases when necessary so an
+escape cannot be hidden behind another local name.
+
+The borrow SHALL extend to instances reached *through* the parameter. An attribute of a borrowed
+instance whose declared type is a class, and an element of a collection held in one, SHALL be
+rejected in the same ownership positions and with the same category, because the caller still holds
+the container and would otherwise receive a detached copy of an instance CPython would return by
+identity. Reading such an instance, and passing it to a position that borrows it, SHALL remain
+permitted.
+
+A free function with an instance return type SHALL remain valid when its result is newly owned by
+the call, including an instance constructed in the function or returned by another function that
+produces an owned instance. The compiler SHALL NOT make a borrowed parameter satisfy such a return
+by cloning it.
+
+#### Scenario: A borrowed parameter may be read
+
+- **WHEN** a free function reads an attribute of a direct instance parameter
+- **THEN** lowering succeeds without transferring ownership of the parameter
+
+#### Scenario: A borrowed parameter may be mutated
+
+- **WHEN** a free function assigns an attribute or invokes a mutating method on a direct instance
+  parameter
+- **THEN** lowering succeeds and the use remains a borrow of the caller's instance
+
+#### Scenario: A borrowed parameter may be forwarded compatibly
+
+- **WHEN** a free function passes its direct instance parameter to another free function whose
+  corresponding direct instance parameter is borrow-only
+- **THEN** lowering succeeds without cloning or moving the instance
+
+#### Scenario: Returning a borrowed parameter is rejected
+
+- **WHEN** lowering `def identity(t: Tally) -> Tally: return t`
+- **THEN** lowering fails at the returned `t` with the borrowed-instance-escape category before
+  target source is emitted
+
+#### Scenario: An alias cannot hide a borrowed return
+
+- **WHEN** a function binds `same = t` from a direct instance parameter and later returns `same`
+- **THEN** lowering fails with a located borrowed-instance-escape diagnostic rather than cloning
+  the instance
+
+#### Scenario: An instance reached through a borrow cannot be consumed
+
+- **WHEN** a function returns `holder.item` or `holder.items[0]`, where `holder` is a direct
+  instance parameter and the attribute or element is class-typed
+- **THEN** lowering fails at that expression with the borrowed-instance-escape category, rather
+  than emitting a clone whose later mutation the caller never observes
+
+#### Scenario: An instance reached through a borrow may still be read and forwarded
+
+- **WHEN** a function reads `holder.item.value`, or passes `holder.item` to a function whose
+  corresponding parameter is a borrow-only direct instance parameter
+- **THEN** lowering succeeds and the instance is borrowed rather than copied
+
+#### Scenario: Storing a borrowed parameter is rejected
+
+- **WHEN** a function places a direct instance parameter in a collection or another instance's
+  attribute
+- **THEN** lowering fails at the storing use before target source is emitted
+
+#### Scenario: Rebinding a borrowed parameter is rejected
+
+- **WHEN** a function assigns a newly constructed instance to the name of a direct instance
+  parameter
+- **THEN** lowering fails at the assignment because that parameter binding is borrow-only
+
+#### Scenario: A newly constructed return is owned
+
+- **WHEN** a function annotated `-> Tally` returns `Tally(start)`
+- **THEN** lowering succeeds because the returned instance is newly owned by the call
+
+#### Scenario: An owned callee result may be returned
+
+- **WHEN** a function annotated `-> Tally` returns the result of another function that produces a
+  newly owned `Tally`
+- **THEN** lowering succeeds
