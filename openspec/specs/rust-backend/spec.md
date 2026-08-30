@@ -55,7 +55,19 @@ same way.
 ### Requirement: Function emission
 
 The backend SHALL emit each function in a unit as a Rust function carrying its name, its
-parameters in source order with their spelled types, and its declared return type.
+parameters in source order with their spelled types, and its declared return type. A direct
+instance parameter SHALL be emitted as a borrow of the instance rather than an owned value: shared
+when the function only observes it and mutable when the function mutates it directly, through a
+mutable method call, or by passing it to a parameter that is itself mutable. Calls between
+generated functions SHALL pass instance arguments with the same borrowing convention.
+
+A method's receiver SHALL be derived from the same analysis as those parameters, in one fixpoint
+rather than two, since `self` is an instance the method borrows from its caller. A method that
+passes `self` to a function whose instance parameter is mutable SHALL therefore be emitted with a
+mutable receiver, and a function calling that method SHALL in turn borrow its own instance mutably. Other parameter types SHALL remain owned. The backend SHALL NOT clone a
+borrowed instance parameter to satisfy a return, storage operation, rebinding, or other ownership
+use; such input SHALL be rejected with a located diagnostic before backend emission. An instance
+return SHALL therefore come from an expression that already produces an owned instance.
 
 Every emitted function SHALL be fallible, yielding either the declared return type or a runtime
 error. This is uniform rather than decided per function: any body can contain a division or an
@@ -68,6 +80,38 @@ edit and force every caller to change with it.
 - **WHEN** a function taking two integers and returning an integer is emitted
 - **THEN** the Rust signature names both parameters with type `i64`, and the function yields an
   `i64` on success
+
+#### Scenario: Read-only instance parameter is borrowed
+
+- **WHEN** a free function reads an attribute from a direct instance parameter without mutating it
+- **THEN** the emitted Rust function accepts a shared borrow of that instance
+
+#### Scenario: Mutated instance parameter is borrowed mutably
+
+- **WHEN** a free function mutates a direct instance parameter or calls a method that does
+- **THEN** the emitted Rust function accepts a mutable borrow and changes the original instance
+
+#### Scenario: A method forwarding its receiver borrows it as the callee does
+
+- **WHEN** a method's body passes `self` to a free function whose instance parameter is mutable
+- **THEN** the emitted method takes a mutable receiver, and the generated Rust compiles
+
+#### Scenario: Borrowed instance forwarding stays borrowed
+
+- **WHEN** a generated function passes its direct instance parameter to another generated
+  function with a compatible direct instance parameter
+- **THEN** the emitted call passes a shared or mutable borrow and does not clone the instance
+
+#### Scenario: Owned instance return needs no borrowed clone
+
+- **WHEN** a function returns an instance constructed in its body or received as an owned result
+  from another function
+- **THEN** the emitted Rust returns that owned value directly
+
+#### Scenario: A borrowed return never reaches emission
+
+- **WHEN** source attempts to return a direct instance parameter as an owned instance result
+- **THEN** backend emission is not invoked for that invalid unit
 
 #### Scenario: Function returning unit
 
