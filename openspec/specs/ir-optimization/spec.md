@@ -15,19 +15,25 @@ would emit code that does not build.
 
 #### Scenario: A well-formed unit passes
 
-- **WHEN** a unit produced by lowering an accepted program is verified
-- **THEN** verification succeeds and the unit is unchanged
+- **GIVEN** a unit produced by lowering an accepted program
+- **WHEN** it is verified
+- **THEN** verification succeeds
+- **AND** the unit is unchanged
 
 #### Scenario: A malformed unit is rejected
 
-- **WHEN** a unit contains a reference to a function that is in neither the unit nor its declared
-  external signatures
-- **THEN** verification fails and reports the offending reference
+- **GIVEN** a unit referring to a function that is in neither the unit nor its declared external
+  signatures
+- **WHEN** it is verified
+- **THEN** verification fails
+- **AND** the diagnostic names the offending reference
+- **BUT** no backend has been asked to emit from it
 
 #### Scenario: Verification does not know the source language
 
-- **WHEN** the same malformed unit is presented as though produced by any frontend
-- **THEN** verification reports the same failure
+- **GIVEN** one malformed unit
+- **WHEN** it is verified as though produced by each frontend in turn
+- **THEN** the same failure is reported every time
 
 ### Requirement: Passes run in a configurable pipeline
 
@@ -38,19 +44,23 @@ that a build can be explained.
 
 #### Scenario: Default pipeline
 
-- **WHEN** no pass configuration is supplied
-- **THEN** verification runs and a documented default set of passes runs
+- **GIVEN** a compilation supplying no pass configuration
+- **WHEN** the unit is compiled
+- **THEN** verification runs
+- **AND** the documented default set of passes runs
 
 #### Scenario: Optimization disabled
 
-- **WHEN** the pipeline is configured to run no optimization passes
-- **THEN** verification still runs, and the resulting program behaves identically to the optimized
-  one on every accepted fixture
+- **GIVEN** a pipeline configured to run no optimization passes
+- **WHEN** each accepted fixture is compiled and run
+- **THEN** verification still runs
+- **AND** every fixture answers what it answers under the full set of passes
 
 #### Scenario: The pipeline is reportable
 
-- **WHEN** a unit is compiled
-- **THEN** the names of the passes that ran, in order, are available to the caller
+- **GIVEN** a unit and a pass configuration
+- **WHEN** the unit is compiled
+- **THEN** the caller can read the names of the passes that ran, in order
 
 ### Requirement: A pass preserves observable behavior
 
@@ -61,19 +71,23 @@ unchanged.
 
 #### Scenario: Declared semantics drive the transformation
 
-- **WHEN** a pass folds a division of two integer literals
-- **THEN** the folded value is computed using the rounding mode declared on that node, so the same
-  literals under a different declared mode fold to a different value
+- **GIVEN** a division of two integer literals carrying a declared rounding mode
+- **WHEN** a pass folds it
+- **THEN** the folded value is the one that rounding mode gives
+- **AND** the same literals under a different declared mode fold to a different value
 
 #### Scenario: An error is not optimized away
 
-- **WHEN** a pass encounters an operation whose constant operands would fail at runtime, such as
-  division by zero or a result outside the integer range
-- **THEN** it leaves the operation in place so the failure still reaches the caller
+- **GIVEN** an operation whose constant operands would fail at runtime, such as division by zero
+  or a result outside the integer range
+- **WHEN** a folding pass reaches it
+- **THEN** the operation is left in place
+- **AND** the failure still reaches the caller at runtime
 
 #### Scenario: Uncertainty means no change
 
-- **WHEN** a pass cannot determine that a transformation preserves behavior
+- **GIVEN** a transformation a pass cannot establish as behavior-preserving
+- **WHEN** the pass runs
 - **THEN** the IR is returned unchanged
 
 ### Requirement: Constant folding is available as a target-agnostic pass
@@ -84,22 +98,26 @@ node and SHALL produce a literal of the type the operation's declared semantics 
 
 #### Scenario: Arithmetic on literals folds
 
-- **WHEN** a function body contains an addition of two integer literals
-- **THEN** the emitted IR contains a single integer literal in its place
+- **GIVEN** a function body containing an addition of two integer literals
+- **WHEN** the default pipeline runs
+- **THEN** a single integer literal stands in its place
 
 #### Scenario: Division folds to the declared type
 
-- **WHEN** a division declaring float promotion is applied to two integer literals
+- **GIVEN** a division of two integer literals declaring float promotion
+- **WHEN** the default pipeline runs
 - **THEN** the result is a float literal
 
 #### Scenario: Non-constant operands are untouched
 
-- **WHEN** an operation has an operand that is not a literal
+- **GIVEN** an operation with an operand that is not a literal
+- **WHEN** the default pipeline runs
 - **THEN** the operation is unchanged
 
 #### Scenario: Folding is observable in the artifact
 
-- **WHEN** the IR artifact for a unit containing foldable arithmetic is written
+- **GIVEN** a unit containing foldable arithmetic
+- **WHEN** its IR artifact is written
 - **THEN** the folded form appears in it
 
 ### Requirement: Passes may be directed at a source/target pair
@@ -112,17 +130,20 @@ SHALL run the target-agnostic passes alone.
 
 #### Scenario: A pair-directed pass runs for its pair
 
-- **WHEN** a unit is compiled from a source language to a target that has a pair-directed pass
-- **THEN** that pass runs after the target-agnostic passes
+- **GIVEN** a pair that has a directed pass registered
+- **WHEN** a unit is compiled for that pair
+- **THEN** the directed pass runs after the target-agnostic passes
 
 #### Scenario: The same pass does not run for another pair
 
-- **WHEN** the same unit is compiled to a different target
-- **THEN** the pass registered for the first pair does not run
+- **GIVEN** one unit and a pass registered for a different pair
+- **WHEN** the unit is compiled for this pair
+- **THEN** that pass does not run
 
 #### Scenario: No pass registered
 
-- **WHEN** a pair has no directed passes
+- **GIVEN** a pair with no directed passes
+- **WHEN** a unit is compiled for it
 - **THEN** compilation succeeds with the target-agnostic passes alone
 
 ### Requirement: Optimization does not change the program's fingerprint
@@ -135,16 +156,19 @@ be reused.
 
 #### Scenario: Pass configuration does not alter the fingerprint
 
-- **WHEN** the same source is lowered and fingerprinted with optimization enabled and disabled
-- **THEN** the fingerprint is identical
+- **GIVEN** one source file
+- **WHEN** it is lowered and fingerprinted with optimization enabled and again with it disabled
+- **THEN** the two fingerprints are identical
 
 #### Scenario: Build state records the configuration
 
-- **WHEN** a project is built
+- **GIVEN** a project being built
+- **WHEN** the build completes
 - **THEN** the recorded build state identifies the pass configuration that produced it
 
 #### Scenario: A build under a different configuration is not reused
 
-- **WHEN** a project whose source has not changed is compiled with a different pass configuration
-  than the one recorded
-- **THEN** the cached artifact is rebuilt rather than reused
+- **GIVEN** a project whose source has not changed since a recorded build
+- **WHEN** it is compiled under a different pass configuration
+- **THEN** the artifact is rebuilt
+- **BUT** the fingerprint has not moved
