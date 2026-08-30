@@ -88,6 +88,11 @@ from it. This belongs to the IR rather than to any one backend: the IR is the st
 backend consumes, so an on-disk form of it is what makes the pipeline inspectable between
 lowering and code generation regardless of which target is being emitted.
 
+The artifact SHALL carry a format version, and a reader SHALL refuse an artifact whose version it
+does not understand, naming both the version found and the version expected. Adding a mode to a node
+changes the serialized shape, so the version SHALL advance whenever it does — and giving every
+expression a type is exactly such a change, so the version SHALL advance for it too.
+
 The type each expression carries SHALL be part of the serialized form. Storing it is redundant with
 the tree, and the redundancy is the point: it is recomputed and checked, so a stored type cannot
 quietly diverge from the expression it describes, and an artifact whose types were edited is refused
@@ -120,12 +125,19 @@ rather than trusted.
 - **WHEN** an artifact is inspected
 - **THEN** it names IR types and operators only, containing no Rust or other target spellings
 
+#### Scenario: An artifact written before checking modes is refused
+
+- **WHEN** an artifact written under the previous format version is read
+- **THEN** it is refused with a message naming the version found and the version expected, rather
+  than being read as though every operation reported its failures
+
 #### Scenario: Every expression's type survives a round trip
 
 - **WHEN** a unit is serialized and read back
 - **THEN** every expression carries the same type it carried before
 
-#### Scenario: An artifact whose declared form is not this one is refused
+#### Scenario: An artifact written before every expression carried a type is refused
 
-- **WHEN** an artifact written in an earlier form of the IR is read
-- **THEN** reading fails, and does not attempt to reinterpret it
+- **WHEN** an artifact written under the format version that predates typed expressions is read
+- **THEN** it is refused with a message naming the version found and the version expected, rather
+  than being read as though every expression's type could be inferred after the fact
