@@ -17,23 +17,28 @@ Exit status SHALL distinguish success from failure, so the CLI can be used in a 
 parsing its output.
 
 #### Scenario: A supported file is reported
-- **WHEN** the CLI is run on a file inside the supported subset
+- **GIVEN** a file inside the supported subset
+- **WHEN** the CLI is run on it
 - **THEN** it reports the result and exits successfully
 
 #### Scenario: No arguments
+- **GIVEN** a shell with the CLI installed
 - **WHEN** the CLI is run with no path
 - **THEN** it prints usage and exits unsuccessfully
 
 #### Scenario: A missing file
-- **WHEN** the CLI is run on a path that does not exist
+- **GIVEN** a path that does not exist
+- **WHEN** the CLI is run on it
 - **THEN** it reports the path it could not read and exits unsuccessfully
 
 #### Scenario: A rejected program exits unsuccessfully
-- **WHEN** the CLI is run on a file outside the supported subset
+- **GIVEN** a file outside the supported subset
+- **WHEN** the CLI is run on it
 - **THEN** it exits unsuccessfully
 
 #### Scenario: Compiling a TypeScript file via CLI
-- **WHEN** the CLI is run with `--frontend typescript <file.ts>`
+- **GIVEN** a TypeScript file inside the supported subset
+- **WHEN** the CLI is run on it with the `typescript` frontend
 - **THEN** it compiles the TypeScript file and prints a human-readable summary of the unit
 
 ### Requirement: Diagnostics carry their location
@@ -44,17 +49,20 @@ rejection should not get a different answer depending on which entry point they 
 
 #### Scenario: A subset violation reports where it is
 
-- **WHEN** the CLI is run on a file whose third line is outside the subset
+- **GIVEN** a file whose third line is outside the subset
+- **WHEN** the CLI is run on it
 - **THEN** the reported location names line 3
 
 #### Scenario: A syntax error is reported as such
 
-- **WHEN** the CLI is run on a file that is not valid Python
+- **GIVEN** a file that is not valid Python
+- **WHEN** the CLI is run on it
 - **THEN** it reports a syntax error with a location
 
 #### Scenario: Diagnostics go to the error stream
 
-- **WHEN** a file is rejected
+- **GIVEN** a file the CLI rejects
+- **WHEN** the CLI is run on it
 - **THEN** the diagnostic is written to the error stream, leaving the output stream empty for
   redirection
 
@@ -74,33 +82,39 @@ redirected to a single file, quietly breaking the obvious use of the flag.
 
 #### Scenario: The default is a summary
 
+- **GIVEN** a file inside the supported subset
 - **WHEN** the CLI is run with no output flag
 - **THEN** it reports the unit fingerprint and each function's name, parameter count, and return
   type
 
 #### Scenario: The IR can be emitted
 
+- **GIVEN** a file inside the supported subset
 - **WHEN** the CLI is asked for the IR
 - **THEN** it writes the IR artifact, in the same form the build pipeline writes to disk
 
 #### Scenario: The generated source can be emitted
 
+- **GIVEN** a file inside the supported subset
 - **WHEN** the CLI is asked for the generated source
 - **THEN** it writes the translated functions for the selected backend, without performing a build
 
 #### Scenario: Only the translated code is printed
 
-- **WHEN** the generated source is emitted for a unit of one function
+- **GIVEN** a unit of one function
+- **WHEN** the generated source is emitted
 - **THEN** the output holds that function and not the helpers, boundary code, or crate root
 
 #### Scenario: Emitted output is written to the output stream
 
+- **GIVEN** a file inside the supported subset
 - **WHEN** any form is emitted
 - **THEN** it goes to the output stream, so it can be redirected to a file or piped
 
 #### Scenario: An unrecognized output form is refused
 
-- **WHEN** the CLI is asked for a form it does not produce
+- **GIVEN** a form the CLI does not produce
+- **WHEN** the CLI is asked for it
 - **THEN** it reports the accepted forms and exits unsuccessfully
 
 ### Requirement: The backend is selectable
@@ -110,19 +124,23 @@ reported as planned, an unrecognized one as unknown. The CLI SHALL accept `--bac
 Go source code.
 
 #### Scenario: The default backend is used
+- **GIVEN** a file inside the supported subset
 - **WHEN** the CLI emits generated source with no backend named
 - **THEN** it uses the implemented default
 
 #### Scenario: A reserved backend is reported as planned
-- **WHEN** the CLI is asked to emit for a reserved but unimplemented backend
+- **GIVEN** a backend name that is reserved but unimplemented
+- **WHEN** the CLI is asked to emit for it
 - **THEN** it reports that the backend is not implemented yet and exits unsuccessfully
 
 #### Scenario: An unknown backend lists what is available
-- **WHEN** the CLI is asked to emit for a name that is not a backend
+- **GIVEN** a name that is not a backend
+- **WHEN** the CLI is asked to emit for it
 - **THEN** it names the available backends and exits unsuccessfully
 
 #### Scenario: Emitting Go backend source from CLI
-- **WHEN** the CLI is run with `--backend go --emit source <file>`
+- **GIVEN** a file inside the supported subset
+- **WHEN** the CLI is asked to emit source for the `go` backend
 - **THEN** it outputs the generated Go source code to stdout
 
 ### Requirement: The whole crate can be written to a directory
@@ -135,32 +153,38 @@ did not name is a side effect a command-line tool should not have.
 
 #### Scenario: Every file is written
 
-- **WHEN** the CLI is asked to write a crate to a directory
+- **GIVEN** a file inside the supported subset and a destination directory
+- **WHEN** the CLI is asked to write a crate there
 - **THEN** each generated file appears under that directory at its relative path
 
 #### Scenario: The result compiles
 
-- **WHEN** a crate written this way is compiled
+- **GIVEN** a crate written to a directory by the CLI
+- **WHEN** it is compiled
 - **THEN** it builds, because the files written are exactly the ones the build pipeline would use
 
 #### Scenario: The destination is required
 
+- **GIVEN** a file inside the supported subset
 - **WHEN** the CLI is asked for the crate form with no destination
 - **THEN** it reports that a destination is needed and exits unsuccessfully
 
 #### Scenario: A missing directory is created
 
-- **WHEN** the named destination does not exist
+- **GIVEN** a destination that does not exist
+- **WHEN** the CLI is asked to write a crate there
 - **THEN** it is created, rather than failing on a path the user clearly intended
 
 #### Scenario: Nothing is written to the output stream
 
-- **WHEN** a crate is written to a directory
+- **GIVEN** a file inside the supported subset and a destination directory
+- **WHEN** a crate is written there
 - **THEN** the output stream carries at most a report of what was written, never source, since the
   source went to files
 
 #### Scenario: Writing a crate performs no build
 
+- **GIVEN** a machine with no Rust installed
 - **WHEN** a crate is written
 - **THEN** no toolchain is invoked, so the command works on a machine with no Rust installed
 
@@ -174,27 +198,32 @@ The command SHALL be available as `compylr` on the user's path once the package 
 
 #### Scenario: A project is compiled
 
-- **WHEN** the command is run against a project containing marked functions
+- **GIVEN** a project containing marked functions
+- **WHEN** the precompile command is run against it
 - **THEN** the artifact is built and the command exits successfully
 
 #### Scenario: A later run does not build
 
-- **WHEN** a project is precompiled and then run
+- **GIVEN** a project that has been precompiled
+- **WHEN** it is run
 - **THEN** the run does not invoke the toolchain
 
 #### Scenario: An already-current project is not rebuilt
 
-- **WHEN** the command is run twice against an unchanged project
+- **GIVEN** an unchanged project already precompiled
+- **WHEN** the command is run again
 - **THEN** the second run reports the artifact was already current and does not build
 
 #### Scenario: A change is picked up
 
-- **WHEN** a marked function is edited and the command run again
+- **GIVEN** a precompiled project whose marked function has been edited
+- **WHEN** the command is run again
 - **THEN** it rebuilds
 
 #### Scenario: Reformatting is not a change
 
-- **WHEN** comments or indentation are altered and the command run again
+- **GIVEN** a precompiled project whose comments or indentation have been altered
+- **WHEN** the command is run again
 - **THEN** it does not rebuild, because the decision keys off the IR
 
 ### Requirement: Discovery imports the project
@@ -217,47 +246,56 @@ reasonably expect a compiler not to execute what it compiles.
 
 #### Scenario: Every marked function is found
 
-- **WHEN** a project spreads marked functions across several modules
+- **GIVEN** a project spreading marked functions across several modules
+- **WHEN** the command is run against it
 - **THEN** all of them are included in the one build
 
 #### Scenario: Marked classes are found
 
-- **WHEN** a project marks a class
+- **GIVEN** a project marking a class
+- **WHEN** the command is run against it
 - **THEN** it is included alongside marked functions
 
 #### Scenario: A package's own module imports
 
-- **WHEN** the root contains a package whose `__init__.py` imports its siblings relatively
+- **GIVEN** a root containing a package whose `__init__.py` imports its siblings relatively
+- **WHEN** the command is run against it
 - **THEN** the package imports successfully and is not reported as a failure
 
 #### Scenario: A nested package imports
 
-- **WHEN** a marked function lives in a package inside another package
+- **GIVEN** a marked function living in a package inside another package
+- **WHEN** the command is run against the root
 - **THEN** it is found, and every package above it resolves
 
 #### Scenario: Enumeration order does not decide success
 
-- **WHEN** a subpackage's name sorts before its parent's own module file
+- **GIVEN** a subpackage whose name sorts before its parent's own module file
+- **WHEN** the command is run against the root
 - **THEN** it imports successfully anyway
 
 #### Scenario: Only the given root is imported
 
-- **WHEN** the command is run against a subdirectory of a larger project
+- **GIVEN** a subdirectory of a larger project
+- **WHEN** the command is run against that subdirectory
 - **THEN** modules outside it are not imported
 
 #### Scenario: Non-source directories are skipped
 
-- **WHEN** the root contains virtual environments, caches, or build output
+- **GIVEN** a root containing virtual environments, caches, or build output
+- **WHEN** the command is run against it
 - **THEN** they are not imported
 
 #### Scenario: A module that cannot be imported is reported
 
-- **WHEN** one module raises on import
+- **GIVEN** a project with one module that raises on import
+- **WHEN** the command is run against it
 - **THEN** the command reports which module and why, and continues with the others
 
 #### Scenario: The help says that importing executes code
 
-- **WHEN** the command's help is shown
+- **GIVEN** the precompile command
+- **WHEN** its help is shown
 - **THEN** it states that discovery imports the project's modules
 
 ### Requirement: The command reports what it did
@@ -270,32 +308,38 @@ appears later as a slow first run — which is far from its cause.
 
 #### Scenario: A successful build is reported
 
-- **WHEN** a project is compiled
+- **GIVEN** a project containing marked members
+- **WHEN** it is compiled
 - **THEN** the output names the counts found and reports that a build occurred
 
 #### Scenario: Finding nothing is reported clearly
 
-- **WHEN** the root contains no marked functions or classes
+- **GIVEN** a root containing no marked functions or classes
+- **WHEN** the command is run against it
 - **THEN** the command says so rather than reporting success with nothing done
 
 #### Scenario: Reuse is distinguished from building
 
-- **WHEN** the artifact is already current
+- **GIVEN** a project whose artifact is already current
+- **WHEN** the command is run against it
 - **THEN** the output distinguishes that from having built
 
 #### Scenario: Build failures carry the toolchain's output
 
-- **WHEN** the build fails
+- **GIVEN** a project whose build fails
+- **WHEN** the command is run against it
 - **THEN** the toolchain's diagnostics are included and the command exits unsuccessfully
 
 #### Scenario: Exit status distinguishes the outcomes
 
-- **WHEN** the command succeeds, fails to build, or finds nothing
+- **GIVEN** a project in each of the three states
+- **WHEN** the command is run against it
 - **THEN** each is distinguishable from the exit status alone, so it can be used in a script
 
 #### Scenario: A missing root is reported
 
-- **WHEN** the command is given a path that does not exist
+- **GIVEN** a path that does not exist
+- **WHEN** the command is given it
 - **THEN** it reports the path and exits unsuccessfully
 
 ### Requirement: The behavior is selectable
@@ -313,34 +357,39 @@ SHALL exit unsuccessfully before any source is parsed.
 
 #### Scenario: The default behavior is the source language's
 
+- **GIVEN** a file inside the supported subset
 - **WHEN** the CLI emits generated source with no behavior named
 - **THEN** the output is what the source language's stance produces
 
 #### Scenario: A language name sets every axis
 
+- **GIVEN** a file inside the supported subset
 - **WHEN** the CLI is given the target language as the behavior
 - **THEN** every axis takes the target language's stance, and the emitted source differs from the
   default accordingly
 
 #### Scenario: Per-axis assignments are accepted
 
+- **GIVEN** a file inside the supported subset
 - **WHEN** the CLI is given a behavior naming one axis
 - **THEN** that axis takes the named language's stance and every other axis takes the source
   language's
 
 #### Scenario: An invalid language is rejected
 
-- **WHEN** the CLI is given a behavior naming a language that is neither the source nor the target
+- **GIVEN** a behavior naming a language that is neither the source nor the target
+- **WHEN** the CLI is given it
 - **THEN** it reports the two languages that would have been accepted and exits unsuccessfully
 
 #### Scenario: An unknown axis is rejected
 
-- **WHEN** the CLI is given a behavior naming an axis that does not exist
+- **GIVEN** a behavior naming an axis that does not exist
+- **WHEN** the CLI is given it
 - **THEN** it lists the axes that do and exits unsuccessfully
 
 #### Scenario: The behavior is visible in both emitted forms
 
-- **WHEN** the CLI emits the IR and then the target source for the same file under a non-default
-  behavior
+- **GIVEN** a file inside the supported subset and a non-default behavior
+- **WHEN** the CLI emits the IR and then the target source for it
 - **THEN** the declared modes in the IR and the operators in the target source agree with each
   other and with the behavior given
