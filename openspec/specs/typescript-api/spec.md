@@ -1,45 +1,81 @@
 # typescript-api Specification
 
 ## Purpose
-The user-facing TypeScript package (`compylr` / `@compylr/compylr`): provides the `@compyle` decorator and wrapper functions, project manager initialization, automated JIT/AOT build orchestration with the Go toolchain, `.compylr/` build caching, dynamic module replacement at runtime, and environment control.
+The user-facing TypeScript package: the marker that nominates a function for compilation, manager
+initialization, build orchestration through the Go toolchain, the fingerprint-keyed rebuild
+decision, swapping the compiled implementation in at runtime, and the environment switch that
+turns all of it off.
 
 ## Requirements
 
 ### Requirement: Configuration manager initialization
-The package SHALL provide an `initialize(config)` entrypoint returning a configured compilation manager. Configuration options SHALL include `backend` (defaulting to `"go"`), `behavior`, and `llmAssist` (accepted but rejected when enabled).
+The package SHALL provide an initialization entrypoint returning a configured manager. It SHALL
+accept the target backend, defaulting to `go`; the behavior whose semantics the generated code
+preserves; and `llmAssist`, which is accepted as a setting and refused when enabled.
 
-#### Scenario: Default initialization
-- **WHEN** `compylr.initialize()` is called
-- **THEN** it returns a manager targeting the Go backend with default semantic behavior
+#### Scenario: Initialization defaults to the pair that works
+- **GIVEN** a project that names no backend
+- **WHEN** the manager is initialized
+- **THEN** it targets the Go backend
+- **AND** it resolves semantics to TypeScript's stance on every axis
 
-### Requirement: @compyle decorator and function wrapper
-The manager SHALL provide a `@c.compyle` decorator for methods/classes and a `c.compyle(fn)` higher-order function wrapper for functions. On declaration, it SHALL extract the function's source text (via `fn.toString()` or source map resolution) and validate it against the TypeScript frontend immediately.
+#### Scenario: An unimplemented setting is refused rather than ignored
+- **GIVEN** a project that enables `llmAssist`
+- **WHEN** the manager is initialized
+- **THEN** initialization fails saying the setting is not implemented
+- **BUT** the same setting left disabled is accepted
 
-#### Scenario: Decorating a TypeScript function
-- **WHEN** a typed function is wrapped with `compyle(fn)`
-- **THEN** its source is validated immediately against `compylr-frontend-typescript`
+### Requirement: Marking a function for compilation
+The manager SHALL provide a marker usable as a decorator and as a wrapping function. On marking,
+it SHALL recover the function's source text and validate it against the TypeScript frontend
+immediately, rather than deferring the diagnostic to the first call.
+
+#### Scenario: An unsupported function is refused where it is written
+- **GIVEN** a function whose body is outside the supported subset
+- **WHEN** it is marked
+- **THEN** marking fails
+- **AND** the diagnostic points at the offending construct
+- **BUT** no build has been attempted
 
 ### Requirement: Single shared artifact and first-call compilation
-All decorated functions in a project SHALL be compiled into a single shared Go package. Compilation SHALL occur on the first call to any decorated function in the project. The manager SHALL invoke the Go toolchain (`go build -buildmode=c-shared -o ...`) to produce the native artifact under `.compylr/`, load it into the process via the bridge FFI loader, and replace the function body.
+Every marked member in a project SHALL compile into one shared Go package. Compilation SHALL
+happen on the first call to any marked member, SHALL build the artifact under `.compylr/`, and
+SHALL swap the compiled implementation in so later calls reach it directly.
 
-#### Scenario: First call triggers build and invocation
-- **WHEN** a decorated function is called for the first time
-- **THEN** the shared Go artifact is built, loaded, and the call executes the compiled Go implementation
+#### Scenario: The first call builds the whole project
+- **GIVEN** a project with several marked members and no build on disk
+- **WHEN** any one of them is called
+- **THEN** every marked member is compiled into one artifact
+- **AND** the call is answered by the compiled implementation
 
-#### Scenario: Subsequent calls run compiled code directly
-- **WHEN** a decorated function is called a second time
-- **THEN** it executes the compiled implementation with zero build overhead
+#### Scenario: A later call pays nothing to build
+- **GIVEN** a project whose artifact has already been built and loaded
+- **WHEN** a marked member is called again
+- **THEN** the compiled implementation answers it
+- **AND** no build is invoked
 
 ### Requirement: Cache validation and fingerprinting
-The manager SHALL record the IR fingerprint, backend, and compylr version in `.compylr/build.json`. If the fingerprint and version match on subsequent runs, building SHALL be skipped entirely.
+The manager SHALL record the IR fingerprint, the backend, and the compylr version in build state.
+A run whose fingerprint and version match the recorded ones SHALL skip building entirely.
 
-#### Scenario: Cached build is reused
-- **WHEN** a process starts with an unchanged project and calls a decorated function
-- **THEN** the existing built artifact is loaded immediately without invoking `go build`
+#### Scenario: An unchanged project reuses its build
+- **GIVEN** build state recording a fingerprint and version that match the current project
+- **WHEN** a marked member is called
+- **THEN** the existing artifact is loaded
+- **AND** the Go toolchain is not invoked
+
+#### Scenario: An upgraded compiler rebuilds once
+- **GIVEN** build state recording an older compylr version
+- **WHEN** a marked member is called
+- **THEN** the project is rebuilt
+- **BUT** the source text has not changed
 
 ### Requirement: Environment disable switch
-When `COMPYLR_DISABLE=1` is set in the environment, the manager SHALL bypass all validation and compilation, returning the original TypeScript functions unaltered.
+When the disable variable is set in the environment, the manager SHALL return every marked member
+untouched, without validating or compiling it.
 
-#### Scenario: Disabled via environment variable
-- **WHEN** `COMPYLR_DISABLE=1` is set
-- **THEN** decorated functions run interpreted in JavaScript/Node.js without compiling
+#### Scenario: The environment turns compilation off for a process
+- **GIVEN** a process with the disable variable set
+- **WHEN** a marked member is called
+- **THEN** the original TypeScript implementation answers it
+- **AND** nothing has been validated or built

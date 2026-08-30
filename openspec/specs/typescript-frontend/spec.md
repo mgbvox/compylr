@@ -1,57 +1,101 @@
 # typescript-frontend Specification
 
 ## Purpose
-The source language frontend for TypeScript: turns TypeScript source text into language-agnostic compylr IR, validates static type annotations, declares what TypeScript means by each operator and what guarantees it requires a target to preserve, and owns how types and operators are spelled in compiler diagnostics.
+The source language frontend for TypeScript: it turns TypeScript source text into
+language-neutral IR, enforces the supported subset, declares what TypeScript means by each
+operator and what it requires a target to preserve, and owns how types and operators are spelled
+back to the programmer in diagnostics.
 
 ## Requirements
 
-### Requirement: Parse TypeScript source text into an AST
-The TypeScript frontend SHALL accept TypeScript source text (or a file path) and produce a parsed syntax tree using a Rust-native TypeScript parser. The parser dependency SHALL remain strictly confined to `compylr-frontend-typescript` and SHALL NOT be visible to `compylr-ir`, `compylr-core`, or any backend.
+### Requirement: Parse TypeScript source text into a syntax tree
+The frontend SHALL accept TypeScript source text and produce a parsed syntax tree. The parser
+dependency SHALL remain confined to this frontend and SHALL NOT be reachable from the IR, the
+component model, or any backend — which is what makes "a backend cannot name TypeScript" a
+property of the build rather than a convention.
 
-#### Scenario: Valid TypeScript function is parsed
-- **WHEN** valid TypeScript source text defining a typed function is supplied
-- **THEN** parsing succeeds and yields an AST
+#### Scenario: A typed function parses
+- **GIVEN** TypeScript source text defining a fully annotated function
+- **WHEN** it is parsed by the `typescript` frontend
+- **THEN** parsing succeeds
 
-#### Scenario: Syntax error reports location
-- **WHEN** syntactically malformed TypeScript source is supplied
-- **THEN** parsing fails with a `LoweringError::Syntax` containing 1-based line and column locations
+#### Scenario: A syntax error is located
+- **GIVEN** TypeScript source text that is not syntactically valid
+- **WHEN** it is parsed by the `typescript` frontend
+- **THEN** parsing fails
+- **AND** the diagnostic carries the 1-based line and column of the offending text
 
-### Requirement: Lower supported TypeScript subset to compylr IR
-The frontend SHALL lower a strict, fully annotated TypeScript subset into `compylr_ir::Unit`. Supported constructs include top-level functions, typed parameters, explicit return types, variable declarations (`const`, `let`), assignments, control flow (`if`/`else`, `while`, `for (let i = 0; i < n; i++)`, `for (const x of xs)`, `break`, `continue`), expressions (arithmetic, comparisons, boolean ops, indexing, calls), collections (`Array<T>`, `Map<K, V>`, `Set<T>`, `[T1, T2]`), and classes with constructor property initialization and methods.
+#### Scenario: No other crate can reach the parser
+- **GIVEN** the workspace manifests
+- **WHEN** the crate boundaries are checked
+- **THEN** this frontend is the only crate depending on a TypeScript parser
 
-#### Scenario: Function with primitive annotations lowers to IR
-- **WHEN** `function add(a: number, b: number): number { return a + b; }` is lowered
-- **THEN** it produces an IR function with integer/float parameters and return type, returning a binary addition node
+### Requirement: Lower the supported TypeScript subset to IR
+The frontend SHALL lower a strict, fully annotated TypeScript subset into an IR unit: top-level
+functions with annotated parameters and an explicit return type, `const` and `let` declarations,
+assignment, `if`/`else`, `while`, counted and iterating `for`, `break`, `continue`, arithmetic,
+comparison and boolean expressions, indexing, calls, the collection types, and classes whose
+attributes are established in the constructor.
 
-#### Scenario: Missing return on path is rejected
-- **WHEN** a function declaring a non-void return type has a control flow path without a return
-- **THEN** lowering fails with a located `LoweringError::Unsupported` diagnostic
+#### Scenario: An annotated function lowers to the operation it wrote
+- **GIVEN** a module whose only function is
 
-#### Scenario: Parameter mutation is rejected
-- **WHEN** a function mutates an array parameter via `xs.push(v)` or `xs[i] = v`
-- **THEN** lowering fails explaining that parameters cross the boundary by value and cannot be mutated in place
+  ```typescript
+  function add(a: number, b: number): number {
+      return a + b;
+  }
+  ```
 
-### Requirement: TypeScript type validation and inference
-The frontend SHALL validate type consistency across initializers, assignments, and expressions, and infer local variable types from initializers when omitted.
+- **WHEN** the module is lowered by the `typescript` frontend
+- **THEN** lowering succeeds
+- **AND** the unit carries one function whose body returns an addition of its two parameters
 
-#### Scenario: Local type inference
-- **WHEN** `const x = 42;` is lowered
-- **THEN** `x` is inferred as an integer binding
+#### Scenario: A path that does not return is refused
+- **GIVEN** a function declaring a return type with a path that reaches the end without returning
+- **WHEN** the module is lowered by the `typescript` frontend
+- **THEN** lowering fails
+- **AND** the diagnostic points at the function rather than reporting a failure from the backend
 
-#### Scenario: Incompatible type assignment is rejected
-- **WHEN** a variable initialized as a string is assigned a number
-- **THEN** lowering fails with a diagnostic stating the type mismatch
+#### Scenario: Mutating a parameter is refused with its reason
+- **GIVEN** a function that pushes onto, or assigns into, one of its own array parameters
+- **WHEN** the module is lowered by the `typescript` frontend
+- **THEN** lowering fails
+- **AND** the diagnostic says the parameter crossed by value, so the caller could not observe the
+  mutation
 
-### Requirement: TypeScript frontend owns TypeScript diagnostics and spellings
-The frontend SHALL format types and operators in diagnostics using canonical TypeScript spellings (`number`, `string`, `boolean`, `void`, `Array<T>`, `Map<K, V>`, `Set<T>`, `[A, B]`).
+### Requirement: Type validation and local inference
+The frontend SHALL check that initializers, assignments, and expressions agree on type, and SHALL
+infer a local binding's type from its initializer when the initializer determines it.
 
-#### Scenario: Diagnostic reports TypeScript type spelling
-- **WHEN** a type mismatch occurs involving a map from strings to numbers
-- **THEN** the error message spells the type as `Map<string, number>`
+#### Scenario: A local takes the type of its initializer
+- **GIVEN** a function binding a local to an integer literal with no annotation
+- **WHEN** the module is lowered by the `typescript` frontend
+- **THEN** the binding carries the integer type
 
-### Requirement: Declare TypeScript behavior profile and required guarantees
-The frontend SHALL declare TypeScript's stance on all six semantic axes (floating-point division `/`, truncating/integer division semantics, modulo sign convention `%`, 0-based indexing, UTF-16/character string length) and declare required guarantees (division by zero, integer overflow reporting where applicable, float ordering).
+#### Scenario: A binding keeps the type it was first bound at
+- **GIVEN** a function that binds a local to text and later assigns a number to it
+- **WHEN** the module is lowered by the `typescript` frontend
+- **THEN** lowering fails
+- **AND** the diagnostic names both types
 
-#### Scenario: Frontend registers behavior declaration
-- **WHEN** `Frontend::behavior()` is queried on the TypeScript frontend
-- **THEN** it returns a complete `LanguageBehavior` covering all behavior axes without referencing any target language
+### Requirement: The frontend owns TypeScript's spellings
+The frontend SHALL spell types and operators in diagnostics the way TypeScript writes them, so
+that a programmer is answered in the language they wrote. How a construct is spelled back to the
+programmer belongs to the frontend that read it, never to the IR or to a backend.
+
+#### Scenario: A diagnostic answers in TypeScript's spelling
+- **GIVEN** a program whose types disagree, one of them a mapping from text to numbers
+- **WHEN** the module is lowered by the `typescript` frontend
+- **THEN** lowering fails
+- **AND** the diagnostic spells that type `Map<string, number>`
+- **BUT** it does not use the IR's own rendering or a target language's
+
+### Requirement: Declare TypeScript's behavior and required guarantees
+The frontend SHALL declare TypeScript's stance on every semantic axis, and SHALL declare the
+guarantees it requires a target to preserve. The declaration SHALL name no target language.
+
+#### Scenario: The declaration is complete and target-neutral
+- **GIVEN** the `typescript` frontend
+- **WHEN** its behavior is requested
+- **THEN** it answers for every axis
+- **BUT** the answer names no target language
