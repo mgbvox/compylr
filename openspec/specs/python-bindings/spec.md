@@ -20,29 +20,33 @@ module.
 
 #### Scenario: Every function is exposed
 
-- **WHEN** a unit holding three compiled functions is built and imported
+- **GIVEN** a unit holding three compiled functions
+- **WHEN** it is built and imported
 - **THEN** all three are accessible as attributes of the module
 
 #### Scenario: Callers never name the module
 
-- **WHEN** a user calls a marked function
+- **GIVEN** a project with a marked function
+- **WHEN** a user calls it
 - **THEN** no import of the generated module appears in their code
 
 #### Scenario: A rebuilt unit loads in a process that already loaded its predecessor
 
-- **WHEN** a function is marked after a build has occurred, and calling it forces a rebuild
+- **GIVEN** a process that has already loaded a build
+- **WHEN** a function is marked and calling it forces a rebuild
 - **THEN** the rebuilt unit is loaded and used in that same process
 
 #### Scenario: Nothing beyond the unit is exposed
 
-- **WHEN** a compiled module is imported
+- **GIVEN** a compiled unit
+- **WHEN** its module is imported
 - **THEN** only the unit's functions and standard module attributes are present, so helper
   code emitted by the backend is not reachable as public API
 
 #### Scenario: Builds differing only in configuration do not collide
 
-- **WHEN** the same unit is built twice under different pass configurations and both are loaded in
-  one process
+- **GIVEN** one unit built twice under different pass configurations
+- **WHEN** both are loaded in one process
 - **THEN** each is loaded under its own module name
 
 ### Requirement: Parameter names are preserved
@@ -53,12 +57,14 @@ compiled one must not have to change how it calls.
 
 #### Scenario: Keyword call
 
-- **WHEN** a compiled `add(a, b)` is called as `add(b=2, a=1)`
+- **GIVEN** a compiled function `add(a, b)`
+- **WHEN** it is called as `add(b=2, a=1)`
 - **THEN** it returns the same result as `add(1, 2)`
 
 #### Scenario: Positional call
 
-- **WHEN** a compiled `add(a, b)` is called as `add(1, 2)`
+- **GIVEN** a compiled function `add(a, b)`
+- **WHEN** it is called as `add(1, 2)`
 - **THEN** arguments bind in source order
 
 ### Requirement: Value conversion across the boundary
@@ -70,35 +76,41 @@ on return, and the collection types as their Python counterparts — sequences a
 
 #### Scenario: Each type round-trips
 
-- **WHEN** a compiled function takes a parameter of a given scalar type and returns it unchanged
+- **GIVEN** a compiled function taking a scalar parameter and returning it unchanged
+- **WHEN** it is called with a Python value of that type
 - **THEN** calling it with a Python value of that type returns an equal Python value of the
   same type
 
 #### Scenario: Each collection type round-trips
 
-- **WHEN** a compiled function takes a `list`, `dict`, `set`, or `tuple` parameter and returns it
+- **GIVEN** a compiled function taking a `list`, `dict`, `set`, or `tuple` and returning it
   unchanged
+- **WHEN** it is called
 - **THEN** calling it returns an equal Python value of the same kind
 
 #### Scenario: Nested collections round-trip
 
-- **WHEN** a compiled function takes a `dict[str, list[int]]` and returns it unchanged
+- **GIVEN** a compiled function taking a `dict[str, list[int]]` and returning it unchanged
+- **WHEN** it is called
 - **THEN** the nesting and the values are preserved
 
 #### Scenario: Unit return
 
-- **WHEN** a compiled function annotated `-> None` is called
+- **GIVEN** a compiled function annotated `-> None`
+- **WHEN** it is called
 - **THEN** it returns `None`
 
 #### Scenario: Booleans are not integers at the boundary
 
-- **WHEN** a compiled function declaring a `bool` return is called
+- **GIVEN** a compiled function declaring a `bool` return
+- **WHEN** it is called
 - **THEN** the returned value is a Python `bool`, consistent with the IR's rule that booleans
   are not numbers
 
 #### Scenario: A tuple returns as a tuple, not a list
 
-- **WHEN** a compiled function declaring a `tuple[int, str]` return is called
+- **GIVEN** a compiled function declaring a `tuple[int, str]` return
+- **WHEN** it is called
 - **THEN** the returned value is a Python `tuple`
 
 ### Requirement: Wrong argument types raise TypeError
@@ -110,28 +122,32 @@ whose kind matches but whose elements do not.
 
 #### Scenario: String passed where an integer is declared
 
-- **WHEN** a compiled function declaring an `int` parameter is called with `"x"`
+- **GIVEN** a compiled function declaring an `int` parameter
+- **WHEN** it is called with `"x"`
 - **THEN** it raises `TypeError`
 
 #### Scenario: Wrong argument count
 
-- **WHEN** a compiled function taking two parameters is called with one argument
+- **GIVEN** a compiled function taking two parameters
+- **WHEN** it is called with one argument
 - **THEN** it raises `TypeError`
 
 #### Scenario: Wrong collection kind
 
-- **WHEN** a compiled function declaring a `list[int]` parameter is called with a `set`
+- **GIVEN** a compiled function declaring a `list[int]` parameter
+- **WHEN** it is called with a `set`
 - **THEN** it raises `TypeError`
 
 #### Scenario: Wrong element type
 
-- **WHEN** a compiled function declaring a `list[int]` parameter is called with `["a"]`
+- **GIVEN** a compiled function declaring a `list[int]` parameter
+- **WHEN** it is called with `["a"]`
 - **THEN** it raises `TypeError`
 
 #### Scenario: Wrong tuple length
 
-- **WHEN** a compiled function declaring a `tuple[int, str]` parameter is called with a
-  three-element tuple
+- **GIVEN** a compiled function declaring a `tuple[int, str]` parameter
+- **WHEN** it is called with a tuple of the wrong length
 - **THEN** it raises `TypeError`
 
 ### Requirement: Arithmetic failures raise the Python exception the interpreter would
@@ -142,32 +158,38 @@ that function is compiled.
 
 #### Scenario: Division by zero
 
-- **WHEN** a compiled function evaluates a division or remainder by zero
+- **GIVEN** a compiled function that divides or takes a remainder
+- **WHEN** its divisor is zero
 - **THEN** it raises `ZeroDivisionError`
 
 #### Scenario: Integer overflow
 
-- **WHEN** a compiled function computes a value outside the range of a 64-bit signed integer
+- **GIVEN** a compiled function computing a value outside the range of a 64-bit signed integer
+- **WHEN** it is called
 - **THEN** it raises `OverflowError`
 
 #### Scenario: Index out of range
 
-- **WHEN** a compiled function reads past the end of a sequence, in either direction
+- **GIVEN** a compiled function reading past the end of a sequence, in either direction
+- **WHEN** it is called
 - **THEN** it raises `IndexError`
 
 #### Scenario: Missing mapping key
 
-- **WHEN** a compiled function reads a key that is not present in a mapping
+- **GIVEN** a compiled function reading a key that is not present in a mapping
+- **WHEN** it is called
 - **THEN** it raises `KeyError`
 
 #### Scenario: The process survives
 
-- **WHEN** a compiled function raises any of these and the caller catches it
+- **GIVEN** a caller catching one of these exceptions
+- **WHEN** execution continues
 - **THEN** execution continues normally and later calls still work
 
 #### Scenario: Failure inside a nested call
 
-- **WHEN** a compiled function calls another compiled function that divides by zero
+- **GIVEN** a compiled function calling another that divides by zero
+- **WHEN** the outer function is called
 - **THEN** `ZeroDivisionError` propagates to the original Python caller
 
 ### Requirement: Collections cross the boundary by value
@@ -186,27 +208,32 @@ that relaxing it later has to supply reference semantics first.
 
 #### Scenario: The caller's list is unaffected
 
-- **WHEN** a caller passes a list to a compiled function and inspects it afterwards
+- **GIVEN** a caller holding a list
+- **WHEN** it is passed to a compiled function and inspected afterwards
 - **THEN** the list is unchanged
 
 #### Scenario: A compiled function cannot mutate a parameter at all
 
-- **WHEN** a function attempting to mutate a collection parameter is marked
+- **GIVEN** a function attempting to mutate a collection parameter
+- **WHEN** it is marked
 - **THEN** it is rejected, so no program exists in which the divergence could be observed
 
 #### Scenario: A returned collection is independent
 
-- **WHEN** a compiled function returns a collection and the caller modifies the result
+- **GIVEN** a compiled function returning a collection
+- **WHEN** the caller modifies the result
 - **THEN** nothing inside the compiled module is affected
 
 #### Scenario: A locally built collection is returned by value
 
-- **WHEN** a compiled function builds a collection and returns it
+- **GIVEN** a compiled function that builds a collection and returns it
+- **WHEN** it is called
 - **THEN** the caller receives an independent Python object holding the built contents
 
 #### Scenario: Large collections still convert correctly
 
-- **WHEN** a compiled function is called with a sequence of many thousands of elements
+- **GIVEN** a sequence of many thousands of elements
+- **WHEN** a compiled function is called with it
 - **THEN** it returns the correct result, the conversion cost being proportional to the size
 
 ### Requirement: A returned mapping does not preserve insertion order
@@ -221,22 +248,26 @@ a defined order must sort explicitly.
 
 #### Scenario: Contents are correct regardless of order
 
-- **WHEN** a compiled function returns a mapping
+- **GIVEN** a compiled function returning a mapping
+- **WHEN** it is called
 - **THEN** it contains exactly the expected keys and values
 
 #### Scenario: Key order is not guaranteed
 
-- **WHEN** a compiled function returns a mapping built from keys inserted in a known order
+- **GIVEN** a compiled function returning a mapping built from keys inserted in a known order
+- **WHEN** it is called
 - **THEN** the returned dictionary's iteration order is not guaranteed to match that order
 
 #### Scenario: Lookup is unaffected
 
-- **WHEN** a caller reads a key from a returned mapping
+- **GIVEN** a mapping returned from a compiled function
+- **WHEN** a caller reads a key from it
 - **THEN** the value is correct, since only ordering is affected
 
 #### Scenario: Sequence and tuple order IS preserved
 
-- **WHEN** a compiled function returns a sequence or a tuple
+- **GIVEN** a compiled function returning a sequence or a tuple
+- **WHEN** it is called
 - **THEN** the order of the elements matches the order they were produced in, because only
   mappings and sets are unordered
 
@@ -247,31 +278,37 @@ Python, with its methods callable as ordinary methods.
 
 #### Scenario: The type is exposed
 
-- **WHEN** a unit containing a class is built and imported
+- **GIVEN** a unit containing a class
+- **WHEN** it is built and imported
 - **THEN** the class is accessible as an attribute of the module
 
 #### Scenario: It is constructible
 
-- **WHEN** the exposed type is called with the arguments `__init__` declares
+- **GIVEN** an exposed compiled class
+- **WHEN** it is called with the arguments its constructor declares
 - **THEN** an instance is returned
 
 #### Scenario: Methods are callable
 
-- **WHEN** a method is called on an instance
+- **GIVEN** an instance of a compiled class
+- **WHEN** a method is called on it
 - **THEN** it runs the compiled implementation and returns its result
 
 #### Scenario: Arguments convert on the same terms as functions
 
+- **GIVEN** an instance of a compiled class
 - **WHEN** a method is called with arguments of the declared types
 - **THEN** each converts as it would for a free function, including collections
 
 #### Scenario: Wrong argument types raise TypeError
 
+- **GIVEN** an instance of a compiled class
 - **WHEN** a method or constructor is called with an argument of the wrong type
 - **THEN** it raises `TypeError`
 
 #### Scenario: Failures raise what Python would
 
+- **GIVEN** an instance of a compiled class
 - **WHEN** a method divides by zero, reads a missing key, or overflows
 - **THEN** it raises the same exception the equivalent free function would
 
@@ -285,22 +322,26 @@ would be indistinguishable from a free function, and a cache built on it would n
 
 #### Scenario: A mutation is observed by a later call
 
-- **WHEN** a method increments a counter attribute and is called three times
+- **GIVEN** an instance whose method increments a counter attribute
+- **WHEN** that method is called three times
 - **THEN** a method reading the counter reports three
 
 #### Scenario: Two instances are independent
 
-- **WHEN** two instances are constructed and one is mutated
+- **GIVEN** two instances of a compiled class
+- **WHEN** one is mutated
 - **THEN** the other is unaffected
 
 #### Scenario: A cache hits
 
-- **WHEN** a method that memoizes into a mapping attribute is called twice with the same argument
+- **GIVEN** an instance whose method memoizes into a mapping attribute
+- **WHEN** it is called twice with the same argument
 - **THEN** the second call observes the cached entry
 
 #### Scenario: An instance survives being stored by the caller
 
-- **WHEN** a caller keeps an instance in a Python data structure and calls a method later
+- **GIVEN** a caller keeping an instance in a Python data structure
+- **WHEN** a method is called on it later
 - **THEN** the accumulated state is intact
 
 ### Requirement: Python bindings are the bridge for one source/target pair
@@ -312,18 +353,20 @@ present, and adding a second target SHALL NOT change this component.
 
 #### Scenario: The bridge is selected by the pair
 
-- **WHEN** a unit lowered by the Python frontend is compiled for the Rust target and a callable
-  artifact is requested
+- **GIVEN** a unit lowered by the Python frontend
+- **WHEN** a callable artifact is requested for the Rust target
 - **THEN** the `(python, rust)` bridge is selected and generates the binding layer
 
 #### Scenario: The backend generates without the bridge
 
+- **GIVEN** a unit lowered by the Python frontend
 - **WHEN** target source is requested without a callable artifact
 - **THEN** the Rust backend emits it, and no Python-specific code is generated
 
 #### Scenario: A second target does not touch this bridge
 
-- **WHEN** a backend for another target is added
+- **GIVEN** a workspace to which a backend for another target has been added
+- **WHEN** the `(python, rust)` bridge is inspected
 - **THEN** the `(python, rust)` bridge is unchanged
 
 ### Requirement: An unbridged pair is reported as such
@@ -334,13 +377,14 @@ not. It SHALL NOT be reported as an unknown backend, an unknown frontend, or an 
 
 #### Scenario: Generation succeeds, bridging does not
 
-- **WHEN** a callable artifact is requested for a pair whose backend is implemented but whose bridge
-  is not
+- **GIVEN** a pair whose backend is implemented but which has no bridge
+- **WHEN** a callable artifact is requested
 - **THEN** the failure names both languages and distinguishes itself from an unknown-target failure
 
 #### Scenario: A caller can branch on the case
 
-- **WHEN** a caller needs to distinguish an unbridged pair from an unimplemented target
+- **GIVEN** a caller holding a bridging failure
+- **WHEN** it needs to distinguish an unbridged pair from an unimplemented target
 - **THEN** it can do so from the failure's kind without matching on rendered text
 
 ### Requirement: The binding layer is generated from the IR alone
@@ -352,11 +396,13 @@ exception regardless of which frontend construct produced it.
 
 #### Scenario: No source is consulted
 
-- **WHEN** a binding layer is generated from a unit read back from its serialized artifact
+- **GIVEN** one unit, in memory and read back from its serialized artifact
+- **WHEN** a binding layer is generated from each
 - **THEN** it is identical to the one generated from the same unit in memory
 
 #### Scenario: The bridge does not depend on the parser
 
+- **GIVEN** the workspace manifests
 - **WHEN** the bridge component's dependencies are inspected
 - **THEN** it does not depend on a Python parser
 
@@ -373,13 +419,15 @@ about eleven comparisons, and runs roughly 16x slower compiled than interpreted 
 
 #### Scenario: The cost is documented
 
-- **WHEN** a user reads the demo's documentation
+- **GIVEN** the demo's documentation
+- **WHEN** a user reads it
 - **THEN** it states that a collection parameter costs time proportional to its length on every
   call, even when the function's body does not
 
 #### Scenario: The documentation names when compiling loses
 
-- **WHEN** the documentation describes what compiling is worth
+- **GIVEN** the demo's documentation
+- **WHEN** it describes what compiling is worth
 - **THEN** it says that a function doing less work than its arguments cost to convert may be slower
   compiled, rather than implying compiled is always at least as fast
 
@@ -407,50 +455,58 @@ before target source is emitted, rather than producing bindings that fail to com
 
 #### Scenario: Existing instance is read without copying
 
-- **WHEN** Python passes a compiled `Tally` instance to a free function declared `read(t: Tally)`
+- **GIVEN** a compiled `Tally` instance held by Python
+- **WHEN** it is passed to a free function declared `read(t: Tally)`
 - **THEN** the function observes the current state of that exact Python-held instance
 
 #### Scenario: Existing instance is mutated without copying
 
-- **WHEN** Python passes a compiled `Tally` instance to a free function that mutates `t`
+- **GIVEN** a compiled `Tally` instance held by Python
+- **WHEN** it is passed to a free function that mutates `t`
 - **THEN** a later method call on the same Python object observes the mutation
 
 #### Scenario: Existing instance is forwarded without copying
 
-- **WHEN** one compiled free function passes its direct instance parameter to another compatible
-  borrowed instance parameter
+- **GIVEN** a compiled free function holding a direct instance parameter
+- **WHEN** it passes that parameter to another compatible function
 - **THEN** both functions operate on the same Python-held state without cloning the inner instance
 
 #### Scenario: Class-valued return uses the exposed type
 
-- **WHEN** Python calls a compiled free function declared `build(start: int) -> Tally`
+- **GIVEN** a compiled free function declared `build(start: int) -> Tally`
+- **WHEN** Python calls it
 - **THEN** the result is an instance of the same compiled `Tally` type exposed by the module and
   its methods observe the state produced inside `build`
 
 #### Scenario: A borrowed argument cannot become an owned return
 
-- **WHEN** source declares `identity(t: Tally) -> Tally` and returns `t`
+- **GIVEN** source declaring `identity(t: Tally) -> Tally` and returning `t`
+- **WHEN** it is compiled
 - **THEN** compilation fails with a source-located diagnostic before binding emission instead of
   cloning `t` into a second Python object
 
 #### Scenario: A borrowed argument cannot be stored
 
-- **WHEN** source stores a direct instance parameter in another owned value
+- **GIVEN** source storing a direct instance parameter in another owned value
+- **WHEN** it is compiled
 - **THEN** compilation fails with a source-located diagnostic before binding emission
 
 #### Scenario: Returned instances remain independent
 
-- **WHEN** a class-valued free function is called twice and one returned instance is mutated
+- **GIVEN** a class-valued free function called twice
+- **WHEN** one returned instance is mutated
 - **THEN** the other returned instance is unaffected
 
 #### Scenario: Nested class conversion is rejected before emission
 
-- **WHEN** a Python-boundary signature contains `list[Tally]`, `dict[str, Tally]`, or another
-  container with an instance type at any depth
+- **GIVEN** a Python-boundary signature containing `list[Tally]`, `dict[str, Tally]`, or another
+  nested class type
+- **WHEN** it is compiled
 - **THEN** compilation fails with a diagnostic at that annotation before any Rust source is emitted
 
 #### Scenario: Generated bindings compile for both directions
 
-- **WHEN** one unit contains a free function taking a direct `Tally` and another returning a newly
-  constructed one
+- **GIVEN** one unit with a free function taking a direct `Tally` and another returning a newly
+  built one
+- **WHEN** the extension is built
 - **THEN** the generated Python extension builds and both functions are callable
