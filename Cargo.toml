@@ -35,10 +35,20 @@ ruff_python_ast = { version = "0.0.0", path = "vendored/ruff/crates/ruff_python_
 ruff_python_parser = { version = "0.0.0", path = "vendored/ruff/crates/ruff_python_parser" }
 ruff_source_file = { version = "0.0.0", path = "vendored/ruff/crates/ruff_source_file" }
 ruff_text_size = { version = "0.0.0", path = "vendored/ruff/crates/ruff_text_size" }
-oxc_allocator = "0.147.0"
-oxc_ast = "0.147.0"
-oxc_parser = "0.147.0"
-oxc_span = "0.147.0"
+# oxc 0.147.0 raised its MSRV to rustc 1.96. Pinning an exact version therefore makes the whole
+# workspace unbuildable on 1.95, including the crates that never touch oxc, because resolution
+# fails before anything compiles. 0.146.0 is the last release supporting 1.95 and is equivalent
+# for everything `compylr-frontend-typescript` uses of it.
+#
+# The range is widened rather than lowered on purpose: `Cargo.lock` stays at 0.147.0, so a
+# toolchain at 1.96 or newer resolves exactly as it does today and nothing downgrades. Only a
+# machine actually stuck below 1.96 needs to move its own lockfile:
+#
+#     cargo update -p oxc_allocator -p oxc_ast -p oxc_parser -p oxc_span
+oxc_allocator = ">=0.146.0, <0.148.0"
+oxc_ast = ">=0.146.0, <0.148.0"
+oxc_parser = ">=0.146.0, <0.148.0"
+oxc_span = ">=0.146.0, <0.148.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 pyo3 = { version = "0.29.2", features = ["abi3-py311"] }
