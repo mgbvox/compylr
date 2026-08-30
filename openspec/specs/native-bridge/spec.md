@@ -19,33 +19,40 @@ caller decides where the crate is written.
 
 #### Scenario: Compiling one source
 
-- **WHEN** a single source text containing one supported function is compiled for the `rust`
-  backend
-- **THEN** compilation succeeds and returns the generated target files, the IR artifact, and
-  the unit fingerprint
+- **GIVEN** a single source text containing one supported function
+- **WHEN** it is compiled for the `rust` backend
+- **THEN** compilation succeeds
+- **AND** it returns the generated target files, the IR artifact, and the unit fingerprint
 
 #### Scenario: The generated files are reported individually
 
-- **WHEN** a unit is compiled
+- **GIVEN** a unit
+- **WHEN** it is compiled
 - **THEN** each generated file is reported under its own relative path, rather than concatenated
 
 #### Scenario: Paths are relative
 
+- **GIVEN** a compilation that reported its generated files
 - **WHEN** the reported paths are inspected
 - **THEN** none is absolute, so the caller chooses where the crate lands
 
 #### Scenario: Source text with no file behind it
 
-- **WHEN** source text obtained by introspection, not read from disk, is compiled
+- **GIVEN** source text obtained by introspection rather than read from disk
+- **WHEN** it is compiled
 - **THEN** compilation succeeds
 
 #### Scenario: Compiling an empty collection
 
+- **GIVEN** a caller supplying no sources at all
 - **WHEN** no sources are supplied
-- **THEN** compilation succeeds and reports an empty unit, rather than failing
+- **THEN** compilation succeeds
+- **AND** it reports an empty unit
+- **BUT** it does not fail
 
 #### Scenario: Behavior changes the fingerprint
 
+- **GIVEN** one source and two different behaviors
 - **WHEN** the same source is compiled twice under two different behaviors
 - **THEN** the two compilations report different fingerprints
 
@@ -63,28 +70,35 @@ through its primary interface.
 
 #### Scenario: Call across two sources
 
-- **WHEN** two sources are compiled together and a function in the first calls a function in
-  the second
+- **GIVEN** two sources where a function in the first calls a function in the second
+- **WHEN** they are compiled together
 - **THEN** compilation succeeds
 
 #### Scenario: A cross-source call is typed
 
-- **WHEN** a binding in one source is initialised by calling a function defined in another
-- **THEN** the binding takes the callee's return type and needs no annotation
+- **GIVEN** two sources where a binding in one is initialised by calling a function defined
+  in the other
+- **WHEN** they are compiled together
+- **THEN** the binding takes the callee's return type
+- **AND** it needs no annotation
 
 #### Scenario: Order independence
 
+- **GIVEN** the same two sources
 - **WHEN** the same two sources are compiled in both orders
-- **THEN** both succeed and report the same fingerprint
+- **THEN** both succeed
+- **AND** they report the same fingerprint
 
 #### Scenario: A callee in no source is still reported
 
-- **WHEN** every source has been supplied and a binding's initializer still cannot be typed
+- **GIVEN** every source supplied, and a binding whose initializer still cannot be typed
+- **WHEN** compilation is attempted
 - **THEN** compilation fails, since deferring a check is not the same as skipping it
 
 #### Scenario: Duplicate function names across sources
 
-- **WHEN** two sources each define a function of the same name
+- **GIVEN** two sources each defining a function of the same name
+- **WHEN** they are compiled together
 - **THEN** compilation fails reporting the conflicting name
 
 ### Requirement: Diagnostics become Python exceptions
@@ -95,22 +109,26 @@ from a rejection of an otherwise-parseable program, because the two call for dif
 
 #### Scenario: Syntax error
 
-- **WHEN** source text that is not valid Python is compiled
+- **GIVEN** source text that is not valid Python
+- **WHEN** it is compiled
 - **THEN** an exception identifying it as a syntax error is raised, carrying the location
 
 #### Scenario: Program outside the supported subset
 
-- **WHEN** valid Python that lowering rejects is compiled
+- **GIVEN** valid Python containing a construct lowering rejects
+- **WHEN** it is compiled
 - **THEN** an exception identifying the unsupported construct is raised, carrying the location
 
 #### Scenario: Location is preserved
 
+- **GIVEN** a source whose third line carries the offending construct
 - **WHEN** a rejection occurs on the third line of a source
 - **THEN** the raised exception reports line 3 and the column of the offending construct
 
 #### Scenario: Exceptions are catchable by category
 
-- **WHEN** a caller wants to handle any compylr compilation failure
+- **GIVEN** a caller wanting to handle any compylr compilation failure
+- **WHEN** the exception hierarchy is inspected
 - **THEN** a single exception type covers both syntax errors and subset rejections
 
 ### Requirement: Backend names form a registry
@@ -122,16 +140,19 @@ unknown-name error, so that a user who asks for a planned target learns it is pl
 
 #### Scenario: Implemented backend
 
+- **GIVEN** a registry in which `rust` is implemented
 - **WHEN** the `rust` backend is requested
 - **THEN** compilation proceeds
 
 #### Scenario: Reserved but unimplemented backend
 
+- **GIVEN** a registry in which `typescript` is a reserved backend
 - **WHEN** the `typescript` backend is requested
 - **THEN** compilation fails with an error stating that the backend is not implemented yet
 
 #### Scenario: Unrecognized backend
 
+- **GIVEN** a backend name absent from the registry
 - **WHEN** a backend name that is not in the registry is requested
 - **THEN** compilation fails with an error naming the available backends
 
@@ -143,13 +164,14 @@ that computation or inspecting source.
 
 #### Scenario: Formatting does not change the fingerprint
 
-- **WHEN** the same functions are compiled twice, the second time with added comments, blank
-  lines, and different indentation
+- **GIVEN** one set of functions, and the same set with comments and blank lines added
+- **WHEN** both are compiled
 - **THEN** both compilations report the same fingerprint
 
 #### Scenario: A changed body changes the fingerprint
 
-- **WHEN** a function's body is edited to compute something different and recompiled
+- **GIVEN** a function, and the same function edited to compute something different
+- **WHEN** both are compiled
 - **THEN** the reported fingerprint differs
 
 ### Requirement: Failures carry a machine-readable category
@@ -165,27 +187,32 @@ other.
 
 #### Scenario: A subset violation reports its category
 
-- **WHEN** a program is rejected for an unsupported construct
+- **GIVEN** a program rejected for an unsupported construct
+- **WHEN** the failure is inspected
 - **THEN** the failure carries an identifier naming that category
 
 #### Scenario: Categories are distinguishable
 
-- **WHEN** two programs are rejected for different reasons
+- **GIVEN** two programs rejected for different reasons
+- **WHEN** their identifiers are compared
 - **THEN** their identifiers differ
 
 #### Scenario: The identifier is not the message
 
+- **GIVEN** a failure carrying both an identifier and a message
 - **WHEN** a failure's identifier and message are compared
 - **THEN** the identifier is a stable token rather than the prose shown to a user
 
 #### Scenario: A binding that cannot yet be typed has its own category
 
-- **WHEN** a binding's initializer calls a function the supplied sources do not define
+- **GIVEN** a binding whose initializer calls a function the supplied sources do not define
+- **WHEN** compilation is attempted
 - **THEN** the failure's category distinguishes it from an annotation the user simply omitted,
   because one may become resolvable with more sources and the other never will
 
 #### Scenario: A syntax error needs no category
 
+- **GIVEN** a source that fails to parse
 - **WHEN** a source fails to parse
 - **THEN** the failure is identifiable as a syntax error without carrying a subset category
 
@@ -201,19 +228,21 @@ differ.
 
 #### Scenario: Each source keeps its own behavior
 
-- **WHEN** two sources are compiled together, one with the source language's behavior and one with
-  the target's
+- **GIVEN** two sources, one given the source language's behavior and one given the target's
+- **WHEN** they are compiled together
 - **THEN** each resulting function carries the modes of the behavior its own source was given
 
 #### Scenario: An omitted behavior is the source language's
 
-- **WHEN** a source is compiled with no behavior supplied
+- **GIVEN** a source compiled with no behavior supplied
+- **WHEN** it is lowered
 - **THEN** it is lowered under the source language's stance on every axis
 
 #### Scenario: A cross-behavior call still resolves
 
-- **WHEN** a function in one source under one behavior calls a function in another source under a
-  different behavior
+- **GIVEN** two sources under different behaviors, where a function in one calls a function
+  in the other
+- **WHEN** they are compiled together
 - **THEN** the call is typed and resolved exactly as a same-behavior call would be
 
 ### Requirement: Behavior can be validated without compiling
@@ -227,21 +256,25 @@ know, a language it knows that is not one of the two here, and an axis that does
 
 #### Scenario: A valid behavior checks clean
 
-- **WHEN** a behavior naming only the source and target languages is checked for that pair
+- **GIVEN** a behavior naming only the source and target languages of a pair
+- **WHEN** it is checked for that pair
 - **THEN** the check succeeds
 
 #### Scenario: An invalid language is reported
 
-- **WHEN** a behavior naming a third language is checked
+- **GIVEN** a behavior naming a third language
+- **WHEN** it is checked
 - **THEN** the check fails with a message naming the two languages that would have been accepted
 
 #### Scenario: The check compiles nothing
 
+- **GIVEN** a behavior awaiting validation
 - **WHEN** a behavior is checked
 - **THEN** no source is parsed and no target source is generated
 
 #### Scenario: The failure category is machine-readable
 
+- **GIVEN** a behavior check that has failed
 - **WHEN** a behavior check fails
 - **THEN** the failure carries a stable category, so a caller can branch on it without matching
   prose
