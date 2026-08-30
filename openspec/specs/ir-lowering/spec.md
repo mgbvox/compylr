@@ -671,7 +671,7 @@ is still caught, by unit validation, once every source has been assembled.
 - **WHEN** a unit is assembled from every source and one call resolves to no function anywhere
 - **THEN** unit validation reports the unresolved callee
 
-#### Scenario: Wrong arity is rejected
+#### Scenario: A call with the wrong arity is rejected
 
 - **WHEN** lowering a call passing two arguments to a function taking one
 - **THEN** lowering fails with a diagnostic reporting both counts
@@ -1063,7 +1063,7 @@ and which every backend would then have to model.
 - **WHEN** lowering a body binding `i = 0` and then `i = "x"`
 - **THEN** lowering fails reporting both types
 
-#### Scenario: Promotion applies
+#### Scenario: Promotion applies to a reassignment
 
 - **WHEN** lowering a body binding `x: float = 1.0` and then `x = 2`
 - **THEN** lowering succeeds and the integer carries an explicit conversion
@@ -1105,7 +1105,7 @@ builtin at all.
 - **WHEN** lowering `range(x)` where `x` is a string
 - **THEN** lowering fails reporting the type
 
-#### Scenario: Wrong arity is rejected
+#### Scenario: range with the wrong arity is rejected
 
 - **WHEN** lowering `range()` or a call with four arguments
 - **THEN** lowering fails reporting the argument count
@@ -1147,7 +1147,7 @@ scalar SHALL be rejected.
 - **WHEN** lowering `xs["a"] = 1` where `xs` is a sequence
 - **THEN** lowering fails reporting the index type
 
-#### Scenario: Promotion applies
+#### Scenario: Promotion applies to an assigned element
 
 - **WHEN** lowering `xs[0] = 1` where `xs` holds floats
 - **THEN** lowering succeeds and the value carries an explicit conversion
@@ -1256,7 +1256,7 @@ element type. Any other method SHALL remain rejected, and the diagnostic SHALL n
 - **WHEN** lowering `xs.append("a")` where `xs` holds integers
 - **THEN** lowering fails reporting both types
 
-#### Scenario: Wrong arity is rejected
+#### Scenario: append with the wrong arity is rejected
 
 - **WHEN** lowering `xs.append()` or `xs.append(1, 2)`
 - **THEN** lowering fails reporting the argument count
