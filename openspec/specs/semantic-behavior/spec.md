@@ -32,23 +32,26 @@ keep a non-terminating loop diagnosable.
 - **THEN** it is described by the operation it governs and by what each language means by it
 
 ### Requirement: A language declares its own stance on every axis
-
 Each source language and each target language SHALL declare, for every axis, what its own language
 means by that operation. A language SHALL NOT declare anything about another language's meaning,
-and no component SHALL hold a table mapping one language's stance onto another's.
-
-Adding a language SHALL therefore require answering one question per axis and SHALL NOT require
-editing any existing language's declaration or any shared resolution table.
+and no component SHALL hold a table mapping one language's stance onto another's. Both TypeScript and Go
+SHALL declare their own complete stance on all six behavior axes.
 
 #### Scenario: Both endpoints declare a stance
-
 - **WHEN** a source language and a target language are resolved for a compilation
 - **THEN** each answers, for every axis, what its own language means
 
 #### Scenario: A language's declaration is complete
-
 - **WHEN** a language declares its behavior
 - **THEN** it covers every axis, and a language that omitted one could not be registered
+
+#### Scenario: TypeScript declares its behavior profile
+- **WHEN** TypeScript frontend behavior is inspected
+- **THEN** it returns a complete stance for all 6 axes
+
+#### Scenario: Go backend declares its behavior profile
+- **WHEN** Go backend behavior is inspected
+- **THEN** it returns a complete stance for all 6 axes
 
 ### Requirement: A behavior request resolves per axis to one of the two languages
 
