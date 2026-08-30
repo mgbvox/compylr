@@ -9,18 +9,21 @@ exception is a leading docstring, defined in "Docstrings are accepted and carry 
 
 #### Scenario: Control flow is rejected
 
-- **WHEN** lowering a function body containing an `if` statement
+- **GIVEN** a function body containing an `if` statement
+- **WHEN** it is lowered by a frontend whose subset excludes control flow
 - **THEN** lowering fails with a diagnostic naming the conditional as unsupported
 
 #### Scenario: Top-level statement is rejected
 
-- **WHEN** lowering a source containing an `if __name__ == '__main__':` guard
+- **GIVEN** a source containing an `if __name__ == '__main__':` guard
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that only function definitions and imports
   are permitted at top level
 
 #### Scenario: A module-level docstring is still rejected
 
-- **WHEN** lowering a source whose first statement is a module-level string literal
+- **GIVEN** a source whose first statement is a module-level string literal
+- **WHEN** it is lowered
 - **THEN** lowering fails, because the docstring exception applies only inside a function body
 
 #### Scenario: An import of a supported module is accepted
@@ -57,24 +60,26 @@ exception is a leading docstring, defined in "Docstrings are accepted and carry 
 
 #### Scenario: Non-simple parameter forms are rejected
 
-- **WHEN** lowering a function declaring variadic parameters (`*args` or `**kwargs`),
-  keyword-only or positional-only parameters, or a parameter with a default value
+- **GIVEN** a function declaring variadic, keyword-only, or defaulted parameters
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the unsupported parameter form
 
 #### Scenario: Decorated or async function is rejected
 
-- **WHEN** lowering a function that carries a decorator or is declared `async def`
+- **GIVEN** a function carrying a decorator or declared `async def`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the unsupported function form
 
 #### Scenario: True division is accepted
 
-- **WHEN** lowering an expression using `/`
+- **GIVEN** an expression using `/`
+- **WHEN** it is lowered
 - **THEN** lowering succeeds, because true division is now part of the supported subset
 
 #### Scenario: Unsupported operator is rejected
 
-- **WHEN** lowering an expression using an operator outside the supported set, such as
-  exponentiation or a bitwise operator
+- **GIVEN** an expression using an operator outside the supported set
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the operator as unsupported
 
 #### Scenario: Exponentiation stays rejected even though a power operation exists
@@ -87,13 +92,15 @@ exception is a leading docstring, defined in "Docstrings are accepted and carry 
 
 #### Scenario: Out-of-range integer literal is rejected
 
-- **WHEN** lowering an integer literal too large to be represented as an `i64`
+- **GIVEN** an integer literal too large to be represented as an `i64`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic reporting that the literal exceeds the supported
   integer range, rather than silently truncating it
 
 #### Scenario: Non-finite float literal is not producible
 
-- **WHEN** lowering any floating-point literal written in source
+- **GIVEN** any floating-point literal written in source
+- **WHEN** it is lowered
 - **THEN** lowering succeeds, since Python source cannot spell infinity as a literal
 
 ## ADDED Requirements

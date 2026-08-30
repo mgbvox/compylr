@@ -14,27 +14,32 @@ component that writes it.
 
 #### Scenario: A type is named the way the programmer wrote it
 
-- **WHEN** a diagnostic reports a mismatch involving a mapping from strings to integers
+- **GIVEN** a program whose types disagree, one of them a mapping from strings to integers
+- **WHEN** it is lowered
 - **THEN** it names the type `dict[str, int]`
 
 #### Scenario: An operator is named the way the programmer wrote it
 
-- **WHEN** a diagnostic reports a problem with floor division
+- **GIVEN** a program with a problem in a floor division
+- **WHEN** it is lowered
 - **THEN** it names the operator `//`
 
 #### Scenario: The IR offers no Python spelling
 
-- **WHEN** the IR's public surface is inspected
+- **GIVEN** the IR crate
+- **WHEN** its public surface is inspected
 - **THEN** it exposes no way to render a type or operator in Python
 
 #### Scenario: Reading and writing Python agree on a spelling
 
-- **WHEN** a type is named in a diagnostic and the same type is annotated in generated Python
+- **GIVEN** one type, named in a diagnostic and annotated in generated Python
+- **WHEN** the two spellings are compared
 - **THEN** the two spellings are identical
 
 #### Scenario: The spelling does not require a parser
 
-- **WHEN** a component that writes Python but never reads it asks for a spelling
+- **GIVEN** a component that writes Python but never reads it
+- **WHEN** it asks for a spelling
 - **THEN** it obtains one without depending on anything that parses Python
 
 ### Requirement: The Python frontend declares Python's semantics on the IR it produces
@@ -53,27 +58,31 @@ detect.
 
 #### Scenario: Floor division is declared
 
-- **WHEN** `a // b` is lowered under Python's stance
+- **GIVEN** a module whose function computes `a // b`
+- **WHEN** it is lowered under Python's stance
 - **THEN** the resulting node declares rounding toward negative infinity
 
 #### Scenario: Remainder is declared
 
-- **WHEN** `a % b` is lowered under Python's stance
+- **GIVEN** a module whose function computes `a % b`
+- **WHEN** it is lowered under Python's stance
 - **THEN** the resulting node declares the sign of the divisor
 
 #### Scenario: True division is declared
 
-- **WHEN** `a / b` is lowered with integer operands
+- **GIVEN** a module whose function computes `a / b` over integer operands
+- **WHEN** it is lowered
 - **THEN** the resulting node declares float promotion, under every behavior
 
 #### Scenario: The behavior selects the rounding, not the frontend
 
-- **WHEN** `a // b` is lowered under a behavior taking the target's stance on integer division
+- **GIVEN** a module whose function computes `a // b`
+- **WHEN** it is lowered under a behavior taking the target's stance on integer division
 - **THEN** the resulting node declares that target's rounding, and the frontend consults no
   constant of its own
 
 #### Scenario: One declaration serves both directions
 
-- **WHEN** the component that reads Python and the component that writes Python are each asked what
-  Python means on any axis
+- **GIVEN** the component that reads Python and the component that writes Python
+- **WHEN** each is asked what Python means
 - **THEN** they give the same answer, from the same declaration

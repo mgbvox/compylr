@@ -14,21 +14,26 @@ Lowering SHALL NOT emit an expression whose type contradicts its form.
 
 #### Scenario: An inferred type reaches the expression
 
-- **WHEN** an expression whose type inference determines is lowered
+- **GIVEN** an expression whose type inference determines
+- **WHEN** it is lowered
 - **THEN** the emitted expression carries that type
 
 #### Scenario: An annotation supplies what inference cannot
 
-- **WHEN** a binding annotated with a type is initialized by a call this compilation cannot resolve
+- **GIVEN** a binding annotated with a type, initialized by a call this compilation cannot
+  resolve
+- **WHEN** it is lowered
 - **THEN** the emitted expression carries the annotated type and lowering succeeds
 
 #### Scenario: Neither source of a type is a diagnostic, not a placeholder
 
-- **WHEN** neither inference nor an annotation determines an expression's type
+- **GIVEN** an expression whose type neither inference nor an annotation determines
+- **WHEN** it is lowered
 - **THEN** lowering fails with the undetermined-binding diagnostic, and emits no expression
 
 #### Scenario: Numeric promotion is visible in the types
 
-- **WHEN** an integer operand is promoted to floating point
+- **GIVEN** an integer operand promoted to floating point
+- **WHEN** it is lowered
 - **THEN** the promoting expression carries the floating-point type and its operand carries the
   integer type

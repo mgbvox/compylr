@@ -16,27 +16,32 @@ about the program.
 
 #### Scenario: A consistently typed unit passes
 
-- **WHEN** a unit produced by lowering an accepted program is verified
+- **GIVEN** a unit produced by lowering an accepted program
+- **WHEN** it is verified
 - **THEN** verification succeeds and the unit is unchanged
 
 #### Scenario: A result type that does not follow is rejected
 
-- **WHEN** a unit contains an addition of two integers declaring a string result
+- **GIVEN** a unit containing an addition of two integers declaring a string result
+- **WHEN** it is verified
 - **THEN** verification fails, naming the operation
 
 #### Scenario: A mismatched argument is rejected
 
-- **WHEN** a unit passes an expression typed as a string to a parameter declared as an integer
+- **GIVEN** a unit passing an expression typed as a string to a parameter declared as an integer
+- **WHEN** it is verified
 - **THEN** verification fails, naming the call and the parameter
 
 #### Scenario: A mismatched return is rejected
 
-- **WHEN** a unit returns an expression whose type is not the function's declared return type
+- **GIVEN** a unit returning an expression whose type is not the function's declared return type
+- **WHEN** it is verified
 - **THEN** verification fails, naming the function
 
 #### Scenario: The check does not know the source language
 
-- **WHEN** the same inconsistently typed unit is presented as though produced by any frontend
+- **GIVEN** one inconsistently typed unit
+- **WHEN** it is verified as though produced by each frontend in turn
 - **THEN** verification reports the same failure
 
 ### Requirement: A pass leaves the unit consistently typed
@@ -49,10 +54,12 @@ transformation SHALL leave the unit unchanged, which is what the pass contract a
 
 #### Scenario: A folded expression keeps its type
 
-- **WHEN** constant folding replaces an operation with a literal
+- **GIVEN** an operation constant folding will replace with a literal
+- **WHEN** the pass runs
 - **THEN** the literal carries the type the operation carried
 
 #### Scenario: The unit still verifies
 
-- **WHEN** the pass pipeline runs over a unit that verified
+- **GIVEN** a unit that verified
+- **WHEN** the pass pipeline runs over it
 - **THEN** the resulting unit verifies
