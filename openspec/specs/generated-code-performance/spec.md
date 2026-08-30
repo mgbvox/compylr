@@ -14,27 +14,31 @@ counts as a measurement is specified here rather than left to whoever is claimin
 ### Requirement: An optimization preserves observable behavior
 
 A change made to generated code for performance SHALL NOT change any answer the generated code
-produces, any exception it raises, or any value observable from Python. Where a faster form would
-change an answer, it is not an optimization and belongs to a change about semantics.
+produces, any failure it reports, or any value observable from the calling host. Where a faster
+form would change an answer, it is not an optimization and belongs to a change about semantics.
 
 This is the line that separates this capability from a behavior selection: an optimization is
 applied unconditionally and needs no one's permission, precisely because nothing can observe it.
 
 #### Scenario: An optimization is applied without being requested
 
-- **WHEN** the compiler emits code for a construct an optimization covers
-- **THEN** it applies the optimization with no setting, flag, or annotation from the user
+- **GIVEN** a construct that an optimization covers
+- **WHEN** the compiler emits code for it
+- **THEN** the optimization is applied
+- **BUT** no setting, flag, or annotation from the user was needed to get it
 
 #### Scenario: A behavior-changing rewrite is refused
 
-- **WHEN** a faster emission would change a result, an exception, or an exception's type
+- **GIVEN** a candidate emission that is faster than the current one
+- **WHEN** it would change a result, a reported failure, or the kind of that failure
 - **THEN** it is not applied under this capability
 
 #### Scenario: The subset is unchanged
 
-- **WHEN** an optimization lands
-- **THEN** the set of accepted programs is exactly what it was, and no diagnostic is added or
-  removed
+- **GIVEN** the set of programs compylr accepts before an optimization lands
+- **WHEN** the optimization lands
+- **THEN** exactly the same programs are accepted
+- **AND** no diagnostic has been added or removed
 
 ### Requirement: A performance claim is measured, and measured against noise
 
@@ -48,18 +52,24 @@ be pure harness variance.
 
 #### Scenario: A claim cites a measurement
 
-- **WHEN** a change to generated code claims a speedup
-- **THEN** the claim names the workload and the before and after timings it came from
+- **GIVEN** a change to generated code that claims a speedup
+- **WHEN** the claim is made
+- **THEN** it names the workload it was measured on
+- **AND** it names the before and after timings it came from
 
 #### Scenario: A difference inside the noise is not a claim
 
-- **WHEN** a measured difference does not exceed the harness's stated noise floor
-- **THEN** it is reported as not resolvable rather than as a speedup
+- **GIVEN** a measured difference between two builds
+- **WHEN** the difference does not exceed the harness's stated noise floor
+- **THEN** it is reported as not resolvable
+- **BUT** it is not reported as a speedup
 
 #### Scenario: A rejected candidate is recorded with its measurement
 
-- **WHEN** a candidate optimization is measured and does not pay for itself
-- **THEN** the measurement is recorded, so the candidate is not re-proposed on intuition
+- **GIVEN** a candidate optimization that has been measured
+- **WHEN** the measurement shows it does not pay for itself
+- **THEN** the measurement is recorded
+- **AND** the candidate is not re-proposed on intuition later
 
 ### Requirement: Measurement is taken against a rebuilt artifact
 
@@ -69,9 +79,10 @@ are removed, so the measurement describes the new emission rather than the previ
 
 #### Scenario: A stale artifact does not become a measurement
 
-- **WHEN** generated code is measured after a change to emission
-- **THEN** the measurement is taken from an artifact rebuilt after that change, not from a cached
-  one
+- **GIVEN** a change to emission and a cached build predating it
+- **WHEN** generated code is measured
+- **THEN** the measurement comes from an artifact rebuilt after the change
+- **BUT** never from the cached build, whose fingerprint the change did not move
 
 ### Requirement: A known speedup does not silently regress
 
@@ -81,10 +92,12 @@ that generated code does not regress on a workload whose performance is a record
 
 #### Scenario: A regression is caught by the repository
 
-- **WHEN** a change makes a guarded workload significantly slower than its recorded figure
+- **GIVEN** a workload whose performance is a recorded property
+- **WHEN** a change makes it significantly slower than its recorded figure
 - **THEN** the repository's checks fail rather than passing quietly
 
 #### Scenario: The guard tolerates noise
 
-- **WHEN** a guarded workload varies within the harness's noise floor
+- **GIVEN** a guarded workload
+- **WHEN** it varies within the harness's noise floor
 - **THEN** the check passes, so the guard does not become a flaky test
