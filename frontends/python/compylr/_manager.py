@@ -363,6 +363,15 @@ def initialize(
 ) -> Manager:
     """Configure compylr for this project and return its manager.
 
+    `backend` names the target language to compile into. `rust` is the one that completes the
+    round trip from Python, because calling the result back needs a host bridge for the
+    `(python, target)` pair. A target compylr can emit but not yet call back fails saying so,
+    which is a different answer from a reserved or an unknown target.
+
+    `behavior` names whose semantics the generated code should preserve on the axes where the two
+    languages disagree -- integer overflow, division, remainder, indexing, text length. It
+    defaults to the source language's.
+
     Calling it again with the same settings returns the same manager, which is what keeps every
     decorated function in one shared artifact. Calling it with *different* settings is refused
     rather than silently re-pointing a project that is already partly configured — the functions
