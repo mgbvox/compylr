@@ -1,9 +1,17 @@
 # compylr TypeScript demo — common algorithms, compiled to Go
 
-A complete TypeScript demonstration project mirroring the Python demo in `./demo/`. Over twenty-five functions and classes covering sorting, arithmetic, floating-point statistics, text processing, graph algorithms, dynamic programming, matrix operations, data structures, and the depth exploration of `nth-prime`.
+A complete TypeScript demonstration project mirroring the Python demo in
+[`../demo-python-rust/`](../demo-python-rust/). Over twenty-five functions and classes covering
+sorting, arithmetic, floating-point statistics, text processing, graph algorithms, dynamic
+programming, matrix operations, data structures, and the depth exploration of `nth-prime`.
+
+The two demos carry the same algorithms on purpose. compylr's claim is that a program's meaning
+survives the trip through an IR that names neither the language it came from nor the one it
+becomes, and two pipelines doing identical work is how that claim is put where it can be checked
+rather than asserted.
 
 ```bash
-cd demo-ts
+cd demo/demo-ts-go
 npm test        # run the complete test suite against reference oracles
 npm start       # display IR construct coverage and run algorithm benchmarks
 npm run benchmark # run benchmark suites across all algorithm domains

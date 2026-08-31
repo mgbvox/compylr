@@ -14,18 +14,21 @@ artifact would multiply build cost by N and prevent compiled functions from call
 
 #### Scenario: Three functions, one build
 
-- **WHEN** a project marks three functions for compilation
+- **GIVEN** a project marking three functions for compilation
+- **WHEN** the project is built
 - **THEN** exactly one build is performed and one extension module is produced
 
 #### Scenario: A fourth function joins the existing three
 
-- **WHEN** a fourth function is marked and the project is run again
+- **GIVEN** a project with three marked functions already built
+- **WHEN** a fourth is marked and the project is run again
 - **THEN** the single shared artifact is rebuilt to contain all four, rather than a second
   artifact being produced
 
 #### Scenario: Compiled functions can call each other
 
-- **WHEN** one marked function calls another marked function
+- **GIVEN** a project where one marked function calls another
+- **WHEN** the project is built
 - **THEN** the built artifact resolves the call internally
 
 ### Requirement: Intermediate artifacts are written for inspection
@@ -42,34 +45,39 @@ current source.
 
 #### Scenario: IR artifact is written
 
-- **WHEN** a build completes
+- **GIVEN** a project that has been built
+- **WHEN** the artifact directory is inspected
 - **THEN** the unit's IR is present on disk in a documented, readable format
 
 #### Scenario: Target source is written
 
-- **WHEN** a build completes for the `rust` backend
+- **GIVEN** a project built for the `rust` backend
+- **WHEN** the artifact directory is inspected
 - **THEN** every generated file is present on disk at its reported path
 
 #### Scenario: A stale file is removed
 
-- **WHEN** a build writes a file that a later build does not
+- **GIVEN** a build that wrote a file the next build does not
+- **WHEN** the later build runs
 - **THEN** the later build removes it, rather than leaving a file no longer part of the crate
 
 #### Scenario: Hand-written files in the crate are untouched
 
-- **WHEN** a build runs against a crate directory that also holds the build manifest and build
-  configuration
+- **GIVEN** a crate directory also holding the build manifest and build configuration
+- **WHEN** a build runs against it
 - **THEN** those are preserved, since pruning applies to generated source rather than to
   everything present
 
 #### Scenario: Artifacts survive a skipped rebuild
 
-- **WHEN** a run reuses an up-to-date artifact without rebuilding
+- **GIVEN** a project whose artifact is up to date
+- **WHEN** a run reuses it without rebuilding
 - **THEN** the IR and target source from the previous build are still readable
 
 #### Scenario: Artifacts reflect the current unit
 
-- **WHEN** a marked function is edited and the project is rebuilt
+- **GIVEN** a project with an edited marked function
+- **WHEN** the project is rebuilt
 - **THEN** the IR and target source on disk describe the edited function
 
 ### Requirement: Build artifacts are isolated from the user's source
@@ -85,37 +93,44 @@ found, the working directory SHALL be used, so a script in an unmarked directory
 
 #### Scenario: All generated files share one root
 
-- **WHEN** a build completes
+- **GIVEN** a project that has been built
+- **WHEN** the generated files are located
 - **THEN** every file it generated is under one directory
 
 #### Scenario: Deleting the directory is safe
 
-- **WHEN** the directory is deleted and the project is run again
+- **GIVEN** a project whose artifact directory has been deleted
+- **WHEN** the project is run again
 - **THEN** the project rebuilds from scratch and behaves identically
 
 #### Scenario: Running from a subdirectory reuses the same artifacts
 
-- **WHEN** a project is built once from its root and then run again from a subdirectory
+- **GIVEN** a project already built once from its root
+- **WHEN** it is run again from a subdirectory
 - **THEN** the second run reuses the existing artifacts and does not invoke the toolchain
 
 #### Scenario: An existing artifact directory is itself a marker
 
-- **WHEN** a project has been built before and is run again from a subdirectory beneath it
+- **GIVEN** a project built before, with an artifact directory above the working directory
+- **WHEN** it is run again from a subdirectory beneath it
 - **THEN** the existing directory is found rather than a new one created
 
 #### Scenario: No marker falls back to the working directory
 
-- **WHEN** a script is run from a directory with no project marker above it
+- **GIVEN** a script in a directory with no project marker above it
+- **WHEN** it is run
 - **THEN** artifacts are created under the working directory
 
 #### Scenario: The search does not escape into unrelated directories
 
-- **WHEN** the search reaches the filesystem root without finding a marker
+- **GIVEN** a search that reaches the filesystem root without finding a marker
+- **WHEN** the location is decided
 - **THEN** it stops and falls back, rather than selecting an arbitrary ancestor
 
 #### Scenario: An explicit location overrides discovery
 
-- **WHEN** a caller states where artifacts should live
+- **GIVEN** a caller stating where artifacts should live
+- **WHEN** the location is decided
 - **THEN** that location is used and no search is performed
 
 ### Requirement: A successful build yields an importable module
@@ -125,12 +140,14 @@ without the user taking any further step.
 
 #### Scenario: Import after build
 
-- **WHEN** a build completes
+- **GIVEN** a project that has just been built
+- **WHEN** the compiled module is imported in the same process
 - **THEN** the compiled module can be imported in the same process that triggered the build
 
 #### Scenario: Available on a later run
 
-- **WHEN** the project is run again in a new process
+- **GIVEN** a project built in an earlier process
+- **WHEN** it is run again in a new process
 - **THEN** the compiled module is importable without rebuilding
 
 ### Requirement: Rebuilds are keyed on the IR fingerprint
@@ -142,27 +159,33 @@ changes that do not alter meaning SHALL NOT trigger a rebuild.
 
 #### Scenario: Unchanged project skips the build
 
-- **WHEN** a project is run twice with no changes
+- **GIVEN** a project that has been built and not changed
+- **WHEN** it is run again
 - **THEN** the second run does not invoke the toolchain
 
 #### Scenario: Reformatting does not trigger a rebuild
 
-- **WHEN** comments are added and a marked function is reindented, with no change in meaning
+- **GIVEN** a built project whose marked function gains comments and is reindented, with no
+  change in meaning
+- **WHEN** it is run again
 - **THEN** the next run does not invoke the toolchain
 
 #### Scenario: An edit triggers a rebuild
 
-- **WHEN** a marked function's body is changed to compute something different
+- **GIVEN** a built project whose marked function now computes something different
+- **WHEN** it is run again
 - **THEN** the next run rebuilds
 
 #### Scenario: Marking an additional function triggers a rebuild
 
-- **WHEN** a function is newly marked for compilation
+- **GIVEN** a built project with a newly marked function
+- **WHEN** it is run again
 - **THEN** the next run rebuilds
 
 #### Scenario: A failed build is not recorded as successful
 
-- **WHEN** a build fails and the project is run again with no changes
+- **GIVEN** a project whose build failed and which has not changed
+- **WHEN** it is run again
 - **THEN** the build is attempted again rather than skipped
 
 ### Requirement: Build failures are reported, never swallowed
@@ -173,12 +196,14 @@ code and got interpreted code without being told would be measuring the wrong th
 
 #### Scenario: Toolchain reports a compile error
 
-- **WHEN** the generated source fails to compile
+- **GIVEN** generated source that fails to compile
+- **WHEN** the build runs
 - **THEN** an error is raised that includes the toolchain's diagnostics
 
 #### Scenario: No silent fallback
 
-- **WHEN** a build fails
+- **GIVEN** a build that fails
+- **WHEN** the failure is handled
 - **THEN** the failure surfaces to the caller rather than execution continuing with the
   interpreted function
 
@@ -190,17 +215,20 @@ file-not-found error.
 
 #### Scenario: Rust toolchain absent
 
-- **WHEN** a build is attempted with no Rust compiler available
+- **GIVEN** a machine with no Rust compiler available
+- **WHEN** a build is attempted
 - **THEN** the error names the missing toolchain and states how to install it
 
 #### Scenario: Build tool absent
 
-- **WHEN** a build is attempted with the extension-module build tool unavailable
+- **GIVEN** a machine without the extension-module build tool
+- **WHEN** a build is attempted
 - **THEN** the error names it and states how to install it
 
 #### Scenario: The check happens before work is wasted
 
-- **WHEN** required tools are missing
+- **GIVEN** a machine missing a required tool
+- **WHEN** a build is attempted
 - **THEN** the failure is reported before a build is attempted
 
 ### Requirement: A build can be driven without a call
@@ -213,27 +241,32 @@ the same fingerprint, so a later run reuses it rather than rebuilding.
 
 #### Scenario: Building ahead produces a usable artifact
 
-- **WHEN** a project is built without any marked function being called
+- **GIVEN** a project with no marked function yet called
+- **WHEN** the project is built ahead of time
 - **THEN** the artifact is written and a later run reuses it
 
 #### Scenario: The fingerprint is the same either way
 
-- **WHEN** a project is built ahead of time and, separately, by calling a function
+- **GIVEN** one project
+- **WHEN** it is built ahead of time and, separately, by calling a function
 - **THEN** both record the same fingerprint
 
 #### Scenario: The artifact directory is the project's
 
-- **WHEN** a project is built ahead of time from a different working directory
+- **GIVEN** a project being built from a different working directory
+- **WHEN** it is built ahead of time
 - **THEN** the artifacts land in the project's own directory, found the same way a run finds it
 
 #### Scenario: An already-current project is not rebuilt
 
-- **WHEN** the artifact is current
+- **GIVEN** a project whose artifact is current
+- **WHEN** it is built ahead of time
 - **THEN** building ahead does not invoke the toolchain
 
 #### Scenario: Toolchain requirements are unchanged
 
-- **WHEN** a required build tool is missing
+- **GIVEN** a machine missing a required build tool
+- **WHEN** a project is built ahead of time
 - **THEN** the same diagnostic is reported as when a call triggers the build
 
 ### Requirement: The generated crate is built under an explicit release profile
@@ -253,23 +286,27 @@ an artifact that faults on an unsupported instruction is a worse outcome than a 
 
 #### Scenario: The manifest declares a release profile
 
+- **GIVEN** a project being compiled
 - **WHEN** the generated crate's manifest is written
 - **THEN** it contains a release profile section declaring link-time optimization and a single
   codegen unit
 
 #### Scenario: The build still succeeds end to end
 
-- **WHEN** a project is compiled with the profile in place
+- **GIVEN** a generated crate carrying the release profile
+- **WHEN** the project is compiled
 - **THEN** the crate builds and the resulting module imports and runs as before
 
 #### Scenario: The artifact stays portable
 
+- **GIVEN** a project being compiled
 - **WHEN** the generated crate's manifest and cargo configuration are written
 - **THEN** neither pins a target CPU, so the built artifact does not depend on the machine that
   built it
 
 #### Scenario: Panics still reach Python as exceptions
 
-- **WHEN** the release profile is chosen
+- **GIVEN** a generated crate carrying the release profile
+- **WHEN** the profile's settings are read
 - **THEN** it preserves unwinding, because the bridge converts a panic into a Python exception and
   aborting would terminate the interpreter instead

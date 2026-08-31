@@ -23,18 +23,21 @@ exercise one rule; neither answers "what does using this look like?"
 
 #### Scenario: It stands alone
 
-- **WHEN** the demo directory is inspected
+- **GIVEN** the demo directory
+- **WHEN** it is inspected
 - **THEN** it contains a project definition, a package, tests, and a README
 
 #### Scenario: It depends on compylr as a consumer
 
-- **WHEN** the demo's dependencies are inspected
+- **GIVEN** the demo's dependency declarations
+- **WHEN** they are inspected
 - **THEN** compylr appears as a dependency, rather than the demo reaching into the repository's
   internals
 
 #### Scenario: It can be run
 
-- **WHEN** the demo is installed and run following its own README
+- **GIVEN** a machine following the demo's own README
+- **WHEN** the demo is installed and run
 - **THEN** it produces its documented output
 
 ### Requirement: Three nth-prime implementations that each compile
@@ -48,28 +51,33 @@ Together they are the smallest set that exercises branching, looping, mutation, 
 
 #### Scenario: The recursive implementation compiles
 
+- **GIVEN** a demo containing a recursive nth-prime
 - **WHEN** the demo is built
 - **THEN** the recursive implementation is compiled, using recursion and a base case
 
 #### Scenario: The iterative implementation compiles
 
+- **GIVEN** a demo containing an iterative nth-prime
 - **WHEN** the demo is built
 - **THEN** the iterative implementation is compiled, using a loop, a reassigned counter, and a
   collection it builds
 
 #### Scenario: The memoized implementation compiles
 
+- **GIVEN** a demo containing a memoized nth-prime
 - **WHEN** the demo is built
 - **THEN** the memoized implementation is compiled as a class holding a mutable cache
 
 #### Scenario: None falls back to the interpreter
 
+- **GIVEN** a built demo
 - **WHEN** each implementation is called
 - **THEN** the compiled implementation runs, not the original Python — a demo that silently
   interpreted would demonstrate nothing
 
 #### Scenario: One build covers all three
 
+- **GIVEN** a demo containing all three implementations
 - **WHEN** the demo is built
 - **THEN** a single shared artifact contains all three, as it does for any project
 
@@ -83,27 +91,32 @@ each would pass its own test, and only comparing them reveals it.
 
 #### Scenario: They agree with each other
 
-- **WHEN** all three are evaluated for every n over a range
+- **GIVEN** the three implementations and a range of n
+- **WHEN** all three are evaluated for every n in the range
 - **THEN** every answer matches
 
 #### Scenario: They agree with an interpreted reference
 
-- **WHEN** their answers are compared against an uncompiled implementation
+- **GIVEN** the three implementations and an uncompiled reference
+- **WHEN** their answers are compared
 - **THEN** every answer matches
 
 #### Scenario: Known values are correct
 
+- **GIVEN** a built demo
 - **WHEN** the first few primes are requested
 - **THEN** the results are 2, 3, 5, 7, 11
 
 #### Scenario: The memoized implementation actually caches
 
-- **WHEN** the same n is requested twice from the memoized implementation
+- **GIVEN** the memoized implementation
+- **WHEN** the same n is requested twice
 - **THEN** the second request is served from its cache, so the demonstration is of memoization
   rather than of a class that recomputes
 
 #### Scenario: An invalid n is handled
 
+- **GIVEN** the three implementations
 - **WHEN** an n below one is requested
 - **THEN** each implementation behaves as its documented contract says, rather than looping forever
   or returning a wrong answer
@@ -118,17 +131,20 @@ the first run is the run they judge it by.
 
 #### Scenario: Precompiling is documented
 
-- **WHEN** the demo's README is read
+- **GIVEN** the demo's README
+- **WHEN** it is read
 - **THEN** it shows compiling the project ahead of time and then running it
 
 #### Scenario: A precompiled run does not build
 
-- **WHEN** the demo is precompiled and then run
+- **GIVEN** a demo that has been precompiled
+- **WHEN** it is run
 - **THEN** the run performs no build
 
 #### Scenario: The difference is shown as measurements
 
-- **WHEN** the README describes the benefit
+- **GIVEN** the demo's README
+- **WHEN** it describes the benefit of precompiling
 - **THEN** it gives measured timings rather than an unquantified claim
 
 ### Requirement: The demo is verified by this repository
@@ -141,22 +157,26 @@ that keeping it does not make the fast suite unusable.
 
 #### Scenario: The suite builds the demo
 
-- **WHEN** the repository's test suite runs
+- **GIVEN** a checkout of this repository
+- **WHEN** the test suite runs
 - **THEN** the demo is built and its implementations are exercised
 
 #### Scenario: A broken demo fails the build
 
-- **WHEN** a demo implementation stops compiling
+- **GIVEN** a demo implementation that has stopped compiling
+- **WHEN** the repository's suite runs
 - **THEN** the repository's suite fails
 
 #### Scenario: The check is grouped with slow tests
 
+- **GIVEN** a checkout of this repository
 - **WHEN** the fast suite is run
 - **THEN** the demo check is excluded, and it is available when slow tests are requested
 
 #### Scenario: The README's claims are checked
 
-- **WHEN** the demo's README states which features it demonstrates
+- **GIVEN** a README stating which features the demo demonstrates
+- **WHEN** the suite runs
 - **THEN** the suite exercises each of them, so the claim cannot drift from the code
 
 ### Requirement: The benchmark reports spread, not a single best
@@ -174,22 +194,26 @@ presenting the ratio as a result.
 
 #### Scenario: Every timing carries a spread
 
-- **WHEN** the benchmark reports a workload's timing
+- **GIVEN** a benchmark run
+- **WHEN** it reports a workload's timing
 - **THEN** it reports a measure of run-to-run variation with it
 
 #### Scenario: The noise floor is stated
 
-- **WHEN** the benchmark prints its results
+- **GIVEN** a benchmark run
+- **WHEN** it prints its results
 - **THEN** it states the noise floor those results should be read against
 
 #### Scenario: An unresolvable difference is named
 
-- **WHEN** two figures differ by less than the noise floor
+- **GIVEN** two figures differing by less than the noise floor
+- **WHEN** the benchmark reports them
 - **THEN** the benchmark reports the difference as not resolvable rather than as a result
 
 #### Scenario: An unstable workload is visible as unstable
 
-- **WHEN** a workload's variation is wide enough that its figure cannot be relied on
+- **GIVEN** a workload whose variation is too wide for its figure to be relied on
+- **WHEN** the benchmark reports it
 - **THEN** the benchmark's output shows that, rather than presenting a stable-looking number
 
 ### Requirement: The demo covers the shapes where compiling loses
@@ -204,12 +228,14 @@ user is least likely to anticipate.
 
 #### Scenario: A conversion-dominated workload is measured
 
+- **GIVEN** the demo's benchmark suite
 - **WHEN** the benchmark runs
 - **THEN** it includes a workload whose cost is dominated by converting its arguments rather than
   by its body
 
 #### Scenario: Text collections are represented
 
+- **GIVEN** the demo's benchmark suite
 - **WHEN** the benchmark runs
 - **THEN** it includes a workload taking a collection of text, whose per-element crossing cost is
   the highest of the supported element types
@@ -225,12 +251,15 @@ guard can live.
 
 #### Scenario: A regression fails the repository's checks
 
-- **WHEN** a change makes a guarded workload significantly slower than its recorded figure
+- **GIVEN** a guarded workload and a change making it significantly slower than its recorded
+  figure
+- **WHEN** the repository's checks run
 - **THEN** the repository's checks fail
 
 #### Scenario: The guard does not fire on noise
 
-- **WHEN** a guarded workload varies within the stated noise floor
+- **GIVEN** a guarded workload varying within the stated noise floor
+- **WHEN** the check runs
 - **THEN** the check passes, so the guard does not become flaky
 
 ### Requirement: The benchmark resolves the difference it reports
@@ -246,17 +275,20 @@ cannot support is worse than no number, because it will be quoted.
 
 #### Scenario: Spread is reported alongside each timing
 
-- **WHEN** the benchmark reports a timing
+- **GIVEN** a benchmark run
+- **WHEN** it reports a timing
 - **THEN** it reports a measure of run-to-run spread with it, not a single best-of figure alone
 
-#### Scenario: The noise floor is stated
+#### Scenario: The noise floor is stated for a behavior comparison
 
-- **WHEN** the benchmark reports a behavior comparison
+- **GIVEN** a benchmark run comparing two behaviors
+- **WHEN** it reports the comparison
 - **THEN** it states the noise floor the comparison should be read against
 
 #### Scenario: An unresolvable difference is named as such
 
-- **WHEN** two behaviors' timings differ by less than the harness's noise floor
+- **GIVEN** two behaviors whose timings differ by less than the harness's noise floor
+- **WHEN** the comparison is reported
 - **THEN** the comparison reports that the difference was not resolvable, rather than presenting
   the ratio as a result
 
@@ -272,23 +304,27 @@ only the number.
 
 #### Scenario: Both behaviors are measured
 
-- **WHEN** the demo's benchmark is run
+- **GIVEN** the demo's benchmark
+- **WHEN** it is run
 - **THEN** it reports the interpreted time, the time under the source language's behavior, and the
   time under the target language's
 
 #### Scenario: The trade is stated
 
-- **WHEN** the demo's README describes the behavior comparison
+- **GIVEN** the demo's README
+- **WHEN** it describes the behavior comparison
 - **THEN** it says what the target's behavior gives up, not only what it saves
 
 #### Scenario: Both behaviors produce the documented answer
 
-- **WHEN** the demo runs the same algorithm under both behaviors on its documented inputs
+- **GIVEN** the demo's documented inputs
+- **WHEN** the same algorithm is run under both behaviors
 - **THEN** both produce the answer the README states, so the comparison is between two correct
   programs
 
 #### Scenario: The comparison is checked by this repository
 
-- **WHEN** the repository's slow suite runs the demo
+- **GIVEN** a checkout of this repository
+- **WHEN** the slow suite runs the demo
 - **THEN** both behaviors are built and exercised, so one of them silently ceasing to compile fails
   the build

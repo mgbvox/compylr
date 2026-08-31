@@ -11,10 +11,12 @@ the moment a second backend is added.
 
 #### Scenario: The translated file is obtained by asking
 
-- **WHEN** a caller requests only the translated source for a selected backend
+- **GIVEN** a selected backend and a compiled unit
+- **WHEN** only the translated source is requested
 - **THEN** it obtains that backend's translated-source file through the backend's own declaration
 
 #### Scenario: Any implemented backend answers
 
-- **WHEN** the translated source is requested for each implemented backend in turn
+- **GIVEN** each implemented backend in turn
+- **WHEN** the translated source is requested
 - **THEN** each request succeeds, and no backend is identified by name to serve it

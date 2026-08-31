@@ -18,23 +18,27 @@ unique within a unit.
 
 #### Scenario: Unit assembled from separate sources
 
-- **WHEN** three functions parsed from three separate sources are added to one unit
+- **GIVEN** three functions parsed from three separate sources
+- **WHEN** they are added to one unit
 - **THEN** the unit contains all three functions
 
 #### Scenario: Function added to an existing unit
 
-- **WHEN** a fourth function is added to a unit that already holds three
+- **GIVEN** a unit already holding three functions
+- **WHEN** a fourth is added
 - **THEN** the unit contains four functions
 - **AND** the three existing functions are unchanged
 
 #### Scenario: Duplicate function name is refused
 
-- **WHEN** a function is added to a unit that already contains a function of the same name
+- **GIVEN** a unit already containing a function of a given name
+- **WHEN** another function of that name is added
 - **THEN** the unit refuses the addition and reports the conflicting name
 
 #### Scenario: Empty unit
 
-- **WHEN** a unit has had no functions added
+- **GIVEN** a unit that has had no functions added
+- **WHEN** it is inspected
 - **THEN** it contains no functions and is still a valid unit
 
 ### Requirement: Deterministic unit ordering
@@ -46,12 +50,14 @@ statement order SHALL follow the source.
 
 #### Scenario: Addition order does not affect unit order
 
-- **WHEN** the same three functions are added to two units in different orders
+- **GIVEN** the same three functions
+- **WHEN** they are added to two units in different orders
 - **THEN** both units expose their functions in the same order
 
 #### Scenario: Source order preserved within a function
 
-- **WHEN** a function with two parameters and a three-statement body is represented in IR
+- **GIVEN** a function with two parameters and a three-statement body
+- **WHEN** it is represented in IR
 - **THEN** the parameters and statements appear in the order written in the source
 
 ### Requirement: Function structure
@@ -61,7 +67,8 @@ a body of statements. Each parameter SHALL carry its name and its type.
 
 #### Scenario: Function signature is preserved
 
-- **WHEN** a function with two parameters and a declared return type is represented in IR
+- **GIVEN** a function with two parameters and a declared return type
+- **WHEN** it is represented in IR
 - **THEN** the IR function carries both parameter names and types in declaration order
 - **AND** it carries the declared return type
 
@@ -81,68 +88,81 @@ representable in the IR.
 
 #### Scenario: Integer annotation
 
-- **WHEN** a value is declared with the Python annotation `int`
+- **GIVEN** a value declared with the Python annotation `int`
+- **WHEN** its IR type is derived
 - **THEN** its IR type is the 64-bit signed integer type
 
 #### Scenario: Floating-point annotation
 
-- **WHEN** a value is declared with the Python annotation `float`
+- **GIVEN** a value declared with the Python annotation `float`
+- **WHEN** its IR type is derived
 - **THEN** its IR type is the 64-bit binary floating-point type
 
 #### Scenario: Boolean annotation
 
-- **WHEN** a value is declared with the Python annotation `bool`
+- **GIVEN** a value declared with the Python annotation `bool`
+- **WHEN** its IR type is derived
 - **THEN** its IR type is the boolean type
 
 #### Scenario: String annotation
 
-- **WHEN** a value is declared with the Python annotation `str`
+- **GIVEN** a value declared with the Python annotation `str`
+- **WHEN** its IR type is derived
 - **THEN** its IR type is the UTF-8 text string type
 
 #### Scenario: None return annotation
 
-- **WHEN** a function declares the return annotation `None`
+- **GIVEN** a function declaring the return annotation `None`
+- **WHEN** its IR return type is derived
 - **THEN** its IR return type is the unit type
 
 #### Scenario: Integer and floating-point types are distinct
 
-- **WHEN** the integer type and the floating-point type are compared
+- **GIVEN** the integer type and the floating-point type
+- **WHEN** they are compared
 - **THEN** they are different types, so a backend can tell which representation to emit
 
 #### Scenario: Sequence annotation
 
-- **WHEN** a value is declared with the Python annotation `list[int]`
+- **GIVEN** a value declared with the Python annotation `list[int]`
+- **WHEN** its IR type is derived
 - **THEN** its IR type is a sequence whose element type is the integer type
 
 #### Scenario: Mapping annotation
 
-- **WHEN** a value is declared with the Python annotation `dict[str, int]`
+- **GIVEN** a value declared with the Python annotation `dict[str, int]`
+- **WHEN** its IR type is derived
 - **THEN** its IR type is a mapping from the string type to the integer type
 
 #### Scenario: Set annotation
 
-- **WHEN** a value is declared with the Python annotation `set[int]`
+- **GIVEN** a value declared with the Python annotation `set[int]`
+- **WHEN** its IR type is derived
 - **THEN** its IR type is a set whose element type is the integer type
 
 #### Scenario: Tuple annotation carries a type per position
 
-- **WHEN** a value is declared with the Python annotation `tuple[int, str]`
+- **GIVEN** a value declared with the Python annotation `tuple[int, str]`
+- **WHEN** its IR type is derived
 - **THEN** its IR type is a two-element tuple whose first position is the integer type and whose
   second is the string type
 
 #### Scenario: Collections nest
 
-- **WHEN** a value is declared with the Python annotation `dict[str, list[int]]`
+- **GIVEN** a value declared with the Python annotation `dict[str, list[int]]`
+- **WHEN** its IR type is derived
 - **THEN** its IR type is a mapping from the string type to a sequence of the integer type
 
 #### Scenario: Collections of different element types are distinct
 
-- **WHEN** a sequence of integers and a sequence of strings are compared
+- **GIVEN** a sequence of integers and a sequence of strings
+- **WHEN** they are compared
 - **THEN** they are different types
 
 #### Scenario: Unsupported annotation has no representation
 
-- **WHEN** an annotation such as `complex`, `frozenset[int]`, or a type variable is considered
+- **GIVEN** an annotation outside the supported set, such as `complex` or a type variable
+- **WHEN** an IR type is sought for it
 - **THEN** the type model provides no IR type for it
 
 ### Requirement: Target-language independence
@@ -158,23 +178,27 @@ as Go, C++, or TypeScript.
 
 #### Scenario: No target syntax in the IR
 
-- **WHEN** the IR type model and node definitions are inspected
+- **GIVEN** the IR type model and node definitions
+- **WHEN** they are inspected
 - **THEN** no target language's type spellings or syntax appear in them
 
 #### Scenario: No source syntax in the IR
 
-- **WHEN** the IR type model and node definitions are inspected
+- **GIVEN** the IR type model and node definitions
+- **WHEN** they are inspected
 - **THEN** no source language's type spellings, operator spellings, or keywords appear in them
 
 #### Scenario: Backend supplies the mapping
 
-- **WHEN** a backend renders an IR function for a specific target
+- **GIVEN** an IR function and a specific target
+- **WHEN** the backend renders it
 - **THEN** it derives every concrete type spelling from the IR's semantic types, without
   reading the original source
 
 #### Scenario: Frontend supplies the spelling in diagnostics
 
-- **WHEN** a diagnostic needs to quote a type or operator in the programmer's own language
+- **GIVEN** a diagnostic needing to quote a type or operator in the programmer's own language
+- **WHEN** the spelling is chosen
 - **THEN** the spelling comes from the frontend that read the source, not from the IR
 
 ### Requirement: Statement forms
@@ -185,17 +209,20 @@ local binding SHALL carry the bound name, its declared type, and the bound expre
 
 #### Scenario: Value return
 
-- **WHEN** a function body returns an expression
+- **GIVEN** a function body returning an expression
+- **WHEN** it is represented in IR
 - **THEN** the IR body contains a return statement carrying that expression
 
 #### Scenario: Bare return
 
-- **WHEN** a function body returns nothing, or reaches a no-op statement
+- **GIVEN** a function body returning nothing, or reaching a no-op statement
+- **WHEN** it is represented in IR
 - **THEN** the IR body contains a statement that produces no value
 
 #### Scenario: Typed local binding
 
-- **WHEN** a function body binds a name with an explicit type and an initial value
+- **GIVEN** a function body binding a name with an explicit type and an initial value
+- **WHEN** it is represented in IR
 - **THEN** the IR body contains a binding statement carrying the name, the type, and the
   initializing expression
 
@@ -211,53 +238,61 @@ expressions.
 
 #### Scenario: Literal expression
 
-- **WHEN** a literal integer, floating-point number, boolean, or string appears in a function
-  body
+- **GIVEN** a literal integer, floating-point number, boolean, or string in a function body
+- **WHEN** it is represented in IR
 - **THEN** the IR represents it as a literal expression carrying that value
 
 #### Scenario: Floating-point literals compare and hash by value
 
-- **WHEN** two floating-point literals written identically in source are compared
+- **GIVEN** two floating-point literals written identically in source
+- **WHEN** they are compared
 - **THEN** they are equal and produce the same fingerprint contribution, so that a
   floating-point literal does not prevent a function from being fingerprinted
 
 #### Scenario: Collection literal
 
-- **WHEN** a sequence, mapping, set, or tuple literal appears in a function body
+- **GIVEN** a sequence, mapping, set, or tuple literal in a function body
+- **WHEN** it is represented in IR
 - **THEN** the IR represents it as a literal of that kind carrying its element expressions in
   source order
 
 #### Scenario: Subscript expression
 
-- **WHEN** a collection is subscripted
+- **GIVEN** a collection being subscripted
+- **WHEN** it is represented in IR
 - **THEN** the IR represents it as a subscript expression carrying the subscripted expression and
   the index expression
 
 #### Scenario: Length expression
 
-- **WHEN** `len` is applied to a collection or string
+- **GIVEN** `len` applied to a collection or string
+- **WHEN** it is represented in IR
 - **THEN** the IR represents it as a length expression carrying the operand, distinct from a call
 
 #### Scenario: Binary operation
 
-- **WHEN** two expressions are combined with a supported arithmetic or comparison operator
+- **GIVEN** two expressions combined with a supported arithmetic or comparison operator
+- **WHEN** they are represented in IR
 - **THEN** the IR represents it as a binary expression carrying the operator and both operand
   expressions
 
 #### Scenario: True division is distinct from floor division
 
-- **WHEN** the true-division and floor-division operators are compared
+- **GIVEN** the true-division and floor-division operators
+- **WHEN** they are compared
 - **THEN** they are distinct operators, because they produce different values for the same
   operands
 
 #### Scenario: Nested expressions
 
-- **WHEN** an expression contains sub-expressions several levels deep
+- **GIVEN** an expression containing sub-expressions several levels deep
+- **WHEN** it is represented in IR
 - **THEN** the IR preserves the nesting and the grouping implied by the source
 
 #### Scenario: Call expression
 
-- **WHEN** a function is called with two arguments
+- **GIVEN** a function called with two arguments
+- **WHEN** it is represented in IR
 - **THEN** the IR represents it as a call expression carrying the callee name and both
   argument expressions in order
 
@@ -272,29 +307,33 @@ order in which functions were added to the unit.
 
 #### Scenario: Identical functions fingerprint identically
 
-- **WHEN** the same function is lowered from two sources that differ only in comments,
-  blank lines, and indentation width
+- **GIVEN** two sources differing only in comments, formatting, and layout
+- **WHEN** both are lowered and fingerprinted
 - **THEN** both IR functions produce the same fingerprint
 
 #### Scenario: Changed body changes the fingerprint
 
-- **WHEN** a function's body is edited so it computes something different
+- **GIVEN** a function edited so it computes something different
+- **WHEN** it is fingerprinted
 - **THEN** its fingerprint differs from the fingerprint before the edit
 
 #### Scenario: Changed signature changes the fingerprint
 
-- **WHEN** a function's parameter type or return type is changed
+- **GIVEN** a function whose parameter type or return type has changed
+- **WHEN** it is fingerprinted
 - **THEN** its fingerprint differs from the fingerprint before the change
 
 #### Scenario: Adding a function changes the unit fingerprint
 
-- **WHEN** a fourth function is added to a unit containing three
+- **GIVEN** a unit containing three functions
+- **WHEN** a fourth is added
 - **THEN** the unit fingerprint differs from its previous value
 - **AND** the fingerprints of the three original functions are unchanged
 
 #### Scenario: Unit fingerprint ignores addition order
 
-- **WHEN** the same set of functions is assembled into two units in different orders
+- **GIVEN** the same set of functions
+- **WHEN** they are assembled into two units in different orders
 - **THEN** both units produce the same fingerprint
 
 ### Requirement: IR values are self-contained and inspectable
@@ -306,18 +345,20 @@ whole IR tree.
 
 #### Scenario: IR outlives its source
 
-- **WHEN** a function is represented in IR and the original source text and parse tree are
-  then released
+- **GIVEN** a function represented in IR
+- **WHEN** the original source text and parse tree are discarded
 - **THEN** the IR value remains fully usable
 
 #### Scenario: Structural comparison
 
-- **WHEN** two IR values are built from equivalent programs
+- **GIVEN** two IR values built from equivalent programs
+- **WHEN** they are compared for structural equality
 - **THEN** comparing them for structural equality reports them equal
 
 #### Scenario: Stable rendering
 
-- **WHEN** the same IR value is rendered textually twice
+- **GIVEN** one IR value
+- **WHEN** it is rendered textually twice
 - **THEN** both renderings are identical
 
 ### Requirement: A unit serializes to a durable artifact
@@ -333,34 +374,39 @@ changes the serialized shape, so the version SHALL advance whenever it does.
 
 #### Scenario: A unit is written and read back
 
-- **WHEN** a unit is serialized and then deserialized
+- **GIVEN** a unit
+- **WHEN** it is serialized and then deserialized
 - **THEN** the result compares structurally equal to the original
 
 #### Scenario: The artifact describes every construct
 
-- **WHEN** a unit containing every supported type, statement form, and expression form is
-  serialized
+- **GIVEN** a unit containing every supported type, statement form, and expression form
+- **WHEN** it is round-tripped
 - **THEN** each construct is represented in the artifact and survives a round trip
 
 #### Scenario: Fingerprint survives a round trip
 
-- **WHEN** a unit is serialized, deserialized, and its fingerprint recomputed
+- **GIVEN** a unit
+- **WHEN** it is serialized, deserialized, and its fingerprint recomputed
 - **THEN** the fingerprint equals that of the original unit
 
 #### Scenario: Float literals survive exactly
 
-- **WHEN** a unit containing float literals, including negative zero, is round-tripped
+- **GIVEN** a unit containing float literals, including negative zero
+- **WHEN** it is round-tripped
 - **THEN** each literal is bit-for-bit identical to the original, consistent with the IR's rule
   that float literals compare by bit pattern
 
 #### Scenario: The artifact carries no target-language information
 
-- **WHEN** an artifact is inspected
+- **GIVEN** an artifact written from a unit
+- **WHEN** it is inspected
 - **THEN** it names IR types and operators only, containing no Rust or other target spellings
 
 #### Scenario: An artifact written before checking modes is refused
 
-- **WHEN** an artifact written under the previous format version is read
+- **GIVEN** an artifact written under the previous format version
+- **WHEN** it is read
 - **THEN** it is refused with a message naming the version found and the version expected, rather
   than being read as though every operation reported its failures
 
@@ -372,19 +418,20 @@ control without spurious differences.
 
 #### Scenario: Repeated serialization
 
-- **WHEN** the same unit is serialized twice
+- **GIVEN** one unit
+- **WHEN** it is serialized twice
 - **THEN** the two outputs are byte-identical
 
 #### Scenario: Addition order does not affect the artifact
 
-- **WHEN** the same functions are assembled into two units in different orders and both are
-  serialized
+- **GIVEN** the same functions
+- **WHEN** they are assembled into two units in different orders and both are serialized
 - **THEN** the two outputs are byte-identical
 
 #### Scenario: Formatting changes do not affect the artifact
 
-- **WHEN** a unit is lowered from sources differing only in comments, blank lines, and
-  indentation, and serialized
+- **GIVEN** sources differing only in comments, blank lines, and formatting
+- **WHEN** each is lowered and serialized
 - **THEN** the output is byte-identical to that of the unit lowered from the original sources
 
 ### Requirement: Collection types constrain their parameters
@@ -399,22 +446,26 @@ float at all. Excluding it keeps every backend able to render the type.
 
 #### Scenario: Integer, string, and boolean keys are representable
 
-- **WHEN** mappings keyed by the integer, string, and boolean types are considered
+- **GIVEN** mappings keyed by the integer, string, and boolean types
+- **WHEN** their IR types are sought
 - **THEN** each has an IR type
 
 #### Scenario: A floating-point key has no representation
 
-- **WHEN** a mapping keyed by the floating-point type is considered
+- **GIVEN** a mapping keyed by the floating-point type
+- **WHEN** its IR type is sought
 - **THEN** the type model provides no IR type for it
 
 #### Scenario: A floating-point set element has no representation
 
-- **WHEN** a set of the floating-point type is considered
+- **GIVEN** a set of the floating-point type
+- **WHEN** its IR type is sought
 - **THEN** the type model provides no IR type for it
 
 #### Scenario: A collection value type is unrestricted
 
-- **WHEN** a mapping from the string type to the floating-point type is considered
+- **GIVEN** a mapping from the string type to the floating-point type
+- **WHEN** its IR type is sought
 - **THEN** it has an IR type, because only keys and set elements need hashing
 
 ### Requirement: Collection literals and subscripts survive the artifact
@@ -426,24 +477,27 @@ support.
 
 #### Scenario: A unit using every collection form round-trips
 
-- **WHEN** a unit containing each collection type, literal, a subscript, and a length is serialized
-  and deserialized
+- **GIVEN** a unit containing each collection type, a literal, a subscript, and a length
+- **WHEN** it is round-tripped
 - **THEN** the result compares structurally equal to the original
 
 #### Scenario: Nested types round-trip
 
-- **WHEN** a unit containing a mapping from strings to sequences of integers is round-tripped
+- **GIVEN** a unit containing a mapping from strings to sequences of integers
+- **WHEN** it is round-tripped
 - **THEN** the nesting is preserved
 
-#### Scenario: The artifact stays target-neutral
+#### Scenario: A collection artifact stays target-neutral
 
-- **WHEN** an artifact describing collections is inspected
+- **GIVEN** an artifact describing collections
+- **WHEN** it is inspected
 - **THEN** it names IR types only, containing no `Vec`, `HashMap`, `HashSet`, or other target
   spelling
 
 #### Scenario: Serialization stays deterministic
 
-- **WHEN** a unit using collections is serialized twice
+- **GIVEN** a unit using collections
+- **WHEN** it is serialized twice
 - **THEN** the two outputs are byte-identical
 
 ### Requirement: Control-flow statement forms
@@ -458,42 +512,50 @@ what it means; the IR gains no separate form for it.
 
 #### Scenario: Conditional with no alternative
 
-- **WHEN** a function body contains an `if` with no `else`
+- **GIVEN** a function body containing an `if` with no `else`
+- **WHEN** it is represented in IR
 - **THEN** the IR contains a conditional carrying the test and the body, with no alternative
 
 #### Scenario: Conditional with an alternative
 
-- **WHEN** a function body contains an `if`/`else`
+- **GIVEN** a function body containing an `if`/`else`
+- **WHEN** it is represented in IR
 - **THEN** the IR contains a conditional carrying both branches
 
 #### Scenario: elif nests
 
-- **WHEN** a function body contains `if`/`elif`/`else`
+- **GIVEN** a function body containing `if`/`elif`/`else`
+- **WHEN** it is represented in IR
 - **THEN** the IR represents the `elif` as a conditional inside the first one's alternative
 
 #### Scenario: Conditional test is a boolean
 
-- **WHEN** a conditional is represented in the IR
+- **GIVEN** a conditional represented in the IR
+- **WHEN** its test is examined
 - **THEN** its test is an expression, and the type rules require that expression to be a boolean
 
 #### Scenario: Unbounded loop
 
-- **WHEN** a function body contains a `while`
+- **GIVEN** a function body containing a `while`
+- **WHEN** it is represented in IR
 - **THEN** the IR contains a loop carrying the test and the body
 
 #### Scenario: Iterating loop
 
-- **WHEN** a function body contains a `for`
+- **GIVEN** a function body containing a `for`
+- **WHEN** it is represented in IR
 - **THEN** the IR contains a loop carrying the bound name, the iterable, and the body
 
 #### Scenario: Loop control
 
-- **WHEN** a loop body contains `break` or `continue`
+- **GIVEN** a loop body containing `break` or `continue`
+- **WHEN** it is represented in IR
 - **THEN** the IR contains the corresponding statement
 
 #### Scenario: Bodies nest
 
-- **WHEN** a loop contains a conditional containing another loop
+- **GIVEN** a loop containing a conditional containing another loop
+- **WHEN** it is represented in IR
 - **THEN** the IR preserves the nesting
 
 ### Requirement: Range expression
@@ -507,17 +569,20 @@ against the unit, so leaving it as one would make its meaning depend on what els
 
 #### Scenario: Range carries all three components
 
-- **WHEN** `range(n)` is represented in the IR
+- **GIVEN** `range(n)`
+- **WHEN** it is represented in the IR
 - **THEN** it carries a start of zero, a stop of `n`, and a step of one
 
 #### Scenario: Explicit bounds are preserved
 
-- **WHEN** `range(a, b, c)` is represented in the IR
+- **GIVEN** `range(a, b, c)`
+- **WHEN** it is represented in the IR
 - **THEN** it carries each component as written
 
 #### Scenario: A range is not a call
 
-- **WHEN** a unit containing a range is validated
+- **GIVEN** a unit containing a range
+- **WHEN** it is validated
 - **THEN** validation does not attempt to resolve `range` as a function
 
 ### Requirement: Control flow survives the artifact
@@ -527,18 +592,20 @@ reconstructible from it, deterministically, on the same terms as the existing fo
 
 #### Scenario: A unit using every control-flow form round-trips
 
-- **WHEN** a unit containing a conditional, both loop forms, both loop controls, and a range is
-  serialized and deserialized
+- **GIVEN** a unit containing a conditional, both loop forms, both loop controls, and a range
+- **WHEN** it is round-tripped
 - **THEN** the result compares structurally equal to the original
 
 #### Scenario: Nesting survives
 
-- **WHEN** a unit containing a loop inside a conditional inside a loop is round-tripped
+- **GIVEN** a unit containing a loop inside a conditional inside a loop
+- **WHEN** it is round-tripped
 - **THEN** the nesting is preserved
 
-#### Scenario: The artifact stays target-neutral
+#### Scenario: A control-flow artifact stays target-neutral
 
-- **WHEN** an artifact describing control flow is inspected
+- **GIVEN** an artifact describing control flow
+- **WHEN** it is inspected
 - **THEN** it names IR forms only, containing no target-language loop or branch syntax
 
 ### Requirement: Element assignment and membership forms
@@ -553,32 +620,38 @@ signature table before anything needed one.
 
 #### Scenario: Element assignment
 
-- **WHEN** a body assigns to a collection element
+- **GIVEN** a body assigning to a collection element
+- **WHEN** it is represented in IR
 - **THEN** the IR carries the collection, the index or key, and the value
 
 #### Scenario: Membership
 
-- **WHEN** a body tests membership
+- **GIVEN** a body testing membership
+- **WHEN** it is represented in IR
 - **THEN** the IR carries the value and the container
 
 #### Scenario: Negated membership
 
-- **WHEN** a body tests `not in`
+- **GIVEN** a body testing `not in`
+- **WHEN** it is represented in IR
 - **THEN** the IR represents it as the negation of a membership test rather than as its own form
 
 #### Scenario: Append
 
-- **WHEN** a body appends to a sequence
+- **GIVEN** a body appending to a sequence
+- **WHEN** it is represented in IR
 - **THEN** the IR carries the sequence and the value, as a form distinct from a call
 
 #### Scenario: Appending is not resolved as a call
 
-- **WHEN** a unit containing an append is validated
+- **GIVEN** a unit containing an append
+- **WHEN** it is validated
 - **THEN** validation does not attempt to resolve `append` as a function in the unit
 
-#### Scenario: The new forms survive the artifact
+#### Scenario: Assignment, membership, and append survive the artifact
 
-- **WHEN** a unit containing element assignment, membership, and append is round-tripped
+- **GIVEN** a unit containing element assignment, membership, and append
+- **WHEN** it is round-tripped
 - **THEN** the result compares structurally equal to the original
 
 ### Requirement: A unit holds classes as well as functions
@@ -593,32 +666,38 @@ each class's structure.
 
 #### Scenario: A class is a unit member
 
-- **WHEN** a class is added to a unit
+- **GIVEN** a class and a unit
+- **WHEN** the class is added to the unit
 - **THEN** the unit contains it, alongside any functions
 
 #### Scenario: Names are shared across kinds
 
-- **WHEN** a class is added to a unit already containing a function of that name
+- **GIVEN** a unit already containing a function of a given name
+- **WHEN** a class of that name is added
 - **THEN** the unit refuses the addition and reports the conflicting name
 
 #### Scenario: Ordering is content-determined
 
-- **WHEN** the same classes and functions are added to two units in different orders
+- **GIVEN** the same classes and functions
+- **WHEN** they are added to two units in different orders
 - **THEN** both expose their members in the same order
 
 #### Scenario: A class contributes to the fingerprint
 
+- **GIVEN** a unit containing a class
 - **WHEN** a method body is changed
 - **THEN** the unit's fingerprint differs from its previous value
 
 #### Scenario: A unit without classes fingerprints unchanged
 
-- **WHEN** a unit containing only functions is fingerprinted
+- **GIVEN** a unit containing only functions
+- **WHEN** it is fingerprinted
 - **THEN** the value is what it was before classes existed, so existing caches stay valid
 
 #### Scenario: Attribute order follows declaration
 
-- **WHEN** a class declaring three attributes is represented in the IR
+- **GIVEN** a class declaring three attributes
+- **WHEN** it is represented in the IR
 - **THEN** they appear in the order declared
 
 ### Requirement: Instance types
@@ -632,27 +711,32 @@ those to what can be compared and hashed, and an instance has no defined orderin
 
 #### Scenario: A class name is a type
 
-- **WHEN** a value is declared with a class's name as its annotation
+- **GIVEN** a value declared with a class's name as its annotation
+- **WHEN** its IR type is derived
 - **THEN** its IR type is that class's instance type
 
 #### Scenario: Two classes are distinct types
 
-- **WHEN** the instance types of two different classes are compared
+- **GIVEN** the instance types of two different classes
+- **WHEN** they are compared
 - **THEN** they are different types
 
 #### Scenario: Instances nest in collections
 
-- **WHEN** a value is declared as a sequence of a class
+- **GIVEN** a value declared as a sequence of a class
+- **WHEN** its IR type is derived
 - **THEN** its IR type is a sequence whose element type is that instance type
 
 #### Scenario: An instance cannot be a key
 
-- **WHEN** a mapping keyed by an instance type is considered
+- **GIVEN** a mapping keyed by an instance type
+- **WHEN** its IR type is sought
 - **THEN** the type model provides no IR type for it
 
 #### Scenario: An instance is not trivially copyable
 
-- **WHEN** the copyability of an instance type is considered
+- **GIVEN** an instance type
+- **WHEN** its copyability is considered
 - **THEN** it is treated as a type that must be cloned where consumed, like a collection
 
 ### Requirement: Attribute and construction forms
@@ -662,28 +746,32 @@ Construction SHALL carry the class name and its arguments, distinct from a call 
 
 #### Scenario: Attribute read
 
-- **WHEN** an attribute is read
+- **GIVEN** an attribute being read
+- **WHEN** it is represented in IR
 - **THEN** the IR carries the object expression and the attribute name
 
 #### Scenario: Attribute assignment
 
-- **WHEN** an attribute is assigned
+- **GIVEN** an attribute being assigned
+- **WHEN** it is represented in IR
 - **THEN** the IR carries the object expression, the attribute name, and the value
 
 #### Scenario: Construction is distinct from a call
 
-- **WHEN** a class is constructed
+- **GIVEN** a class being constructed
+- **WHEN** it is represented in IR
 - **THEN** the IR represents it as a construction carrying the class name, not as a function call
 
-#### Scenario: The new forms survive the artifact
+#### Scenario: Attribute and construction forms survive the artifact
 
-- **WHEN** a unit containing a class, attribute access, attribute assignment, and construction is
-  round-tripped
+- **GIVEN** a unit containing a class, attribute access, attribute assignment, and construction
+- **WHEN** it is round-tripped
 - **THEN** the result compares structurally equal to the original
 
-#### Scenario: The artifact stays target-neutral
+#### Scenario: A class artifact stays target-neutral
 
-- **WHEN** an artifact describing a class is inspected
+- **GIVEN** an artifact describing a class
+- **WHEN** it is inspected
 - **THEN** it names IR forms only, containing no target-language struct or trait syntax
 
 ### Requirement: Operators carry declared semantics
@@ -702,32 +790,38 @@ it to the IR rather than encode it in its frontend.
 
 #### Scenario: Rounding mode is explicit
 
-- **WHEN** an integer division node is inspected
+- **GIVEN** an integer division node
+- **WHEN** it is inspected
 - **THEN** its rounding mode is readable from the node itself
 
 #### Scenario: The same operator can mean either rounding
 
-- **WHEN** two integer division nodes declare different rounding modes
+- **GIVEN** two integer division nodes declaring different rounding modes
+- **WHEN** they are compared
 - **THEN** they are distinguishable, and a backend renders each differently
 
 #### Scenario: Remainder sign convention is explicit
 
-- **WHEN** a remainder node is inspected
+- **GIVEN** a remainder node
+- **WHEN** it is inspected
 - **THEN** its sign convention is readable from the node itself
 
 #### Scenario: Promotion is explicit
 
-- **WHEN** a division node that yields a floating-point result from integer operands is inspected
+- **GIVEN** a division node yielding a floating-point result from integer operands
+- **WHEN** it is inspected
 - **THEN** the promotion is declared on the node rather than implied by the operator's name
 
 #### Scenario: No node's meaning depends on the source language
 
-- **WHEN** a unit is interpreted without knowing which frontend produced it
+- **GIVEN** a unit and no knowledge of which frontend produced it
+- **WHEN** the unit is interpreted
 - **THEN** every operator's meaning is fully determined by the unit
 
 #### Scenario: Failure handling is explicit
 
-- **WHEN** an operator that can fail is inspected
+- **GIVEN** an operator that can fail
+- **WHEN** it is inspected
 - **THEN** whether the program defines its failure is readable from the node, independently of the
   operator's other declared modes
 
@@ -745,22 +839,27 @@ what its language usually needs.
 
 #### Scenario: The producing frontend is recorded
 
-- **WHEN** a unit is produced by lowering source with a named frontend
+- **GIVEN** source lowered with a named frontend
+- **WHEN** the resulting unit is inspected
 - **THEN** the unit reports that frontend's name
 
 #### Scenario: Required guarantees travel with the unit
 
-- **WHEN** a unit is inspected
+- **GIVEN** a unit
+- **WHEN** it is inspected
 - **THEN** the guarantees the program requires preserved are readable from it
 
 #### Scenario: The record survives the artifact
 
-- **WHEN** a unit is serialized and read back
+- **GIVEN** a unit recording its producing frontend
+- **WHEN** it is serialized and read back
 - **THEN** the producing frontend and its required guarantees are unchanged
 
 #### Scenario: Guarantees follow the program, not the language
 
-- **WHEN** two units from the same frontend declare different checking modes on their arithmetic
+- **GIVEN** two units from the same frontend declaring different checking modes on their
+  arithmetic
+- **WHEN** their required guarantees are computed
 - **THEN** the one whose arithmetic is unchecked does not record that integer overflow must be
   reported, and the other does
 
@@ -787,38 +886,44 @@ absent are the same question — whether the failure is a value the program hand
 
 #### Scenario: Index origin is explicit
 
-- **WHEN** a subscript node is inspected
+- **GIVEN** a subscript node
+- **WHEN** it is inspected
 - **THEN** its index origin is readable from the node itself
 
 #### Scenario: The same subscript can mean either origin
 
-- **WHEN** two subscript nodes declare different index origins
+- **GIVEN** two subscript nodes declaring different index origins
+- **WHEN** they are compared
 - **THEN** they are distinguishable, and a backend renders each differently
 
 #### Scenario: Text units are explicit
 
-- **WHEN** a length node is inspected
+- **GIVEN** a length node
+- **WHEN** it is inspected
 - **THEN** the units it counts in are readable from the node itself
 
 #### Scenario: All three unit readings are distinguishable
 
-- **WHEN** three length nodes declare code points, UTF-8 bytes, and UTF-16 units
+- **GIVEN** three length nodes declaring code points, UTF-8 bytes, and UTF-16 units
+- **WHEN** they are compared
 - **THEN** each is distinct from the others
 
 #### Scenario: A declared container mode survives the artifact
 
-- **WHEN** a unit containing subscripts and lengths is serialized and read back
+- **GIVEN** a unit containing subscripts and lengths
+- **WHEN** it is serialized and read back
 - **THEN** every declared mode is unchanged
 
 #### Scenario: A declared container mode reaches the fingerprint
 
-- **WHEN** two units differ only in a declared index origin, only in declared text units, or only
-  in a subscript's checking mode
+- **GIVEN** two units differing only in a declared container mode
+- **WHEN** they are fingerprinted
 - **THEN** their fingerprints differ, because the mode is part of what the program computes
 
 #### Scenario: A subscript's checking mode applies to mappings too
 
-- **WHEN** a mapping subscript declares that its failure is unchecked
+- **GIVEN** a mapping subscript declaring that its failure is unchecked
+- **WHEN** it is inspected
 - **THEN** the node says so, and a backend renders it differently from one that reports
 
 ### Requirement: Container behavior that is not a mode is not parameterized
@@ -836,24 +941,28 @@ and this requirement says that a missing key is a failure at all.
 
 #### Scenario: A missing mapping key is reported
 
-- **WHEN** a mapping is read with a key it does not contain, from a node declaring the failure
+- **GIVEN** a mapping read with a key it does not contain, from a node declaring the failure
   reported
+- **WHEN** the read is evaluated
 - **THEN** the operation reports the missing key, whichever frontend produced the unit
 
 #### Scenario: A missing key never yields a default value
 
-- **WHEN** a mapping is read with a key it does not contain, under either checking mode
+- **GIVEN** a mapping read with a key it does not contain, under either checking mode
+- **WHEN** the read is evaluated
 - **THEN** the operation fails, and never yields the value type's zero in place of one
 
 #### Scenario: No mode exists for behavior compylr's languages agree on
 
-- **WHEN** the IR's node definitions are inspected
+- **GIVEN** the IR's node definitions
+- **WHEN** they are inspected
 - **THEN** no mode is carried for iterating a mapping, testing membership, or assigning a mapping
   key, because the languages in the supported list agree on all three
 
 #### Scenario: No mode exists for a range with a zero step
 
-- **WHEN** the IR's node definitions are inspected
+- **GIVEN** the IR's node definitions
+- **WHEN** they are inspected
 - **THEN** a range carries no mode for a zero step, because every supported language refuses one
   and the refusal exists so that a non-terminating loop stays diagnosable
 
@@ -875,32 +984,38 @@ true of all three.
 
 #### Scenario: The checking mode is readable from the node
 
-- **WHEN** an addition, division, remainder, negation, or subscript node is inspected
+- **GIVEN** an addition, division, remainder, negation, or subscript node
+- **WHEN** it is inspected
 - **THEN** its checking mode is readable from the node itself
 
 #### Scenario: The same operator can mean either mode
 
-- **WHEN** two addition nodes declare different checking modes
+- **GIVEN** two addition nodes declaring different checking modes
+- **WHEN** they are compared
 - **THEN** they are distinguishable, and a backend renders each differently
 
 #### Scenario: The mode composes with an existing mode
 
-- **WHEN** an integer division node is inspected
+- **GIVEN** an integer division node
+- **WHEN** it is inspected
 - **THEN** its rounding mode and its checking mode are both readable, and the two are independent
 
 #### Scenario: A checking mode survives the artifact
 
-- **WHEN** a unit containing both modes is serialized and read back
+- **GIVEN** a unit containing both checking modes
+- **WHEN** it is serialized and read back
 - **THEN** every declared checking mode is unchanged
 
 #### Scenario: A checking mode reaches the fingerprint
 
-- **WHEN** two units differ only in a declared checking mode
+- **GIVEN** two units differing only in a declared checking mode
+- **WHEN** they are fingerprinted
 - **THEN** their fingerprints differ, because the mode is part of what the program computes
 
 #### Scenario: An unchecked operation is not folded into a reported failure
 
-- **WHEN** a pass folds a constant expression whose operation is declared unchecked and whose
-  result would overflow or divide by zero
+- **GIVEN** a constant expression whose operation is declared unchecked and whose evaluation
+  would fail
+- **WHEN** a folding pass reaches it
 - **THEN** the pass leaves the expression alone rather than turning it into a reported failure,
   because the program did not ask for one

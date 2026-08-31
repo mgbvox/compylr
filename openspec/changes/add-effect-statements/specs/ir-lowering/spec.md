@@ -19,48 +19,57 @@ the existing guarantee that reformatting costs nothing.
 
 #### Scenario: A documented function lowers
 
-- **WHEN** lowering a function whose first body statement is a string literal
+- **GIVEN** a function whose first body statement is a string literal
+- **WHEN** it is lowered
 - **THEN** lowering succeeds
 
 #### Scenario: The docstring does not become a statement
 
-- **WHEN** a function with a docstring and a single `return` is lowered
+- **GIVEN** a function with a docstring and a single `return`
+- **WHEN** it is lowered
 - **THEN** the IR body contains only the return statement
 
 #### Scenario: The docstring is retained on the function
 
-- **WHEN** a function with a docstring is lowered
+- **GIVEN** a function with a docstring
+- **WHEN** it is lowered
 - **THEN** the IR function carries the docstring's text
 
 #### Scenario: A function with only a docstring and no return
 
-- **WHEN** lowering a function annotated `-> None` whose body is just a docstring
+- **GIVEN** a function annotated `-> None` whose body is just a docstring
+- **WHEN** it is lowered
 - **THEN** lowering succeeds and the body produces no value
 
 #### Scenario: Editing a docstring does not change the fingerprint
 
-- **WHEN** the same function is lowered twice with different docstring text
+- **GIVEN** one function, written twice with different docstring text
+- **WHEN** both are lowered and fingerprinted
 - **THEN** both produce the same fingerprint
 
 #### Scenario: Adding a docstring does not change the fingerprint
 
-- **WHEN** a function is lowered with and without a docstring, its code otherwise identical
+- **GIVEN** one function, written with and without a docstring and otherwise identical
+- **WHEN** both are lowered and fingerprinted
 - **THEN** both produce the same fingerprint
 
 #### Scenario: A string statement after the first is rejected
 
-- **WHEN** lowering a body whose second statement is a bare string literal
+- **GIVEN** a body whose second statement is a bare string literal
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the unsupported statement
 
 #### Scenario: A non-string expression statement is still rejected
 
-- **WHEN** lowering a body whose first statement is a bare expression such as `a + 1`
+- **GIVEN** a body whose first statement is a bare expression such as `a + 1`
+- **WHEN** it is lowered
 - **THEN** lowering fails with a diagnostic naming the unsupported statement
 
 #### Scenario: A bare call statement is still rejected
 
-- **WHEN** lowering a body whose first statement is a bare call to a function in the unit,
-  discarding its result
+- **GIVEN** a body whose first statement is a bare call to a function in the unit, discarding its
+  result
+- **WHEN** it is lowered
 - **THEN** lowering fails, because the subset cannot express a call made for its side effect
 
 #### Scenario: An effectful intrinsic statement is accepted

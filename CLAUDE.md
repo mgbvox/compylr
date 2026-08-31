@@ -1,3 +1,21 @@
+# What compylr is
+
+A **polyglot transpiler and compiler**, not a Python-to-Rust tool that grew. It reads a strict,
+fully annotated subset of a source language into a language-neutral IR, emits a target language
+from it, and generates the bridge that makes the result callable from where it came.
+
+The lineage is two projects. **py2many** contributes the premise that an annotated subset of a
+dynamic language is mechanically translatable into a static one. **LLVM** contributes the
+architecture: frontends and backends meet at an IR that names neither, so languages cost N + M
+rather than N × M. Where compylr departs from LLVM is the bridge — LLVM emits object code and
+never calls back into the source language, whereas calling back is compylr's entire purpose, and a
+calling convention is a negotiation between two runtimes that cannot be factored through the IR.
+Bridges therefore genuinely cost N × M, and the design keeps that visible instead of pretending
+otherwise.
+
+Two pairs work end to end today: **Python → Rust** and **TypeScript → Go**. Read any statement
+about "the frontend" or "the backend" as being about a *role*, never about Python or Rust.
+
 # Target End State
 
 I `uv add compylr` in a project.
@@ -15,7 +33,8 @@ Under the hood:
 * subsequent runs: usage of my_cool_function is imported from the rust bindings and replaced by the decorator at runtime.
 
 All decorated functions in a project share **one** maturin crate. Adding or editing one
-rebuilds that single artifact.
+rebuilds that single artifact. The TypeScript host is the same story with `go build` and a
+Node-API addon in place of maturin and PyO3.
 
 # Setup
 
@@ -30,18 +49,24 @@ git submodule update --init
 
 # Current state
 
-The pipeline is complete end to end for the supported subset:
+The pipeline is complete end to end for the supported subset, along two language pairs:
 
 ```
-source text ──frontend──> tree ──lower──> IR ──verify──> passes ──backend──> Rust ──bridge──> extension
+source text ──frontend──> tree ──lower──> IR ──verify──> passes ──backend──> target source ──bridge──> extension
 ```
 
-The workspace is nine crates and the root is a virtual manifest — no language's crate sits above
-the others. Three crates name Python, and each is named for the *job*: a frontend that reads it, a
-bridge that makes generated Rust callable from it, and a host binding that exposes the compiler to
-it. A TypeScript host would be `compylr-host-typescript` beside them. The dependency edges are the
-enforcement mechanism rather than a convention. `compylr-backend-rust` cannot name Python because no Python parser is reachable
-from it; `compylr-ir` cannot name Rust for the same reason. `tests/crate_boundaries.rs` reads the
+Implemented: frontends `python` and `typescript`; backends `rust` and `go`; bridges
+`(python, rust)` and `(typescript, go)`. Reserved: the `go` and `cpp` frontends, the `typescript`
+and `cpp` backends. **Those two lists differ on purpose** — `go` is a backend and not a frontend,
+`typescript` the reverse — because being able to write a language says nothing about being able to
+read it, and the registries answer the two questions separately.
+
+The workspace is thirteen crates and the root is a virtual manifest — no language's crate sits
+above the others. A crate naming a language is named for the *job* it does: a frontend that reads
+it, a backend that writes it, a bridge that makes generated code callable from it, a host binding
+that exposes the compiler to it. The dependency edges are the enforcement mechanism rather than a
+convention. `compylr-backend-rust` cannot name Python because no Python parser is reachable
+from it; `compylr-ir` cannot name Rust for the same reason. `crates/compylr-host-python/tests/crate_boundaries.rs` reads the
 manifests and fails when an edge appears that would make either claim false. If you find yourself
 wanting to add a dependency to `compylr-diagnostics` or `compylr-ir`, that is the signal to stop:
 whatever you pull in there reaches every crate in the workspace.
@@ -55,7 +80,8 @@ rather than foreclosed.
 
 `import compylr` works. `compylr.initialize()` returns a manager; `@c.compyle` marks a function,
 validating it immediately and compiling the whole project on the first call. Both intermediates
-(the IR as JSON, the generated Rust) are written under `.compylr/` on every build.
+(the IR as JSON, and the generated target source) are written under `.compylr/` on every build,
+whichever pair produced them.
 
 Supported Python subset: top-level `def`s only, fully annotated (`int`/`float`/`bool`/`str`, the
 collections `list[T]`/`dict[K,V]`/`set[T]`/`tuple[...]`, plus `None` as a return type); bodies of
@@ -176,7 +202,7 @@ Known gaps worth knowing before you trip on them:
   happens to provide that cross-impl and `PartialOrd` does not), and `who in xs`. Deciding this
   correctly needs the backend to know an expression's type, which it deliberately does not. The
   whole suite passed while it was broken, so `a_text_parameter_is_usable_in_every_position` in
-  `tests/execution.rs` now compiles a text parameter in every position; check there before trying
+  `crates/compylr-host-python/tests/execution.rs` now compiles a text parameter in every position; check there before trying
   again.
 * **Mutating a collection while iterating it is not rejected.** Rust's borrow checker will refuse
   it, so the failure is a rustc error rather than a located diagnostic. The honest fix is a
@@ -189,7 +215,7 @@ Known gaps worth knowing before you trip on them:
 * **The rebuild key is the IR fingerprint, so editing the *backend* does not invalidate a cached
   build.** The state file now records the installed compylr version, which covers a user upgrading
   the package — but during development here the version does not move, so after changing emission
-  you must `rm -rf .compylr` (and `demo/.compylr`) or you will benchmark last build's code. This
+  you must `rm -rf .compylr` (and each `demo/*/.compylr`) or you will benchmark last build's code. This
   cost real time once already. Every emission performance measurement starts with that removal.
 * **The IR changed shape again, so every existing cache is invalid once.** The artifact format is
   at version 4 — 2 for the arithmetic operators, 3 for subscripting and length, 4 for operation
@@ -198,7 +224,7 @@ Known gaps worth knowing before you trip on them:
   nothing to do beyond knowing why the first run after upgrading is slow.
 * **A statement's emission depends on where it is, not only on what it is.** The backend renders a
   constructor body, a method body, a free function body, and a loop body through different code,
-  and `tests/conformance.rs` checks coverage over `(form, position)` pairs for that reason. The
+  and `crates/compylr-host-python/tests/conformance.rs` checks coverage over `(form, position)` pairs for that reason. The
   first run of that check found four defects, three reachable from ordinary Python — including a
   `continue` inside `for i in range(n)` that skipped the cursor increment and hung. Adding a
   statement form means covering it in every position it is legal in, and the test says which.
@@ -213,26 +239,28 @@ Known gaps worth knowing before you trip on them:
   registers when it runs, and it imports packages the way the runtime does: a synthetic root
   package is registered and a package's own module runs before anything below it. Discovery is
   bounded to the root and skips environments, caches, and build output.
-* **`llm_assist` is accepted but refused when enabled**, and `typescript`/`go`/`cpp` are reserved
-  names on **both** sides — frontend and backend — that fail with a message saying they are
-  planned. A pair with a backend but no bridge is a fourth answer, distinct from an unknown or
-  reserved target: compylr can generate it and cannot yet call it back.
+* **`llm_assist` is accepted but refused when enabled.** Reserved names now differ by side, and
+  reading the old "reserved on both sides" rule will mislead you: `go` is an implemented **backend**
+  and a reserved **frontend**, `typescript` an implemented **frontend** and a reserved **backend**,
+  and `cpp` is reserved on both. A reserved name fails saying it is planned. A pair with a backend
+  but no bridge is a fourth answer, distinct from an unknown or reserved target: compylr can
+  generate it and cannot yet call it back.
 * **The Rust backend declares one target option it does not implement.** `unchecked-arithmetic`
   exists so the guarantee negotiation has something real to refuse; permitting it where nothing
   forbids it fails saying it is reserved rather than silently doing nothing.
-* **Both fixture lists are read from the directory, not hardcoded.** `tests/emit_quality.rs` and
-  `tests/fixtures.rs` enumerate `python/fixtures/accepted/`. They were once lists, drifted, and
+* **Both fixture lists are read from the directory, not hardcoded.** `crates/compylr-host-python/tests/emit_quality.rs` and
+  `crates/compylr-host-python/tests/fixtures.rs` enumerate `frontends/python/fixtures/accepted/`. They were once lists, drifted, and
   hid a real defect: tuple indexing emitted a `py_subscript` call with no tuple impl, so
   `collections.py` had been producing code that did not compile. Keep them derived.
-* **Every accepted fixture owes a driver**, in `python/fixtures/drivers/<name>.py`, naming the
+* **Every accepted fixture owes a driver**, in `frontends/python/fixtures/drivers/<name>.py`, naming the
   calls that exercise it as literal data. Both differential tiers read the same driver, and
   `fixtures.rs` fails when a fixture has none or when a driver does not reach every member the
   fixture defines. A driver carries **no expected values**: what a call should answer is what
   CPython answers. Unlike the corpora, `drivers/` is linted and type-checked.
-* **The rejection corpus has an inverted guard.** A program in `python/fixtures/rejected/` that
+* **The rejection corpus has an inverted guard.** A program in `frontends/python/fixtures/rejected/` that
   *starts* lowering fails the suite. Clear it by moving the program into `accepted/` and giving it
   a driver — never by adding an allowance, which turns a change in the language into a change in a
-  test. `python/fixtures/rejected/README.md` says so where someone hitting the failure will look.
+  test. `frontends/python/fixtures/rejected/README.md` says so where someone hitting the failure will look.
 * **A member name must be unique across the whole accepted corpus.** The boundary tier builds
   every fixture into one unit, as a real project is built, and `Unit::add_function` refuses a
   duplicate. Four fixtures carry a header saying why a name is what it is; renaming one back
@@ -250,15 +278,17 @@ Known gaps worth knowing before you trip on them:
 
 # Two PyO3 roles
 
-Do not conflate them:
+Do not conflate them. The same split exists for every pair — `compylr-host-typescript` links
+napi-rs while `compylr-bridge-typescript-golang` only emits loader source as text — so read this
+as the shape, not as something about Python:
 
 * `crates/compylr-host-python/` exposes **the compiler** to Python as `compylr._core`, built from
   this repo. It is the only crate that links PyO3, and `crate_boundaries.rs` states that rule over
-  the `compylr-host-*` prefix rather than over its name — a `compylr-host-typescript` linking
-  napi-rs would pass for the same reason, and neither is special.
+  the `compylr-host-*` prefix rather than over its name — `compylr-host-typescript` links napi-rs
+  and passes for exactly that reason, and neither host is special.
 * `crates/compylr-bridge-python-rust/` **generates** PyO3 code onto the user's functions, built at
   runtime into a separate crate (`compylr_generated_<fingerprint>_<variant>`). It emits PyO3
-  source as *text* and does not itself depend on PyO3 — `tests/crate_boundaries.rs` asserts that.
+  source as *text* and does not itself depend on PyO3 — `crates/compylr-host-python/tests/crate_boundaries.rs` asserts that.
 
 The name carries the fingerprint because CPython cannot reliably re-import an extension module
 under a name already in `sys.modules`. It carries a second tag because the fingerprint identifies
@@ -279,8 +309,8 @@ silently was the first.
   `BinOp::Rem` a sign convention and checking mode, `Expr::Subscript` an index origin and checking
   mode, and `Expr::Len` the units a string is counted in. The backend matches on those modes and
   never on the operation's name. A backend that read the name would be silently wrong for the
-  other stance, which is why `tests/conformance.rs` and the hand-built entries in
-  `tests/execution.rs` exist.
+  other stance, which is why `crates/compylr-host-python/tests/conformance.rs` and the hand-built entries in
+  `crates/compylr-host-python/tests/execution.rs` exist.
 * **`Checked::Unchecked` is a statement about the program, not a promised machine result.** It
   says the program declines to define the failure. Rust's native integer overflow wraps in the
   generated release profile and panics in a debug build; both satisfy that statement. Do not
@@ -332,19 +362,22 @@ silently was the first.
   add a check, add it in all three, or it is a check people discover in a pull request instead.
   Type checking is **ty** — mypy is no longer a dependency, and neither is its configuration.
 * **Keep `README.md` in sync.** It is the entry point for anyone who has not read the specs, so
-  it must never describe a state the code is not in. `tests/readme.rs` enforces the mechanical
+  it must never describe a state the code is not in. `crates/compylr-host-python/tests/readme.rs` enforces the mechanical
   half — the type table, operator list, capability list, module layout, and every referenced
   path — and fails `cargo test` on drift. The prose half is on you: when a change alters the
   supported subset, adds a capability or pipeline stage, changes the setup steps, or makes the
   backend real, update the README in the *same* change, not afterwards.
-* **The demo is one package, `demo/src/algorithms/`, and its coverage claim is checked from both
-  ends.** `ir_coverage.py` walks the IR of the build and asserts every statement form, expression
-  form, type, operator, and both Python-reachable division modes appear;
+* **There are two demos, one per working pair** — `demo/demo-python-rust/src/algorithms/` and
+  `demo/demo-ts-go/src/algorithms/` — and they carry the same algorithms on purpose, so the two
+  pipelines can be compared on identical work. The Python one's coverage claim is checked from
+  both ends: `ir_coverage.py` walks the IR of the build and asserts every statement form,
+  expression form, type, operator, and both Python-reachable division modes appear;
   `crates/compylr-host-python/tests/demo_coverage.rs` reads the IR's enum definitions and fails
   when a form is *added* that those tables do not list. Adding an IR form therefore means either
-  adding an algorithm that uses it or narrowing the claim in `demo/README.md` — the point is that
-  neither can happen silently. `nth_prime` is a subpackage of it, and is the only place in this
-  repository a *nested* package's `__init__.py` is imported end to end.
+  adding an algorithm that uses it or narrowing the claim in
+  `demo/demo-python-rust/README.md` — the point is that neither can happen silently. `nth_prime`
+  is a subpackage of it, and is the only place in this repository a *nested* package's
+  `__init__.py` is imported end to end.
 * **The demo is where cost shows up.** Its benchmark found a quadratic clone in `for`, an O(n)
   clone per nested read, and a full recompile per marked member on the warm path — all three
   invisible to every correctness test in the repository. When a change touches emission or the
@@ -364,10 +397,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo llvm-cov --workspace --ignore-filename-regex '(vendored/|/main\.rs)' --summary-only
 
 # The binary lives in `compylr-cli` now, so a bare `cargo run` has no target to pick.
-cargo run -p compylr-cli -- python/fixtures/accepted/aliases.py            # summary
-cargo run -p compylr-cli -- --emit ir   python/fixtures/accepted/aliases.py   # the IR as JSON
-cargo run -p compylr-cli -- --emit rust python/fixtures/accepted/aliases.py  # translated code only
-cargo run -p compylr-cli -- --emit crate --out ./out python/fixtures/accepted/aliases.py
+cargo run -p compylr-cli -- frontends/python/fixtures/accepted/aliases.py            # summary
+cargo run -p compylr-cli -- --emit ir   frontends/python/fixtures/accepted/aliases.py   # the IR as JSON
+cargo run -p compylr-cli -- --emit rust frontends/python/fixtures/accepted/aliases.py  # translated code only
+cargo run -p compylr-cli -- --emit crate --out ./out frontends/python/fixtures/accepted/aliases.py
 
 # Python (needs the venv; `maturin develop` rebuilds compylr._core after Rust changes)
 uv venv && source .venv/bin/activate
@@ -387,10 +420,15 @@ COMPYLR_DISABLE=1 python your_program.py
 make demo                 # every algorithm; SCALE=4 for bigger inputs
 make demo-primes          # the nth prime three ways; N=500
 
-# The demo project (its own uv project; verified by python/tests/test_demo.py)
-cd demo && uv sync && uv run compylr compyle src && uv run python -m algorithms
-cd demo && uv run python -m algorithms.nth_prime 25
-cd demo && uv run pytest && uv run ruff check . && uv run ty check src
+# The Python->Rust demo (its own uv project; verified by frontends/python/tests/test_demo.py)
+cd demo/demo-python-rust && uv sync && uv run compylr compyle src && uv run python -m algorithms
+cd demo/demo-python-rust && uv run python -m algorithms.nth_prime 25
+cd demo/demo-python-rust && uv run pytest && uv run ruff check . && uv run ty check src
+
+# The TypeScript->Go demo, carrying the same algorithms
+cd demo/demo-ts-go && npm test
+cd demo/demo-ts-go && npm start
+cd demo/demo-ts-go && node --experimental-strip-types src/algorithms/nth_prime/benchmark.ts --n 500
 
 ./scripts/update_benchmarks.py              # re-measure, rewrite the README tables
 ./scripts/update_benchmarks.py --check      # markers only; measures nothing
@@ -402,6 +440,6 @@ cd demo && uv run pytest && uv run ruff check . && uv run ty check src
 interpreter, and an active venv makes that mismatch what PyO3 linked against — the suite aborts
 with "no Python frame", which looks like a real failure and is not. `cargo test` is unaffected.
 
-**Never lint `python/fixtures/`.** They are compiler inputs, and `rejected/` is deliberately
+**Never lint `frontends/python/fixtures/`.** They are compiler inputs, and `rejected/` is deliberately
 invalid — `ruff check --fix` once deleted the `import os` from `import_statement.py`, silently
 removing the construct the fixture exists to test. `pyproject.toml` excludes them.

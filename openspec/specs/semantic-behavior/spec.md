@@ -23,35 +23,53 @@ keep a non-terminating loop diagnosable.
 
 #### Scenario: The axes are enumerable
 
+- **GIVEN** a compylr build
 - **WHEN** the set of behavior axes is requested
-- **THEN** exactly the six named axes are returned, each with a stable identifier
+- **THEN** exactly the six named axes are returned
+- **AND** each carries a stable identifier a diagnostic and a test can both refer to
 
 #### Scenario: An axis names an operation, not an implementation
 
-- **WHEN** an axis is described to a user
-- **THEN** it is described by the operation it governs and by what each language means by it
+- **GIVEN** one of the six axes
+- **WHEN** it is described to a user
+- **THEN** it is described by the operation it governs
+- **AND** by what each language means by that operation
 
 ### Requirement: A language declares its own stance on every axis
+
 Each source language and each target language SHALL declare, for every axis, what its own language
 means by that operation. A language SHALL NOT declare anything about another language's meaning,
-and no component SHALL hold a table mapping one language's stance onto another's. Both TypeScript and Go
-SHALL declare their own complete stance on all six behavior axes.
+and no component SHALL hold a table mapping one language's stance onto another's.
 
 #### Scenario: Both endpoints declare a stance
-- **WHEN** a source language and a target language are resolved for a compilation
-- **THEN** each answers, for every axis, what its own language means
+
+- **GIVEN** a source language and a target language resolved for a compilation
+- **WHEN** each is asked what it means
+- **THEN** each answers for every axis
+- **BUT** neither answers on behalf of the other
 
 #### Scenario: A language's declaration is complete
-- **WHEN** a language declares its behavior
-- **THEN** it covers every axis, and a language that omitted one could not be registered
 
-#### Scenario: TypeScript declares its behavior profile
-- **WHEN** TypeScript frontend behavior is inspected
-- **THEN** it returns a complete stance for all 6 axes
+- **GIVEN** a language offered for registration
+- **WHEN** its behavior declaration is read
+- **THEN** it covers every axis
+- **AND** a language omitting one could not be registered
 
-#### Scenario: Go backend declares its behavior profile
-- **WHEN** Go backend behavior is inspected
-- **THEN** it returns a complete stance for all 6 axes
+#### Scenario Outline: Every implemented language declares a complete stance
+
+- **GIVEN** the implemented language `<language>` in its role as `<role>`
+- **WHEN** its behavior is inspected
+- **THEN** it returns a stance for all six axes
+- **BUT** it names no other language
+
+  **Examples:**
+
+  | language | role |
+  | --- | --- |
+  | `python` | frontend |
+  | `typescript` | frontend |
+  | `rust` | backend |
+  | `go` | backend |
 
 ### Requirement: A behavior request resolves per axis to one of the two languages
 
@@ -68,25 +86,30 @@ for every axis.
 
 #### Scenario: A bare language name sets every axis
 
-- **WHEN** a request names the target language and nothing else
+- **GIVEN** a compilation whose request names the target language and nothing else
+- **WHEN** the request is resolved
 - **THEN** every axis resolves to the target language's stance
 
 #### Scenario: An unspecified axis inherits
 
-- **WHEN** a request names one axis and the enclosing default is the source language
-- **THEN** that axis takes the named language's stance and every other axis takes the source
-  language's
+- **GIVEN** a request naming one axis, with the source language as the enclosing default
+- **WHEN** the request is resolved
+- **THEN** that axis takes the named language's stance
+- **AND** every other axis takes the source language's
+- **BUT** naming the one axis has not reset the others
 
 #### Scenario: The two spellings agree
 
-- **WHEN** a bare language name and a per-axis selection naming that language for every axis are
-  each resolved against the same pair
+- **GIVEN** a bare language name and a per-axis selection naming that language for every axis
+- **WHEN** each is resolved against the same pair
 - **THEN** the two resolved behaviors are identical
 
 #### Scenario: A resolved behavior is total
 
-- **WHEN** a behavior is resolved
-- **THEN** every axis has exactly one stance, and no axis is left to be decided later
+- **GIVEN** any behavior request
+- **WHEN** it is resolved
+- **THEN** every axis has exactly one stance
+- **AND** no axis is left to be decided later
 
 ### Requirement: Only the two languages in the compilation may be named
 
@@ -100,26 +123,34 @@ mistakes and the second is the one a user is likely to make.
 
 #### Scenario: An unknown language is rejected
 
-- **WHEN** a behavior names a language compylr has no frontend or backend for
-- **THEN** the request is rejected, and the message says it is not a language compylr knows and
-  names the two that would have been accepted
+- **GIVEN** a behavior request naming a language compylr has no frontend or backend for
+- **WHEN** the request is resolved
+- **THEN** it is rejected
+- **AND** the message says the name is not a language compylr knows
+- **AND** it names the two languages that would have been accepted
 
 #### Scenario: A known but absent language is rejected distinctly
 
-- **WHEN** a behavior in a Python-to-Rust compilation names a language compylr has registered or
-  reserved but which is neither Python nor Rust
-- **THEN** the request is rejected with a message distinguishing it from an unknown name, and
-  naming the two languages of this compilation
+- **GIVEN** a Python-to-Rust compilation whose request names a registered or reserved language
+  that is neither Python nor Rust
+- **WHEN** the request is resolved
+- **THEN** it is rejected
+- **AND** the message distinguishes this from an unknown name
+- **AND** it names the two languages of this compilation
 
 #### Scenario: An unknown axis is rejected
 
-- **WHEN** a per-axis selection names an axis that does not exist
-- **THEN** the request is rejected and the message lists the axes that do
+- **GIVEN** a per-axis selection naming an axis that does not exist
+- **WHEN** the request is resolved
+- **THEN** it is rejected
+- **AND** the message lists the axes that do exist
 
 #### Scenario: Rejection precedes compilation
 
-- **WHEN** a behavior request is invalid
-- **THEN** it is rejected before any source is lowered and before any target source exists
+- **GIVEN** an invalid behavior request
+- **WHEN** the compilation is attempted
+- **THEN** it is rejected before any source is lowered
+- **AND** before any target source exists
 
 ### Requirement: The source language is the default
 
@@ -129,12 +160,14 @@ behavior existed.
 
 #### Scenario: No request means the source language
 
-- **WHEN** a compilation is run with no behavior request
+- **GIVEN** a compilation with no behavior request
+- **WHEN** the behavior is resolved
 - **THEN** every axis resolves to the source language's stance
 
 #### Scenario: The default is not the target's
 
-- **WHEN** the source and target disagree on an axis and no behavior is requested
+- **GIVEN** a source and target that disagree on an axis, and no behavior request
+- **WHEN** the program runs
 - **THEN** the source language's meaning is what the generated code produces
 
 ### Requirement: A resolved behavior determines what the program requires preserved
@@ -149,17 +182,19 @@ another written in the same language.
 
 #### Scenario: Requirements shrink with behavior
 
-- **WHEN** every arithmetic axis resolves to a stance under which overflow is undefined by the
-  program
-- **THEN** the program does not require that integer overflow be reported
+- **GIVEN** a program whose every arithmetic axis resolves to a stance leaving overflow undefined
+- **WHEN** the guarantees it requires are computed
+- **THEN** it does not require that integer overflow be reported
 
 #### Scenario: Requirements are per program
 
-- **WHEN** two programs in the same source language resolve different behaviors
-- **THEN** they may require different guarantees, and a target option refused for one may be
-  permitted for the other
+- **GIVEN** two programs in the same source language resolving different behaviors
+- **WHEN** the guarantees each requires are computed
+- **THEN** they may differ
+- **AND** a target option refused for one may be permitted for the other
 
 #### Scenario: A default behavior requires what the language requires
 
-- **WHEN** a program resolves the source language's stance on every axis
-- **THEN** it requires exactly the guarantees that source language requires
+- **GIVEN** a program resolving the source language's stance on every axis
+- **WHEN** the guarantees it requires are computed
+- **THEN** they are exactly the guarantees that source language requires

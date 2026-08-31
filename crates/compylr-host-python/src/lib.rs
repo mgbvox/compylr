@@ -1,9 +1,10 @@
 //! `compylr._core`: the compiler, exposed to Python.
 //!
-//! One of what will be several host bindings, and the only one that exists. Everything Python
-//! knows about compylr arrives through this crate; everything below it is a language-neutral
-//! pipeline that has no idea a host exists. A TypeScript host would be a sibling crate of the
-//! same standing, and nothing here would have to move for it.
+//! One of two host bindings; `compylr-host-typescript` is the other, and it links napi-rs where
+//! this links PyO3. Everything Python knows about compylr arrives through this crate; everything
+//! below it is a language-neutral pipeline that has no idea a host exists. That claim used to be
+//! a design intention — the TypeScript host arriving without anything here moving is what turned
+//! it into an observation.
 //!
 //! This is the seam between the two languages. Above it, Python decides *what* to compile and
 //! *when*; below it, everything is the Rust pipeline. Compiling in-process rather than shelling

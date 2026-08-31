@@ -4,7 +4,14 @@
 [![Python](https://github.com/mgbvox/compylr/actions/workflows/python.yml/badge.svg)](https://github.com/mgbvox/compylr/actions/workflows/python.yml)
 [![Benchmark](https://github.com/mgbvox/compylr/actions/workflows/benchmark.yml/badge.svg)](https://github.com/mgbvox/compylr/actions/workflows/benchmark.yml)
 
-Transpiles a strict, fully annotated Python subset to Rust, and calls the result from Python.
+A polyglot transpiler and compiler. It reads a strict, fully annotated subset of a source
+language into a language-neutral IR, emits a target language from it, and makes the result
+callable from where it came. Python to Rust and TypeScript to Go both work today.
+
+The shape is borrowed from two places. From **py2many**, the idea that an annotated subset of a
+dynamic language is mechanically translatable into a static one. From **LLVM**, the idea that
+frontends and backends should meet at an IR neither of them owns, so that adding a language costs
+one component rather than one per pair.
 
 ```python
 import compylr
@@ -35,32 +42,46 @@ of the source text, so comments and reformatting cost nothing.
 
 ## Status
 
-The pipeline is complete end to end for the supported subset.
+The pipeline is complete end to end for the supported subset, along two language pairs.
 
 ```
-source text ──frontend──> tree ──lower──> IR ──verify──> passes ──backend──> Rust ──bridge──> extension
-     ✓                      ✓          ✓        ✓          ✓          ✓                ✓
+source text ──frontend──> tree ──lower──> IR ──verify──> passes ──backend──> target source ──bridge──> extension
+     ✓                      ✓          ✓        ✓          ✓          ✓                        ✓
 ```
 
 Each stage is a separate crate, and each end of the pipeline is a *named component* rather than
 the only implementation present:
 
-* a **frontend** turns source text into IR (`python`; `typescript`, `go`, and `cpp` reserved),
-* a **backend** turns IR into target source (`rust`; the same three reserved),
+* a **frontend** turns source text into IR — `python` and `typescript` today, `go` and `cpp`
+  reserved,
+* a **backend** turns IR into target source — `rust` and `go` today, `typescript` and `cpp`
+  reserved,
 * a **host bridge** makes the result callable, and belongs to the `(source, target)` **pair** —
-  `(python, rust)` today.
+  `(python, rust)` and `(typescript, go)` today.
 
-The third one is where compylr stops resembling LLVM. LLVM's frontends and backends compose
-N + M because it emits object code and never calls back into the source language. compylr's whole
-purpose is that the source language calls the result, and a calling convention is a negotiation
-between two runtimes — who owns the memory, how errors signal, how strings encode. Python→Rust is
-PyO3; Python→Go would be cgo and a C array someone has to free; nothing carries over. So bridges
-cost N × M, and the design's job is to keep that visible rather than pretend otherwise: a pair
-with a backend and no bridge is a specific answer — *compylr can generate Go, and cannot yet call
-it from Python* — not a missing method.
+The two lists are not the same list, and the difference is the point: `go` is an implemented
+backend and a reserved frontend, `typescript` the reverse. Being able to *write* a language says
+nothing about being able to *read* it, so the registries answer those questions separately.
 
-Both intermediates are written to disk on every build, so nothing between your Python and the
-compiled artifact is a black box:
+The third one is where compylr stops resembling LLVM. Frontends and backends are the part it
+borrows wholesale: they meet at an IR that names neither side, so they compose N + M, and adding
+Go as a target cost one backend rather than one per source language. Bridges do not work that way.
+LLVM never needs one, because it emits object code and never calls back into the source language.
+compylr's whole purpose is that the source language calls the result, and a calling convention is
+a negotiation between two runtimes — who owns the memory, how errors signal, how strings encode.
+Python→Rust is PyO3; TypeScript→Go is a Node-API addon over cgo; Python→Go would be cgo and a C
+array someone has to free. Nothing carries over. So bridges cost N × M, and the design's job is to
+keep that visible rather than pretend otherwise: a pair with a backend and no bridge is a specific
+answer — *compylr can generate Go, and cannot yet call it from Python* — not a missing method.
+
+This is also where it stops resembling py2many, which translates source to source directly. Going
+through an IR costs more up front and buys the thing a direct translator cannot have: one place
+where a program's meaning is written down, so that verification, optimization passes, and the
+comparison of two frontends' output all have something language-neutral to operate on.
+
+Both intermediates are written to disk on every build, so nothing between your source and the
+compiled artifact is a black box. The shape below is the `(python, rust)` pair; the file names
+follow the target language, and the IR is written the same way whichever pair produced it:
 
 ```
 .compylr/
@@ -72,8 +93,8 @@ compiled artifact is a black box:
   state.json              fingerprint of the last successful build
 ```
 
-The crate is split by concern so `generated.rs` opens on your code. It used to be one file, where
-a single one-line function produced 238 lines and the translation was lines 200–212.
+The generated crate is split by concern so `generated.rs` opens on your code. It used to be one
+file, where a single one-line function produced 238 lines and the translation was lines 200–212.
 
 | Capability | What it covers |
 | --- | --- |
@@ -182,8 +203,9 @@ three-clause `for`, which the TypeScript frontend does not accept, and `halve_un
 its own parameter, which Python allows and TypeScript refuses. The recorded table names them as
 missing coverage instead of hiding them.
 
-Not built yet: `llm_assist` (accepted as a setting, refused when enabled), and the TypeScript,
-Go, and C++ backends (reserved names that fail with a message saying so).
+Not built yet: `llm_assist` (accepted as a setting, refused when enabled), the `go` and `cpp`
+frontends, and the `typescript` and `cpp` backends. All four are reserved names that fail with a
+message saying they are planned, which is a different answer from an unknown name.
 
 ## Try it now
 
@@ -327,7 +349,10 @@ image that precompiles nothing has failed at what it was there for.
 
 ## Supported subset
 
-Functions at top level only, with mandatory parameter and return annotations.
+Functions at top level only, with mandatory parameter and return annotations. The subset is
+described here in Python, because Python is the frontend with the fuller corpus; the TypeScript
+frontend accepts the same IR-level forms where the language expresses them, and the divergence
+score above is how the two are held to that.
 
 | Python | IR type | Notes |
 | --- | --- | --- |
@@ -667,12 +692,15 @@ error: 2:12: operator '+' is not defined for 'bool' and 'bool'; booleans are not
 
 ## Layout
 
-A Cargo workspace, and the root is a workspace and nothing else — no language's crate sits above
-the others. Three of the nine name Python, and each is named for the *job* rather than for the
-project: a frontend that reads it, a bridge that makes generated Rust callable from it, and a host
-binding that exposes the compiler to it. A TypeScript host would be `compylr-host-typescript`
-beside them, with the same standing; what makes Python's three look privileged is only that they
-are the ones that exist.
+A Cargo workspace of thirteen crates, and the root is a workspace and nothing else — no language's
+crate sits above the others. A crate that names a language is named for the *job* it does for that
+language rather than for the project: a frontend that reads it, a backend that writes it, a bridge
+that makes generated code callable from it, and a host binding that exposes the compiler to it.
+
+Python and TypeScript each have their own set today, and they are not mirror images — Python is
+read and called back into, TypeScript is read and called back into, Rust and Go are written. That
+is what a language's support *is* here: not one switch, but a set of jobs, each of which some
+crate either does or does not do.
 
 The dependency edges are the enforcement mechanism, not a convention: a crate that does not depend
 on a Python parser cannot name a Python construct, and only a `compylr-host-*` crate may link a
@@ -721,9 +749,11 @@ generating crate does not itself depend on PyO3, because it emits PyO3 source as
 
 Three rules that are easy to break and expensive to discover later:
 
-**The IR names no target language.** Concrete spellings — `int` becoming `i64`, `str` becoming
-`String` — belong to a backend, never to the IR. Rust is the first backend, but Go, C++, and
-TypeScript backends should consume the same tree unchanged.
+**The IR names no target language.** Concrete spellings — `int` becoming `i64` for Rust and
+`int64` for Go, `str` becoming `String` or `string` — belong to a backend, never to the IR. This
+stopped being a claim and became a measurement when the Go backend landed: it consumes the same
+tree the Rust backend does, unchanged. The reserved `typescript` and `cpp` backends are expected
+to do the same.
 
 **Operations carry the semantics a resolved behavior declared, not a language's by default.**
 `BinOp::Div` carries exact or integer division, its rounding, and its checking mode; `BinOp::Rem`

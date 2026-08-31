@@ -23,20 +23,25 @@ agreement that does not exist.
 
 #### Scenario: Normalizing does not change the compiled program
 
-- **WHEN** a unit is normalized for comparison
-- **THEN** the unit that reaches the backend is unchanged, and its fingerprint is unchanged
+- **GIVEN** a unit that is about to be compared with another
+- **WHEN** it is normalized for comparison
+- **THEN** the unit that reaches the backend is unchanged
+- **AND** its fingerprint is unchanged
 
 #### Scenario: Independent orderings normalize together
 
-- **WHEN** two units differ only in the order of independent local bindings, or in the operand
-  order of a commutative operation over side-effect-free operands
+- **GIVEN** two units differing only in the order of independent local bindings, or in the operand
+  order of a commutative operation whose operands are free of side effects
+- **WHEN** both are normalized
 - **THEN** their normalized forms are identical
 
 #### Scenario: Reordering an effectful operand is refused
 
-- **WHEN** a commutative operation has an operand that calls a function
-- **THEN** normalization leaves that operation's operand order alone, and two units that differ in
-  it do not normalize together
+- **GIVEN** two units differing in the operand order of a commutative operation, where one operand
+  calls a function
+- **WHEN** both are normalized
+- **THEN** that operation's operand order is left alone
+- **AND** the two units do not normalize together
 
 ### Requirement: A frontend's IR does not depend on the backend
 
@@ -47,8 +52,10 @@ is a defect and not a score.
 
 #### Scenario: The same source lowered for two targets
 
-- **WHEN** one source file is lowered by one frontend for two different backends
-- **THEN** the two units are identical, and the suite fails naming the differing node otherwise
+- **GIVEN** one source file and one frontend
+- **WHEN** it is lowered for two different backends
+- **THEN** the two units are identical
+- **BUT** if they differ, the suite fails naming the differing node rather than recording a score
 
 ### Requirement: Divergence ignores what the IR is required to preserve
 
@@ -66,19 +73,22 @@ in different languages.
 
 #### Scenario: Modes differ, structure does not
 
-- **WHEN** two units have identical structure and differ only in the checking or rounding modes
-  their operations resolved to
+- **GIVEN** two units with identical structure whose operations resolved to different checking or
+  rounding modes
+- **WHEN** their divergence is measured
 - **THEN** `D` is 0
 
 #### Scenario: Spans and documentation differ
 
-- **WHEN** two units are structurally identical but carry different spans and different docstrings
+- **GIVEN** two structurally identical units carrying different spans and different docstrings
+- **WHEN** their divergence is measured
 - **THEN** `D` is 0
 
 #### Scenario: Structure differs
 
-- **WHEN** two units express the same computation through different structures, such as one
-  looping with a cursor where the other iterates a sequence
+- **GIVEN** two units expressing the same computation through different structures, one looping
+  with a cursor where the other iterates a sequence
+- **WHEN** their divergence is measured
 - **THEN** `D` is greater than 0
 
 ### Requirement: Divergence is reported with its location
@@ -89,8 +99,10 @@ is to be acted on.
 
 #### Scenario: A nonzero score is explained
 
-- **WHEN** two units score `D > 0`
-- **THEN** the report names each member that contributed and what differed within it
+- **GIVEN** two units scoring `D` greater than 0
+- **WHEN** the comparison is reported
+- **THEN** the report names each member that contributed
+- **AND** it names what differed within each
 
 ### Requirement: Cross-language divergence is recorded and may not increase
 
@@ -115,25 +127,33 @@ not an improvement.
 
 #### Scenario: A pair is measured
 
-- **WHEN** a member name appears in the accepted corpus of two frontends
-- **THEN** the pair's divergence is measured and appears in the recorded table
+- **GIVEN** a member name appearing in the accepted corpus of two frontends
+- **WHEN** the corpora are compared
+- **THEN** the pair's divergence is measured
+- **AND** it appears in the recorded table
 
 #### Scenario: A member only one corpus defines
 
-- **WHEN** a member appears in one frontend's accepted corpus and not the other's
-- **THEN** it is recorded by name as missing coverage, and contributes nothing to the score
+- **GIVEN** a member appearing in one frontend's accepted corpus and not the other's
+- **WHEN** the corpora are compared
+- **THEN** it is recorded by name as missing coverage
+- **BUT** it contributes nothing to the score
 
 #### Scenario: Divergence increases
 
-- **WHEN** a change raises the divergence of any recorded pair above its recorded score
-- **THEN** the check fails, naming the pair and both scores
+- **GIVEN** a change that raises the divergence of a recorded pair above its recorded score
+- **WHEN** the check runs
+- **THEN** it fails
+- **AND** it names the pair and both scores
 
 #### Scenario: Divergence decreases
 
-- **WHEN** a change lowers a pair's divergence and the recorded table is regenerated
-- **THEN** the check passes against the new table
+- **GIVEN** a change that lowers a pair's divergence, with the recorded table regenerated
+- **WHEN** the check runs
+- **THEN** it passes against the new table
 
 #### Scenario: The recorded table drifts
 
-- **WHEN** the recorded table is edited by hand to a value a run does not produce
-- **THEN** the check fails
+- **GIVEN** a recorded table edited by hand to a value no run produces
+- **WHEN** the check runs
+- **THEN** it fails

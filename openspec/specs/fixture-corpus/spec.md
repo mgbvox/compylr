@@ -5,6 +5,10 @@ that every accepted program answers what CPython answers, that a refused constru
 compiling silently, and that what the documentation claims about the accepted subset is counted from
 the corpus rather than remembered beside it.
 
+A corpus belongs to a frontend. The requirements below are stated over the Python corpus, whose
+oracle is CPython; a second frontend's corpus is paired with it by member name and measured for
+divergence, which is the `ir-diff-checker` capability rather than this one.
+
 ## Requirements
 
 ### Requirement: Every accepted fixture is driven
@@ -30,22 +34,27 @@ inputs enumerated by other checks, and a driver sitting among them would join th
 
 #### Scenario: Every accepted fixture has a driver
 
-- **WHEN** the accepted corpus is enumerated
-- **THEN** each fixture has exactly one driver, and the suite fails naming any fixture without one
+- **GIVEN** the accepted corpus
+- **WHEN** it is enumerated
+- **THEN** each fixture has exactly one driver
+- **AND** the suite fails naming any fixture without one
 
 #### Scenario: A driver reaches every member
 
-- **WHEN** a driver runs against its fixture
+- **GIVEN** a fixture and its driver
+- **WHEN** the driver runs against the fixture
 - **THEN** every function and class the fixture defines has been called
 
 #### Scenario: A driver produces output
 
-- **WHEN** a driver runs under CPython
+- **GIVEN** a driver and its fixture
+- **WHEN** the driver runs under CPython
 - **THEN** it writes at least one line to standard output
 
 #### Scenario: Drivers do not join the fixture enumerations
 
-- **WHEN** the checks that derive their work from the accepted-fixture directory enumerate it
+- **GIVEN** the checks that derive their work from the accepted-fixture directory
+- **WHEN** they enumerate it
 - **THEN** no driver appears among the fixtures they find
 
 ### Requirement: CPython is the oracle for every accepted fixture
@@ -62,18 +71,23 @@ A disagreement SHALL fail, reporting the fixture, both transcripts, and their di
 
 #### Scenario: Translated and interpreted transcripts agree
 
-- **WHEN** a fixture's driver is run interpreted and translated
+- **GIVEN** an accepted fixture and its driver
+- **WHEN** the driver is run both interpreted and translated
 - **THEN** the two transcripts are identical
 
 #### Scenario: A disagreement is reported in full
 
-- **WHEN** the two transcripts differ
-- **THEN** the check fails naming the fixture and showing both transcripts and their difference
+- **GIVEN** an accepted fixture whose two transcripts differ
+- **WHEN** the check runs
+- **THEN** it fails naming the fixture
+- **AND** it shows both transcripts and their difference
 
 #### Scenario: The oracle does not consult the compiler
 
+- **GIVEN** a process with compilation disabled
 - **WHEN** the interpreted transcript is produced
-- **THEN** it is produced by CPython running the fixture's own source, with compilation disabled
+- **THEN** CPython has run the fixture's own source
+- **BUT** nothing about the transcript depended on the compiler being correct
 
 ### Requirement: Agreement is checked at both the translation and the call boundary
 
@@ -91,18 +105,22 @@ Neither tier SHALL be treated as standing in for the other.
 
 #### Scenario: The translation tier covers the corpus
 
+- **GIVEN** the accepted corpus
 - **WHEN** the ordinary test suite runs
-- **THEN** every accepted fixture has been checked for agreement through generated target source
+- **THEN** every fixture has been checked for agreement through generated target source
 
 #### Scenario: The boundary tier covers the corpus
 
+- **GIVEN** the accepted corpus
 - **WHEN** the full check runs
-- **THEN** every accepted fixture has been checked for agreement through the host bridge
+- **THEN** every fixture has been checked for agreement through the host bridge
 
 #### Scenario: A conversion defect is caught where a translation defect is not
 
-- **WHEN** a value is translated correctly but converted incorrectly at the host boundary
-- **THEN** the boundary tier fails and the translation tier passes
+- **GIVEN** a value that is translated correctly but converted incorrectly at the host boundary
+- **WHEN** both tiers run
+- **THEN** the boundary tier fails
+- **BUT** the translation tier passes
 
 ### Requirement: Failing to build or run is a failure, not an omission
 
@@ -117,18 +135,23 @@ compile is distinguished from output fit to ship.
 
 #### Scenario: Output that no longer builds fails
 
-- **WHEN** a fixture's generated source stops building
-- **THEN** the suite fails, and does not skip
+- **GIVEN** a fixture whose generated source no longer builds
+- **WHEN** the suite runs
+- **THEN** it fails
+- **BUT** it does not skip
 
 #### Scenario: A missing toolchain skips and says so
 
-- **WHEN** a tool the tier requires is not installed
-- **THEN** that tier skips, naming the missing tool
+- **GIVEN** a machine without a tool a tier requires
+- **WHEN** that tier runs
+- **THEN** it skips
+- **AND** the skip names the missing tool
 
 #### Scenario: A warning is a failure
 
-- **WHEN** generated source builds but emits a warning
-- **THEN** the build is treated as failed
+- **GIVEN** generated source that builds but emits a warning
+- **WHEN** the build is evaluated
+- **THEN** it is treated as failed
 
 ### Requirement: A refused construct cannot start compiling silently
 
@@ -141,14 +164,18 @@ into the accepted corpus and giving it a driver, not by editing an allowance.
 
 #### Scenario: A rejected program that starts lowering fails
 
-- **WHEN** a program in the rejected corpus lowers successfully
-- **THEN** the suite fails, naming the program and the rejection it was recording
+- **GIVEN** a program in the rejected corpus
+- **WHEN** it lowers successfully
+- **THEN** the suite fails
+- **AND** it names the program and the rejection it was recording
 
 #### Scenario: Clearing the failure moves the program
 
-- **WHEN** a construct becomes supported
-- **THEN** its program moves into the accepted corpus with a driver, and the rejected corpus no
-  longer lists it
+- **GIVEN** a construct that has become supported
+- **WHEN** the failure is cleared
+- **THEN** its program has moved into the accepted corpus with a driver
+- **AND** the rejected corpus no longer lists it
+- **BUT** no allowance has been added to the check
 
 ### Requirement: The frontend produces a located diagnostic for arbitrary Python
 
@@ -163,18 +190,21 @@ the accepted subset is a measured quantity rather than an impression.
 
 #### Scenario: No input panics
 
-- **WHEN** the frontend is run over the corpus
+- **GIVEN** a corpus of ordinary Python not written for this compiler
+- **WHEN** the frontend is run over it
 - **THEN** no program causes a panic
 
 #### Scenario: Every rejection is located
 
-- **WHEN** the frontend rejects a program in the corpus
-- **THEN** the diagnostic carries a source position
+- **GIVEN** a program in that corpus that the frontend rejects
+- **WHEN** the diagnostic is read
+- **THEN** it carries a source position
 
 #### Scenario: Acceptance is reported as a number
 
-- **WHEN** the check completes
-- **THEN** it reports how many of the corpus's top-level members lowered, out of how many
+- **GIVEN** a completed run over that corpus
+- **WHEN** the check reports
+- **THEN** it says how many of the corpus's top-level members lowered, out of how many
 
 ### Requirement: The documented subset is generated from the corpus
 
@@ -190,15 +220,20 @@ because a fixture exercising it translated, built, ran, and agreed with CPython.
 
 #### Scenario: Regeneration is idempotent
 
-- **WHEN** the subset description is regenerated twice
+- **GIVEN** a published subset description
+- **WHEN** it is regenerated twice
 - **THEN** the second regeneration changes nothing
 
 #### Scenario: Drift fails the check
 
-- **WHEN** the published subset description differs from what regeneration would produce
-- **THEN** the verification mode fails, naming what differs
+- **GIVEN** a published subset description differing from what regeneration would produce
+- **WHEN** the verification mode runs
+- **THEN** it fails
+- **AND** it names what differs
 
 #### Scenario: A claim rests on a passing fixture
 
-- **WHEN** the subset description reports a construct as accepted
-- **THEN** a fixture exercising that construct exists and agrees with CPython
+- **GIVEN** a subset description reporting a construct as accepted
+- **WHEN** the claim is traced
+- **THEN** a fixture exercising that construct exists
+- **AND** it agrees with CPython

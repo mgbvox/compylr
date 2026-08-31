@@ -4,7 +4,12 @@ A complete uv project you could copy, not a snippet. Sixty-eight functions and c
 compile to Rust through compylr, every one of them checked against an interpreted oracle, and all
 of them built into **one** extension.
 
+Its sibling [`../demo-ts-go/`](../demo-ts-go/) carries the same algorithms through the other
+working pair, TypeScript to Go. Running the same work down two pipelines is how compylr's claim
+about a language-neutral IR is put where it can be checked.
+
 ```bash
+cd demo/demo-python-rust
 uv sync
 uv run compylr compyle src      # compile ahead of time; otherwise the first call pays for it
 uv run python -m algorithms     # run everything, then print what the build exercised

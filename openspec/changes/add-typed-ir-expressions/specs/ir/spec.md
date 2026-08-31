@@ -14,28 +14,33 @@ condition this requirement removes.
 
 #### Scenario: A type is readable from any expression
 
-- **WHEN** any expression in a lowered unit is inspected
+- **GIVEN** any expression in a lowered unit
+- **WHEN** it is inspected
 - **THEN** its type is readable from the expression, without consulting the statement or function
   that contains it
 
 #### Scenario: The type is an IR type
 
-- **WHEN** an expression's type is inspected
+- **GIVEN** an expression's type
+- **WHEN** it is inspected
 - **THEN** it is one of the IR's own types, carrying no source-language or target-language spelling
 
 #### Scenario: A nested expression carries its own type
 
-- **WHEN** a subscript of a mapping from strings to sequences of integers is inspected
+- **GIVEN** a subscript of a mapping from strings to sequences of integers
+- **WHEN** it is inspected
 - **THEN** the subscript carries the sequence type and the mapping it reads carries the mapping type
 
 #### Scenario: A comparison carries the boolean it produces
 
-- **WHEN** a comparison between two integers is inspected
+- **GIVEN** a comparison between two integers
+- **WHEN** it is inspected
 - **THEN** its type is boolean, not the type of its operands
 
 #### Scenario: A form and a type cannot disagree
 
-- **WHEN** an expression is constructed
+- **GIVEN** an expression being built
+- **WHEN** it is constructed
 - **THEN** its type is supplied with its form, and the two cannot be set independently
 
 ## MODIFIED Requirements
@@ -51,34 +56,39 @@ formatting, comments, or the order in which functions were added to the unit.
 
 #### Scenario: Identical functions fingerprint identically
 
-- **WHEN** the same function is lowered from two sources that differ only in comments,
-  blank lines, and indentation width
+- **GIVEN** two sources differing only in comments, formatting, and layout
+- **WHEN** both are lowered and fingerprinted
 - **THEN** both IR functions produce the same fingerprint
 
 #### Scenario: Changed body changes the fingerprint
 
-- **WHEN** a function's body is edited so it computes something different
+- **GIVEN** a function edited so it computes something different
+- **WHEN** it is fingerprinted
 - **THEN** its fingerprint differs from the fingerprint before the edit
 
 #### Scenario: Changed signature changes the fingerprint
 
-- **WHEN** a function's parameter type or return type is changed
+- **GIVEN** a function whose parameter type or return type has changed
+- **WHEN** it is fingerprinted
 - **THEN** its fingerprint differs from the fingerprint before the change
 
 #### Scenario: Adding a function changes the unit fingerprint
 
-- **WHEN** a fourth function is added to a unit containing three
+- **GIVEN** a unit containing three functions
+- **WHEN** a fourth is added
 - **THEN** the unit fingerprint differs from its previous value
 - **AND** the fingerprints of the three original functions are unchanged
 
 #### Scenario: Unit fingerprint ignores addition order
 
-- **WHEN** the same set of functions is assembled into two units in different orders
+- **GIVEN** the same set of functions
+- **WHEN** they are assembled into two units in different orders
 - **THEN** both units produce the same fingerprint
 
 #### Scenario: A body differing only in an expression's type fingerprints differently
 
-- **WHEN** two bodies have identical expression forms and one expression differs in its type
+- **GIVEN** two bodies with identical expression forms, one expression differing in its type
+- **WHEN** both are fingerprinted
 - **THEN** their fingerprints differ
 
 ### Requirement: A unit serializes to a durable artifact
@@ -100,44 +110,51 @@ rather than trusted.
 
 #### Scenario: A unit is written and read back
 
-- **WHEN** a unit is serialized and then deserialized
+- **GIVEN** a unit
+- **WHEN** it is serialized and then deserialized
 - **THEN** the result compares structurally equal to the original
 
 #### Scenario: The artifact describes every construct
 
-- **WHEN** a unit containing every supported type, statement form, and expression form is
-  serialized
+- **GIVEN** a unit containing every supported type, statement form, and expression form
+- **WHEN** it is round-tripped
 - **THEN** each construct is represented in the artifact and survives a round trip
 
 #### Scenario: Fingerprint survives a round trip
 
-- **WHEN** a unit is serialized, deserialized, and its fingerprint recomputed
+- **GIVEN** a unit
+- **WHEN** it is serialized, deserialized, and its fingerprint recomputed
 - **THEN** the fingerprint equals that of the original unit
 
 #### Scenario: Float literals survive exactly
 
-- **WHEN** a unit containing float literals, including negative zero, is round-tripped
+- **GIVEN** a unit containing float literals, including negative zero
+- **WHEN** it is round-tripped
 - **THEN** each literal is bit-for-bit identical to the original, consistent with the IR's rule
   that float literals compare by bit pattern
 
 #### Scenario: The artifact carries no target-language information
 
-- **WHEN** an artifact is inspected
+- **GIVEN** an artifact written from a unit
+- **WHEN** it is inspected
 - **THEN** it names IR types and operators only, containing no Rust or other target spellings
 
 #### Scenario: An artifact written before checking modes is refused
 
-- **WHEN** an artifact written under the previous format version is read
+- **GIVEN** an artifact written under the previous format version
+- **WHEN** it is read
 - **THEN** it is refused with a message naming the version found and the version expected, rather
   than being read as though every operation reported its failures
 
 #### Scenario: Every expression's type survives a round trip
 
-- **WHEN** a unit is serialized and read back
+- **GIVEN** a unit whose expressions carry types
+- **WHEN** it is serialized and read back
 - **THEN** every expression carries the same type it carried before
 
 #### Scenario: An artifact written before every expression carried a type is refused
 
-- **WHEN** an artifact written under the format version that predates typed expressions is read
+- **GIVEN** an artifact written under the format version predating typed expressions
+- **WHEN** it is read
 - **THEN** it is refused with a message naming the version found and the version expected, rather
   than being read as though every expression's type could be inferred after the fact
