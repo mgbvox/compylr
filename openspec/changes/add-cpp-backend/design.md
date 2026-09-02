@@ -3,9 +3,9 @@
 See [`proposal.md`](proposal.md) — Why. The facts that shape the approach:
 
 * [`bridge.rs`](../../../crates/compylr-core/src/bridge.rs#L18) records the canonical-C-ABI hub as
-  deferred rather than foreclosed. It stays deferred: **Node cannot consume a C ABI with anything it
-  ships** — there is no core FFI module, and `process.dlopen` loads only Node-API addons, requiring
-  `napi_register_module_v1` rather than arbitrary C symbols. That single fact is what settles D3.
+  deferred rather than foreclosed. It stays deferred — but **not** because Node cannot consume a C
+  ABI. It can, as of `node:ffi` in Node v26.1.0. D3 records why an experimental, flag-gated, self-
+  described-unsafe module that postdates this project's own Node is still the wrong foundation.
 * [`bridges`](../../../crates/compylr-registry/src/bridges.rs#L22) keys by pair and holds
   `&'static dyn HostBridge`. Two more entries join it; nothing about resolution changes.
 * [`conformance.rs`](../../../crates/compylr-host-python/tests/conformance.rs#L971) enumerates
@@ -79,6 +79,19 @@ every one of them available well before C++26. The rule is written down in the b
 so a later contributor does not reach for a half-implemented library feature and make the backend
 unbuildable in practice.
 
+Verified against the compilers' own status pages rather than recollection:
+
+| | accepts the mode | contracts | reflection |
+| --- | --- | --- | --- |
+| GCC | **14** (`-std=c++26`, "experimental support") | GCC **16** | GCC 16, `-freflection`, incomplete |
+| Clang | spells it **`-std=c++2c`**, support "Partial" | **No** | **No** (P2996, P3394, P3293, P3491, P3096, P3598 all unimplemented) |
+
+Two corrections to an earlier draft fall out. The floor is GCC **14**, not 15. And Clang has neither
+contracts nor reflection at any version — so a feature set that reached for C++26's headline
+additions would be unbuildable on Clang entirely, which is exactly what confining the emitted set
+avoids. Emit `CMAKE_CXX_STANDARD 26` and let CMake pick each compiler's spelling; never hard-code
+`-std=c++26`, which is not what Clang documents.
+
 **Why:** the standard requested and the features used are separable, and separating them is what
 makes "latest standard" a real answer rather than a bet. `CMAKE_CXX_STANDARD_REQUIRED ON` means a
 compiler that cannot give C++26 fails at configure time with a message about the standard, which is
@@ -138,15 +151,26 @@ impl HostBridge for PythonCppBridge {
 }
 ```
 
-**Why.** An earlier draft of this decision proposed a shared `compylr-bridge-cpp-abi` crate emitting
-one `extern "C"` surface, with thin per-frontend loaders, on the theory that C++ is where the
-canonical-C-ABI hub [`bridge.rs`](../../../crates/compylr-core/src/bridge.rs#L18) defers could
-finally be cashed in. **The premise was wrong, on a checkable fact: Node cannot consume a C ABI with
-anything it ships.** There is no core FFI module, and `process.dlopen` loads only Node-API addons —
-it requires the object to export `napi_register_module_v1` and cannot call arbitrary C symbols. So
-the Node side needs a Node-API addon regardless, and a C-ABI hub would mean writing that addon
-*anyway*, plus an extra indirection, plus a hand-rolled marshalling layer that `Napi::` already
-provides.
+**Why.** An earlier draft proposed a shared `compylr-bridge-cpp-abi` crate emitting one
+`extern "C"` surface with thin per-frontend loaders, cashing in the canonical-C-ABI hub
+[`bridge.rs`](../../../crates/compylr-core/src/bridge.rs#L18) defers. That draft justified itself on
+the claim that *Node cannot consume a C ABI with anything it ships*. **That claim is now false and
+the correction is worth recording, because the conclusion survives it for different reasons.**
+
+Node **does** have a built-in FFI: [`node:ffi`](https://nodejs.org/api/ffi.html), added in
+**v26.1.0**, with `dlopen(path, definitions)` that resolves symbols out of a plain C library without
+any addon. So a C-ABI hub is no longer impossible on the Node side. It is still the wrong choice:
+
+* It is **experimental** (Stability 1) and requires `--experimental-ffi` plus FFI support compiled
+  into the Node build. A compiler whose generated code only runs behind a flag is not shipping.
+* Its own documentation calls it **unsafe**: "incorrect pointer usage, wrong signatures, or
+  accessing freed memory can crash the process or corrupt memory." Node-API is ABI-stable across
+  major versions by contract; `node:ffi` offers no such guarantee.
+* **v26.1.0 is newer than the ground.** This project's own environment runs Node v24.11.0, where
+  the module does not exist at all.
+* And the argument that actually decides it: once Python->C++ goes through nanobind, "one mechanism
+  everywhere" is already gone. A hub would buy `node:ffi` + nanobind — still two mechanisms, one of
+  them experimental — rather than node-addon-api + nanobind, which are both first-class.
 
 Once Python->C++ goes through nanobind, the hub's only remaining benefit — one mechanism everywhere
 — is gone. The inversion is the interesting part: **C++ is the target that needs a hub least**,
