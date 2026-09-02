@@ -9,18 +9,19 @@ costs N × M. It also records the escape hatch, and defers it:
 > be implemented *behind* it later, collapsing N × M back to N + M at the cost of a marshalling
 > layer. That trade is deferred, not foreclosed.
 
-**The deferral stays deferred, and C++ is what shows why.** An earlier draft of this proposal
-argued the opposite — that C++ is where the hub could finally be cashed in, because its idiomatic
-export surface already is a C ABI and both hosts could consume one with what they ship. The second
-half is false: **Node has no core FFI**, and `process.dlopen` loads only Node-API addons, requiring
-`napi_register_module_v1` rather than arbitrary C symbols. A hub would mean writing a Node-API addon
-anyway, behind an extra indirection, with hand-rolled marshalling that `Napi::` already provides.
+**The deferral stays deferred, and C++ is what shows why.** An earlier draft argued the opposite —
+that C++ is where the hub could be cashed in, because both hosts could consume a C ABI with what they
+ship. That draft's stated reason was that *Node has no core FFI*. **That reason is false**: `node:ffi`
+exists as of Node **v26.1.0**. It is still not a foundation to build on — experimental, gated behind
+`--experimental-ffi`, self-described unsafe, carrying no ABI guarantee, and newer than this repo's own
+Node v24.11.0 — but the decision does not rest on it.
 
-The inversion is the point: **C++ is the target that needs a hub least**, because both hosts'
-first-class binding libraries — nanobind and node-addon-api — are already C++ header libraries.
-Every other target reaches across a language gap to bind; C++ is the one where the host's own
-tooling meets you where you are. So this change adds a third backend and two ordinary pairwise
-bridges, and the N x M cost is paid, visibly, as `bridge.rs` always said it would be.
+What the decision rests on is simpler and does not expire: **both hosts' first-class binding libraries
+are already C++ header libraries.** nanobind and node-addon-api are `#include`-and-go, ABI-stable
+(node-addon-api across Node majors by contract), and each already solves instance identity —
+`nb::class_` and `Napi::ObjectWrap` — which is the hardest thing to hand-roll over a C ABI. So **C++ is
+the target that needs a hub least**: every other target reaches across a language gap to bind, and C++
+is the one where the host's own tooling meets you where you are.
 
 The backend itself is the second *statically compiled* target and the first with move semantics,
 RAII, and no garbage collector — which is a real test of the IR's neutrality. It is a weaker test
@@ -135,7 +136,11 @@ running_totals(std::vector<int64_t> values, int64_t divisor) {
     std::vector<int64_t> totals{};
     int64_t running = 0;
     for (int64_t i = 0; i < static_cast<int64_t>(values.size()); ++i) {
-        running = running + values[static_cast<size_t>(i)];
+        auto __e = compylr::subscript(values, i, IndexOrigin::FromEitherEnd);
+        if (!__e) return std::unexpected(__e.error());
+        auto __s = compylr::add_checked(running, *__e);
+        if (!__s) return std::unexpected(__s.error());
+        running = *__s;
         auto __d = compylr::floor_div_checked(running, divisor);
         if (!__d) return std::unexpected(__d.error());
         totals.push_back(*__d);
@@ -144,7 +149,15 @@ running_totals(std::vector<int64_t> values, int64_t divisor) {
 }
 ```
 
-`floor_div_checked` because the node resolved `Rounding::TowardNegInf` with `Checked::Reported`,
+**All three operations go through helpers, and that is the point.** Under Python's default stance
+(`compylr-frontend-python/src/component.rs`) `integer_overflow` is `Checked::Reported` and
+`sequence_index` is `{ FromEitherEnd, Reported }` — so the addition must report overflow and the
+subscript must resolve a negative offset and report out of range. Only `//` being checked would be
+wrong. This is verbose because the stance is Python's; under `behavior="cpp"` the same program emits
+`running + values[i]` and a bare `/`, and the difference between those two listings is exactly what
+the six axes carry.
+
+`floor_div_checked` because that node resolved `Rounding::TowardNegInf` with `Checked::Reported`,
 which is Python's stance and not C++'s. Under `behavior="cpp"` the same node resolves
 `Rounding::TowardZero` / `Checked::Unchecked` and the backend emits `running / divisor` — the
 difference the six axes exist to carry.
@@ -209,7 +222,7 @@ expected:
 ## Impact
 
 - **New crates**: `compylr-backend-cpp`, `compylr-bridge-python-cpp`,
-  `compylr-bridge-typescript-cpp` — taking the workspace from 13 to 16.
+  `compylr-bridge-typescript-cpp` — taking the workspace from 13 to 16 (verified).
 - **New build dependencies for generated trees**: nanobind (Python side) and node-addon-api +
   cmake-js (Node side), each fetched by its own host's package manager.
 - **Modified crates**: [`backends`](../../../crates/compylr-registry/src/backends.rs#L23) and
@@ -224,10 +237,12 @@ expected:
 - **Modified host packages**: [`_build.py`](../../../frontends/python/compylr/_build.py#L161)
   learns a second toolchain preflight — a C++26 compiler and CMake, where the Rust path checks
   `cargo` and `maturin` — and a second build driver.
-- **New directories**: `demo/demo-python-cpp/`, `demo/demo-ts-cpp/`, and
-  `frontends/cpp/` for the C++ side of the corpus.
-- **Toolchain**: building generated C++ needs a C++26 compiler (GCC 15+ or Clang 20+) and CMake at
-  runtime. Support for C++26 is **partial and uneven** across both, so the demos and the
+- **New directories**: `demo/demo-python-cpp/`, `demo/demo-ts-cpp/`. **No `frontends/cpp/`** — C++
+  stays a reserved *frontend* per this change's Non-Goals, so there is no C++ source corpus..
+- **Toolchain**: the manifest *requests* C++26; no emitted feature *requires* it. The real floor is
+  the C++23 feature set — `std::expected` and the two-argument `__builtin_*_overflow` family — which
+  means **GCC 13+, Clang 16+ / AppleClang 15+**, plus CMake 3.28+. Measured, not assumed: the whole
+  emitted set builds under `-std=c++23`. Support for C++26 is **partial and uneven** across both, so the demos and the
   differential tier are feature-gated on a working compiler rather than assumed — see
   [`design.md`](design.md) D1 for exactly which features are relied on and what happens when one is
   missing.

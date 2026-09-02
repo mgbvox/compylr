@@ -15,6 +15,17 @@ pipeline is actually neutral.
 The set of demos SHALL be derived from the bridge registry rather than from a list a test
 maintains, so that a bridge registered without a demo fails visibly.
 
+A requirement of this kind SHALL take effect for a `(source, target)` pair once that pair's
+confirmed defects are closed. `(typescript, go)` SHALL be enumerated as a **known-failing pair**,
+each entry naming its filed issue (#38, #39, #41), until those close. The list of known-failing
+pairs SHALL only shrink: adding to it SHALL require a filed issue, and a pair SHALL NOT be added to
+silence a defect introduced after this change.
+
+Without that scoping the requirement would fail on the day it lands — not because it is wrong, but
+because it correctly describes a pair that is already broken, and this change is not where that pair
+gets fixed.
+
+
 #### Scenario: Each registered pair has a demo
 
 - **GIVEN** the bridge registry

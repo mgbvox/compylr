@@ -11,8 +11,11 @@ those axes, and which guarantees it preserves.
 
 The backend SHALL emit source valid under **C++26** and SHALL emit a build manifest that selects
 that standard, so that a reader of the generated tree can build it without being told which
-standard to ask for. The emitted manifest SHALL name the minimum compiler versions the generated
-source requires.
+standard to ask for.
+
+The manifest **requests** C++26 and **requires** C++23. No emitted feature requires C++26, so a
+compiler offering only C++23 SHALL build the tree; the manifest SHALL state that floor rather than
+gating on the requested standard. Gating on C++26 would refuse compilers that build the output.
 
 Support for C++26 is partial and uneven across shipping compilers. The backend SHALL therefore not
 rely on a language or library feature whose absence would produce a compile error a user cannot
@@ -25,6 +28,7 @@ compiler versions that provide it.
 - **WHEN** the unit is emitted for the `cpp` backend
 - **THEN** the emitted files include a build manifest
 - **AND** that manifest selects the C++26 standard
+- **AND** it states a required feature floor of C++23, so a C++23-only compiler still builds it
 
 #### Scenario: An unsupported compiler is named, not merely failed against
 
@@ -76,8 +80,11 @@ returned as a value rather than thrown. A generated function whose body contains
 SHALL return `std::expected<T, compylr::Error>`, and a failure SHALL propagate out of the function
 rather than being discarded.
 
-No generated function SHALL let an exception escape across the boundary a host bridge exports,
-because the calling runtime has no way to observe one.
+No **compylr-defined** failure SHALL be signalled by throwing. Separately, each exported entry point
+SHALL terminate or translate any exception originating below it, so none reaches the host runtime.
+The two are stated separately because the second cannot be absolute in the first's terms: `push_back`,
+`std::string`, and mapping insertion can each throw `std::bad_alloc` from inside emitted code, so a
+requirement that *no* exception can arise would be untestable and false.
 
 #### Scenario: A checked operation makes its function fallible
 
@@ -100,11 +107,19 @@ because the calling runtime has no way to observe one.
 - **THEN** the outer function returns the same failure
 - **AND** the outer function does not continue past the failing call
 
-#### Scenario: Nothing escapes as an exception
+#### Scenario: No compylr-defined failure is signalled by throwing
 
 - **GIVEN** a generated C++ tree for any unit
-- **WHEN** any exported entry point is called with any argument
-- **THEN** no exception propagates out of it
+- **WHEN** an operation the resolved behavior reports on fails at run time
+- **THEN** the failure is returned as a value
+- **AND** it is not signalled by throwing
+
+#### Scenario: An allocation failure below emitted code does not reach the host
+
+- **GIVEN** a generated C++ tree whose emitted code appends to a sequence
+- **WHEN** an allocation beneath that append throws
+- **THEN** the exported entry point terminates or translates it
+- **BUT** it does not propagate into the host runtime
 
 ### Requirement: Runtime helpers implement the behavior axes the unit resolved
 
@@ -130,6 +145,22 @@ Reading the name would be silently wrong for the other stance, which is what
 | TowardNegInf    | Reported    | `-4`                       |
 | TowardZero      | Reported    | `-3`                       |
 | TowardNegInf    | Unchecked   | `-4`                       |
+| TowardZero      | Unchecked   | `-3`                       |
+
+#### Scenario Outline: A remainder takes the sign its resolved behavior declares
+
+- **GIVEN** a unit whose behavior resolves the remainder to `<sign>` with `<checking>`
+- **WHEN** the expression `-7 % 2` is emitted for the `cpp` backend and run
+- **THEN** the result is `<result>`
+
+**Examples:**
+
+| sign     | checking  | result |
+| -------- | --------- | ------ |
+| Divisor  | Reported  | `1`    |
+| Dividend | Reported  | `-1`   |
+| Divisor  | Unchecked | `1`    |
+| Dividend | Unchecked | `-1`   |
 
 #### Scenario: A checked division by zero reports rather than trapping
 
@@ -273,3 +304,75 @@ SHALL be emitted so that the mutation is observable to the next call on the same
 - **GIVEN** a unit with a class declaring three attributes
 - **WHEN** the unit is emitted for the `cpp` backend
 - **THEN** the emitted constructor assigns all three
+
+### Requirement: A mapping read reports a missing key and never inserts
+
+A mapping read SHALL report when the key is absent, and SHALL NOT insert. The IR gives this
+behaviour no mode — a missing mapping key **always** reports — so the emitted code SHALL NOT use a
+subscript operator that default-constructs the missing value. A function containing a mapping read
+SHALL therefore be fallible, exactly as one containing a checked division is.
+
+`std::unordered_map::operator[]` default-constructs and is non-const, so emitting it would answer a
+plausible zero *and* silently grow the map. That is the most likely silent wrong answer available to
+this backend.
+
+#### Scenario: A present key is read
+
+- **GIVEN** a unit whose function reads a key from a mapping parameter
+- **WHEN** the emitted code is run with a mapping containing that key
+- **THEN** the value stored under it is returned
+
+#### Scenario: An absent key reports
+
+- **WHEN** the emitted code reads a key the mapping does not contain
+- **THEN** the call returns a failure naming the missing key
+- **AND** no value is inserted
+
+#### Scenario: A failed read leaves the mapping unchanged
+
+- **GIVEN** a mapping of size N
+- **WHEN** an absent key is read and the failure is returned
+- **THEN** the mapping is still of size N
+
+#### Scenario: A mapping read makes its function fallible
+
+- **GIVEN** a unit whose function's only reportable operation is a mapping read
+- **WHEN** the unit is emitted for the `cpp` backend
+- **THEN** the emitted function returns `std::expected` over its declared return type
+
+### Requirement: Class-valued signatures borrow, and a borrow may not escape
+
+An instance parameter SHALL be **borrowed** from the object the host holds, not copied. A mutation
+through a mutable borrow SHALL be observable to the caller on its next call. Returning a borrowed
+instance, **or a field read from one**, SHALL be refused with a located diagnostic.
+
+This is required on the first day the `(python, cpp)` pair exists, not deferred: an accepted fixture
+already exercises class-valued signatures through both differential tiers, and this change requires
+both tiers over every registered pair.
+
+In the Rust path the escape rule is a diagnostic because the generated code compiles either way and
+the caller silently receives a detached copy. In C++ the same mistake is a dangling reference, so the
+diagnostic matters more here rather than less.
+
+#### Scenario: An instance parameter is borrowed, not copied
+
+- **GIVEN** a unit whose free function takes an instance parameter and mutates an attribute
+- **WHEN** the emitted code is called with an instance the host holds
+- **THEN** the caller observes the mutation on its next call
+
+#### Scenario: Returning a borrowed instance is refused
+
+- **GIVEN** a unit whose function takes an instance parameter and returns it
+- **WHEN** the unit is lowered
+- **THEN** it is refused with a diagnostic naming the parameter and its location
+
+#### Scenario: Returning a field read from a borrowed instance is refused
+
+- **GIVEN** a unit whose function returns an instance-typed attribute of an instance parameter
+- **WHEN** the unit is lowered
+- **THEN** it is refused for the same reason, naming the attribute
+
+#### Scenario: Forwarding a borrow is permitted
+
+- **WHEN** a borrowed instance is passed to another function that also borrows it
+- **THEN** it is accepted

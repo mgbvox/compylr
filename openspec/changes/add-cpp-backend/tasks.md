@@ -36,8 +36,13 @@
       the `Scenario Outline` rows for `-7 // 2` under each rounding
 - [ ] 3.2 Write `compat.hpp` self-contained: no include of anything from this project, so it
       compiles once pasted into somebody else's tree — design D6
-- [ ] 3.3 Implement checked integer overflow with the compiler's overflow builtins, so
-      `IntegerOverflowReported` is genuinely preserved and not merely declared
+- [ ] 3.3 Implement checked integer overflow with **`__builtin_add_overflow(a, b, &out)`** — the
+      three-argument form, which is the only one common to GCC and Clang. Measured: GCC's
+      `__builtin_add_overflow_p` is `use of undeclared identifier` on Clang at every standard, and
+      MSVC has neither. `IntegerOverflowReported` must be genuinely preserved, not merely declared
+- [ ] 3.3a Assert `compat.hpp` compiles standalone under **both** GCC and Clang. D6 requires it to be
+      self-contained and paste-able, and a GCC-only builtin would be found on the first CI run on the
+      other compiler and not before
 - [ ] 3.4 Implement division rounding and checking, remainder sign and checking, subscript origin
       and checking, and text length units — dispatching on the node's **modes**, never on the
       operation's name
@@ -63,6 +68,12 @@
 - [ ] 4.6 Assert emission reads and writes nothing —
       [`emission_reads_and_writes_nothing`](../../../crates/compylr-host-python/tests/crate_boundaries.rs#L396)
       already states it over every backend; confirm it covers the new crate
+- [ ] 4.6a Emit mapping reads through the reporting helper, **never** `operator[]`. Test that reading
+      an absent key reports, that it does **not** insert, that the mapping's size is unchanged after a
+      failed read, and that a mapping read makes its function fallible — design D10
+- [ ] 4.6b Emit class-valued signatures: instance parameters borrowed rather than copied, mutation
+      through a mutable borrow observable to the caller, and a located diagnostic refusing a returned
+      borrowed instance **or a field read from one** — design D11
 - [ ] 4.7 `cargo test --workspace`; commit
 
 ## 4a. Make conformance compile and run, before the backend leans on it
@@ -76,11 +87,19 @@ inherits no safety net until this exists — design.md Context.
       must fail the conformance check. Today it passes
 - [ ] 4a.2 Extend [`conformance.rs`](../../../crates/compylr-host-python/tests/conformance.rs#L1033)
       so each implemented backend's corpus output is compiled with that target's toolchain
-- [ ] 4a.3 Where a corpus entry carries an expected value, run the compiled output and compare
+- [ ] 4a.3 Where a corpus entry carries an expected value, run the compiled output and compare. The
+      corpus is authored as **IR**, so there is no CPython answer to derive from — an expected value
+      can only be a literal the entry itself carries. Keep it there: one place, on the entry, never a
+      golden file per `(entry, backend)` pair. py2many's compile-and-run tier is the cautionary
+      precedent — its golden-file-per-pair set plus an `EXPECTED_COMPILE_FAILURES` allowlist became a
+      second N x M surface (`research/multi-target-transpilers.md`)
 - [ ] 4a.4 Report a missing target toolchain as **skipped, naming the tool** — never as a pass
-- [ ] 4a.5 Run it against the existing Go backend and record what it finds. Expect failures; they are
-      pre-existing defects (#39 and the confirmed spec-vs-reality set), not regressions from this
-      change. File what is new, do not fix it here
+- [ ] 4a.5 **Land the tier gated to `cpp` only.** Running it against Go would fail the commit gate in
+      4a.6 by the spec's own wording, since #41's defects are live — and this change is not where the
+      Go backend gets fixed. Add `(typescript, go)` to the known-failing list the specs now define,
+      naming #38/#39/#41, and file turning the tier on for Go with `fix-typescript-go-pair`
+- [ ] 4a.5a Run it against Go **locally**, once, and record what it finds in the filed issue. Do not
+      commit the failures as expectations and do not invent a permanent allowlist mechanism
 - [ ] 4a.6 `cargo test --workspace`; commit
 
 ## 5. The Python to C++ bridge (nanobind)
@@ -94,7 +113,12 @@ inherits no safety net until this exists — design.md Context.
 - [ ] 5.4 Translate a returned `std::expected` failure into the Python exception the source operation
       would have raised
 - [ ] 5.5 Register the pair in [`bridges`](../../../crates/compylr-registry/src/bridges.rs#L22)
-- [ ] 5.6 `cargo test --workspace`; commit
+- [ ] 5.5a Get `class_valued_signatures` passing both differential tiers over `(python, cpp)`. It is
+      an accepted fixture that already runs both tiers, and this change's `fixture-corpus` delta
+      requires both tiers over every registered pair — so it is day-one work, not deferrable
+- [ ] 5.6 Run this group's boundary tests under **AddressSanitizer and LeakSanitizer**. D9's ownership
+      rule is the mitigation for the one risk in this change that does not surface as a wrong answer
+- [ ] 5.7 `cargo test --workspace`; commit
 
 ## 6. The TypeScript to C++ bridge (node-addon-api)
 
@@ -105,7 +129,11 @@ inherits no safety net until this exists — design.md Context.
 - [ ] 6.3 Use `Napi::ObjectWrap` for instances, and assert state persists across calls
 - [ ] 6.4 Register `("typescript", "cpp")`
 - [ ] 6.5 Assert no bridge crate links a host runtime or parses a source language — group 1's rules
-- [ ] 6.6 `cargo test --workspace`; commit
+- [ ] 6.6 Run this group's boundary tests under AddressSanitizer and LeakSanitizer, as 5.6 does
+- [ ] 6.7 `cargo test --workspace`; commit
+
+> Group 7 was the shared-ABI crate, deleted with design D3. The gap is left rather than renumbered,
+> so existing references stay valid — `4a` already sets that precedent.
 
 ## 8. Toolchain preflight, per target
 
@@ -113,7 +141,11 @@ inherits no safety net until this exists — design.md Context.
       report cargo missing, and a compiler present but below the version floor is diagnosed naming
       the standard required (`build-pipeline`: *A missing toolchain is diagnosed clearly*)
 - [ ] 8.2 Move the unconditional check in [`_build.py`](../../../frontends/python/compylr/_build.py#L161)
-      behind a per-target requirement list, including version floors — design D7
+      behind a per-target requirement list — design D7. **Feature-probe rather than parse versions**:
+      this machine reports "Apple clang version 21.0.0", which maps to no upstream Clang release, so a
+      "Clang 16+" floor cannot be checked against it. Emit a CMake `check_cxx_source_compiles` for
+      `std::expected` and `__builtin_add_overflow`. This does not break the pure-emission rule — the
+      probe lives in the emitted manifest, which is the same bytes on every machine
 - [ ] 8.3 Add the C++ build driver: configure and build the emitted CMake tree, carrying the
       toolchain's own diagnostics through the way the maturin path does
 - [ ] 8.4 Accept `backend="cpp"` end to end from [`_config.py`](../../../frontends/python/compylr/_config.py),
@@ -129,9 +161,13 @@ inherits no safety net until this exists — design.md Context.
       refuses a duplicate and the boundary tier builds every fixture into one unit
 - [ ] 9.2 Add the TypeScript sibling of the same program to `frontends/typescript/fixtures/`, with
       its driver
-- [ ] 9.3 Change the differential tiers in [`differential.rs`](../../../crates/compylr-host-python/tests/differential.rs)
-      to enumerate pairs from the bridge registry rather than from a list, and to report a missing
-      target toolchain as skipped **naming the tool** rather than as a pass
+- [ ] 9.3 **Generalise `differential.rs` from Rust-shaped to per-target.** This is not an enumeration
+      change and is plausibly the largest single task in the change: the harness is Rust-specific end
+      to end — `rust_type()`, `crate_attributes()`, `fn main() -> Result<(), RuntimeError>`, cargo —
+      and contains no occurrence of `go` or `golang`. Split it: (a) extract a per-target driver trait;
+      (b) implement it for Rust, preserving current behaviour exactly; (c) implement it for C++
+- [ ] 9.3a Only then enumerate pairs from the bridge registry, and report a missing target toolchain
+      as skipped **naming the tool** rather than as a pass
 - [ ] 9.4 Confirm the fixture lists are still read from the directory rather than hardcoded —
       [`fixtures.rs`](../../../crates/compylr-host-python/tests/fixtures.rs) and
       [`emit_quality.rs`](../../../crates/compylr-host-python/tests/emit_quality.rs)
@@ -172,8 +208,10 @@ inherits no safety net until this exists — design.md Context.
 - [ ] 12.3 Update [`README.md`](../../../README.md)'s capability list, module layout, and every
       referenced path, in this change and not after it —
       [`readme.rs`](../../../crates/compylr-host-python/tests/readme.rs) enforces the mechanical half
-- [ ] 12.4 Update [`CLAUDE.md`](../../../CLAUDE.md): the crate count, the third backend, the two new
-      bridges, the shared-ABI split, and the C++ toolchain requirement
+- [ ] 12.4 Update [`CLAUDE.md`](../../../CLAUDE.md): the third backend, the two new bridges, and the
+      C++ toolchain requirement. **Fix what is already stale in the same pass** so the C++ additions
+      are not layered onto wrong text — it says the workspace is "nine crates" (it is 13, becoming 16)
+      and its whole Commands block still references `python/fixtures/`, now `frontends/python/fixtures/`
 - [ ] 12.5 Add `cpp` targets to the [`Makefile`](../../../Makefile), the CI workflow, and
       [`.pre-commit-config.yaml`](../../../.pre-commit-config.yaml) — all three, or it is a check
       people discover in a pull request

@@ -10,6 +10,17 @@ does not build SHALL fail the check.
 Where the target toolchain is unavailable on the machine, the check SHALL report itself **skipped**,
 naming the missing toolchain, and SHALL NOT report success.
 
+A requirement of this kind SHALL take effect for a `(source, target)` pair once that pair's
+confirmed defects are closed. `(typescript, go)` SHALL be enumerated as a **known-failing pair**,
+each entry naming its filed issue (#38, #39, #41), until those close. The list of known-failing
+pairs SHALL only shrink: adding to it SHALL require a filed issue, and a pair SHALL NOT be added to
+silence a defect introduced after this change.
+
+Without that scoping the requirement would fail on the day it lands — not because it is wrong, but
+because it correctly describes a pair that is already broken, and this change is not where that pair
+gets fixed.
+
+
 This is not a new idea but a correction: the requirement that every implemented backend renders the
 corpus has been satisfied by a backend whose emitted output was never compiled, so the check
 established that text was produced and nothing more. "Renders" was doing work the word cannot carry.

@@ -9,6 +9,12 @@ art. Written 2026-09-01, in-session, after three workflow runs stopped on the se
 
 23 findings confirmed by a second agent applying correctness / intent / materiality lenses. Filed:
 
+> **Coverage caveat.** The audit opened 6 of 13 workspace crates. It never opened `compylr-core`
+> (including `bridge.rs`, the trait D3 builds on) or `compylr-bridge-python-rust` (the working
+> reference bridge the marshalling argument is about) — roughly 16,000 unexamined lines. That does
+> not retract any confirmed finding, each of which stands on its own evidence, but it does mean
+> **absence of findings in those crates is absence of looking**, not evidence of health.
+
 | issue | what |
 | --- | --- |
 | #37 | TypeScript `/` compiles to integer division |
@@ -20,8 +26,27 @@ art. Written 2026-09-01, in-session, after three workflow runs stopped on the se
 | #43 | TypeScript frontend: four more semantic defects |
 | #44 | `typescript-api` / `typescript-bindings` specs describe surfaces that do not exist |
 
-**#42 is the root.** Nearly every other finding is something a corpus that compiled its output would
-have caught on the first run. Fix ordering should follow from that, not from severity labels.
+**#42 is the most *systemic* finding, but it is not the root of the others.**
+
+> **Retracted 2026-09-02.** This section previously read "#42 is the root. Nearly every other finding
+> is something a corpus that compiled its output would have caught on the first run." That is false
+> for five of the seven, and the claim contradicted §6 of this same document.
+
+`conformance.rs`'s corpus is authored as **hand-built IR**, deliberately — its own module doc says a
+source-language corpus is "a good test of the Python frontend and a poor test of a backend." So it
+never exercises a frontend, and group 4a only teaches it to compile and run *backend* output:
+
+| finding | layer | would 4a catch it? |
+| --- | --- | --- |
+| #41 Go backend | backend emission | **yes** |
+| #37, #43 TypeScript frontend | lowering, before the IR exists | no |
+| #39 TS→Go bridge | bridge crate; corpus never invokes one | no |
+| #44 `compylr-host-typescript` stub | host binding | no |
+| #38 demo coverage/benchmark | the demo's own scripts | no |
+| #40 checks that cannot fail | Makefile/CI | no |
+
+The honest ordering claim: #42 is the one defect that makes a whole *class* of backend errors
+invisible, and it is the only one this change fixes. It is not why the other six exist.
 
 One finding was **refuted**: `compylr compyle`'s exit-code contract. Correctness held — the code path
 is as described — but intent and materiality both refuted it. Worth noting as evidence the lenses do
@@ -29,26 +54,34 @@ independent work; without them it would have been a sixth issue.
 
 ## 2. What the research settles
 
-### The C-ABI hub would have been catastrophic for Python — settled, with numbers
+### A **ctypes-shaped** loader would have been catastrophic for Python — measured
+
+> **Corrected 2026-09-02.** An earlier version of this section said "~145×" and titled itself a
+> verdict on "the C-ABI hub" as a class. Both were wrong. The ratio of the paper's own figures is
+> **30.8×** (197,800 / 6,423) — I stated a number that does not follow from the data I cited, under
+> a heading claiming it was settled. That is the exact defect class this audit exists to find, and
+> it was mine. The scope was overstated too: what was measured is ctypes, which is what the rejected
+> draft proposed; a hub built on compiled dispatch was never proposed and is not condemned here.
 
 Basso do Amaral, Ferreira & Goldman (2025), arXiv:2507.00264, measuring array-argument bindings:
 
 | regime | ctypes vs PyO3 |
 | --- | --- |
-| **M1** — convert on every call | **~145× slower** (1.978e5 ms vs 6.423e3 ms) |
+| **M1** — convert on every call | **~31× slower** (1.978e5 ms vs 6.423e3 ms) |
 | M2 — marshal once, reuse | ~2.2× slower (1,369 ms vs 634.7 ms) |
 
 **compylr's boundary is M1 by construction.** `CLAUDE.md` records that collections cross by value on
 every call; there is no pre-marshalled handle to reuse. So the ctypes-shaped loader the original
-C-ABI design proposed would have landed in the regime where ctypes is ~145× off the pace, not the
+C-ABI design proposed would have landed in the regime where ctypes is ~31× off the pace, not the
 one where it is 2.2× off. The paper's own words: ctypes is "the most lacking alternative, requiring
 manual API redefinitions and expensive type constructions due to `libffi`."
 
-This was the decisive unknown flagged when the hub was first questioned. It is now answered, and it
-answers *against* the hub far more strongly than the Node argument did.
+This was the decisive unknown flagged when the hub was first questioned. It is now answered — but note what it does and does not
+reach. It condemns a **ctypes loader**; it does not condemn hubs as a class, and the Node-API
+argument in D3 remains the load-bearing reason, not this.
 
 Secondary: PyO3 dispatch is ~33.5 ns/call against ~12.6 ns for a hand-written
-`_PyCFunctionFastWithKeywords` — a ~20 ns macro tax. Real, and irrelevant next to a 145× marshalling
+`_PyCFunctionFastWithKeywords` — a ~20 ns macro tax. Real, and irrelevant next to a 31× marshalling
 difference.
 
 ### nanobind over pybind11 — settled
@@ -85,7 +118,7 @@ compylr's per-call, by-value boundary is the worst case for one.
 | gap | cheapest experiment |
 | --- | --- |
 | `std::expected` minimum GCC/libstdc++ and Clang/libc++ versions | Compile a three-line file with each; cppreference 403s to WebFetch |
-| **nanobind vs PyO3 head-to-head on compylr's own boundary** | The 145× number is ctypes-vs-PyO3, not nanobind-vs-PyO3. Once `demo-python-cpp` exists, its benchmark answers it directly |
+| **nanobind vs PyO3 head-to-head on compylr's own boundary** | The 31× number is ctypes-vs-PyO3, not nanobind-vs-PyO3. Once `demo-python-cpp` exists, its benchmark answers it directly |
 | `python-native-compilers`, `multi-target-transpilers`, `semantics-mismatch` | Never run. Lowest value of the ten — none would change a decision already made |
 | Whether compylr's behavior axes are novel | Folded into the above; interesting, not load-bearing |
 
@@ -125,3 +158,26 @@ Everything in §1 except #42's mechanism. Specifically:
 
 Neither should block `add-cpp-backend`. But #42's tier will surface #41's failures the moment it
 runs, so tasks 4a.5 says to record and file, not fix.
+
+
+## 7. Adversarial review of this document
+
+Reviewed 2026-09-02 by three independent lenses plus an adjudicator (`research/REVIEW.md`). All three
+returned **materially-flawed**. Two fatal errors were mine and are corrected above: the headline
+ratio was wrong by 4.7×, and "#42 is the root" was false for five of seven findings.
+
+The adjudicator found more than the reviewers did, by compiling rather than reading — that
+`__builtin_add_overflow_p` does not exist on Clang, that the whole emitted set builds under
+`-std=c++23` so a hard C++26 gate would refuse working compilers, and that the proposal's worked
+example emitted unchecked arithmetic and unchecked indexing in violation of a requirement in the same
+change. It also found two design gaps nobody had considered: mapping reads via `operator[]` would
+silently insert, and class-valued signatures are day-one work rather than deferrable.
+
+Its verdict was **not safe to implement as written**. Every blocking item in its revision list has
+since been applied — see the commit that follows this document.
+
+What survived a genuine attempt to break it: the M1/M2 terminology, the 2.2× M2 ratio, the ~20 ns
+PyO3 dispatch tax, every C++26 compiler fact, the `node:ffi` facts, all four nanobind multipliers,
+and — checked directly against `compylr-bridge-python-rust/src/bindings.rs:212-213` — that compylr's
+boundary is convert-on-every-call by construction. The Node-API argument for D3 stands on its own,
+independent of the corrected ctypes measurement.

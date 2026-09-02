@@ -1,3 +1,8 @@
+> **CORRECTION 2026-09-02.** This file originally reported the ctypes-vs-PyO3 M1 ratio as ~145×.
+> The correct figure from its own quoted table is **30.8×** (197,800 / 6,423). An adversarial review
+> fetched arXiv:2507.00264 and read Table IV directly to establish this. Every other figure here was
+> re-verified and held. The directional conclusion is unchanged; the magnitude was wrong by 4.7×.
+
 # Research: Python native-call overhead — ctypes / cffi / PyO3 / pybind11 / nanobind / hand-written C extension
 
 Assignment: get hard, sourced numbers on per-call overhead crossing from Python into native code,
@@ -72,7 +77,7 @@ with a stated methodology, hardware, and reproducible repo
 **Reading these two tables together is the actual answer to "how much does argument marshalling
 cost":** for the *same* PyO3/cffi bindings, forcing per-call conversion of the array (M1) instead of
 converting once (M2) costs **~10x** (PyO3: 634.7ms → 6,423ms; cffi/Maturin: 638.2ms → 7,262ms).
-ctypes is far worse in both regimes, but catastrophically so under M1: **~145x slower than PyO3 at
+ctypes is far worse in both regimes, but catastrophically so under M1: **~31x slower than PyO3 at
 M1** (1.978e5 ms vs 6.423e3 ms), because — per the paper — "ctypes has shown the most lacking
 alternative, requiring manual API redefinitions and expensive type constructions due to `libffi`
 outweighing any benefits" (§VII, Analysis). At M2 it closes to "only" **~2.2x** slower than PyO3
@@ -359,7 +364,7 @@ now-abandoned cpp-abi-bridge premise and on the pairwise-bridge decision general
    — which is a known, named, deliberate cost (see CLAUDE.md's "Known gaps" section), not a defect,
    but it is the dominant cost, confirmed externally.
 2. **ctypes/ABI-mode-style dynamic dispatch (libffi) is not a viable "generic C ABI hub"
-   mechanism** if per-call marshalling is in the picture — it is ~145x slower than PyO3 in exactly
+   mechanism** if per-call marshalling is in the picture — it is ~31x slower than PyO3 in exactly
    that regime in the one controlled study found (§1, Table IV), and CFFI's own maintainers say the
    same thing about their own ABI mode in general terms (§4). This is independent evidence, from a
    different angle than the Node-FFI-doesn't-exist finding, for why a shared, dynamically-resolved

@@ -69,8 +69,9 @@ shipping compilers implement.
 cmake_minimum_required(VERSION 3.28)
 project(compylr_generated LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 26)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD_REQUIRED OFF)
 add_library(compylr_generated SHARED generated.cpp bindings.cpp)
+target_compile_features(compylr_generated PRIVATE cxx_std_23)
 ```
 
 The features generated code actually relies on are `std::expected`, `std::vector`,
@@ -89,18 +90,24 @@ Verified against the compilers' own status pages rather than recollection:
 Two corrections to an earlier draft fall out. The floor is GCC **14**, not 15. And Clang has neither
 contracts nor reflection at any version — so a feature set that reached for C++26's headline
 additions would be unbuildable on Clang entirely, which is exactly what confining the emitted set
-avoids. Emit `CMAKE_CXX_STANDARD 26` and let CMake pick each compiler's spelling; never hard-code
-`-std=c++26`, which is not what Clang documents.
+avoids.
+
+On spelling: Clang's status page documents `-std=c++2c`, but modern Clang (21, including AppleClang)
+accepts `-std=c++26` too; only older Clang requires `c++2c`. Emit `CMAKE_CXX_STANDARD` and let CMake
+pick — not because one spelling is wrong, but because that keeps the manifest correct across both
+without probing, and probing would break the pure-emission rule.
 
 **Why:** the standard requested and the features used are separable, and separating them is what
-makes "latest standard" a real answer rather than a bet. `CMAKE_CXX_STANDARD_REQUIRED ON` means a
-compiler that cannot give C++26 fails at configure time with a message about the standard, which is
-actionable, rather than mid-compile with a message about a missing header, which is not. When
-contracts and reflection are implemented, the emitted set widens without the manifest moving.
+makes "latest standard" a real answer rather than a bet. The manifest **requests** 26 and
+**requires** 23: an adversarial review measured that the whole emitted set builds under
+`-std=c++23` on AppleClang 21/libc++, so `CMAKE_CXX_STANDARD_REQUIRED ON` would have refused
+compilers that build the tree perfectly well. `target_compile_features(... cxx_std_23)` states the
+real floor, and `CMAKE_CXX_STANDARD 26` still asks for the newest. When contracts and reflection are
+implemented, the emitted set widens without the manifest moving.
 
 **Alternatives considered:** *Select C++23 and call it latest* — rejected, it is not what was asked
 and it forecloses the contract option in D6. *Select C++26 and use it freely* — rejected; support is
-partial and uneven across GCC 15 and Clang 20, so the backend's buildability would depend on which
+partial and uneven across GCC and Clang, so the backend's buildability would depend on which
 library features a given release happened to land, which is not a property a compiler should have.
 *Probe the compiler and downgrade* — rejected outright: emission is a pure function of the unit, and
 a manifest that varies by machine breaks the byte-reproducibility the rebuild cache is keyed on.
@@ -118,9 +125,13 @@ std::expected<int64_t, compylr::Error> divide(int64_t a, int64_t b) {
 }
 ```
 
-**Why:** three reasons that agree. The error channel has to be a value at the generated-code layer
-regardless — nanobind and node-addon-api each translate a returned failure into their host's idiom,
-and letting a C++ exception unwind into either binding layer is the one thing both forbid. The
+**Why:** three reasons that agree. The first was stated wrongly in an earlier draft, which claimed
+both binding libraries *forbid* a C++ exception reaching them. They do not — both translate one. The
+real argument is stronger: nanobind's default translation table flattens `std::exception` to
+`RuntimeError`, so preserving the failure **kind** that `python-api` requires (`ZeroDivisionError`,
+`OverflowError`, `KeyError`, `IndexError`) would need a distinct C++ exception type *and* a
+registered translator per kind, in **both** bridges. A returned `compylr::Error` carries the kind as
+data and each bridge maps it once. The
 propagation is visible in the generated source, which is the source a user reads under `.compylr/`
 to answer "what did compylr understand?". And it matches what the Rust backend already emits, so the
 two targets' generated code reads the same way and a reviewer moving between them is not switching
@@ -183,7 +194,15 @@ identity — which is the contrast the accepted subset already draws between a c
 (crosses by value) and an instance (not converted at all), and the hardest thing to hand-roll over a
 C ABI.
 
-**Alternatives considered.** *A shared C-ABI hub* — rejected on the Node fact above. *pybind11
+**The measured half.** The rejected draft's Python side was a `ctypes` loader. In the
+convert-on-every-call regime, ctypes measures **~31×** against PyO3 (arXiv:2507.00264, Table IV;
+research/python-call-overhead.md), and compylr's boundary is that regime by construction — every
+argument, collections included, crosses by value on every call. That condemns **a ctypes loader**.
+It does not condemn hubs as a class, and it is supporting evidence rather than the reason: the
+decision stands on node-addon-api's ABI guarantee alone.
+
+**Alternatives considered.** *A shared C-ABI hub* — rejected on the binding-library argument above,
+with the ctypes measurement as corroboration. *pybind11
 instead of nanobind* — rejected: same author, but nanobind has dramatically faster compile times
 (which matter when the first call compiles), smaller binaries, and a real stable-ABI story on 3.12+.
 *Keeping the pair count down by skipping the TypeScript side* — rejected; every `(source, target)`
@@ -296,7 +315,7 @@ manager.
 **Why:** the existing check is unconditional and Rust-specific, so a project targeting C++ on a
 machine with no Rust would be told to install cargo — a diagnostic that sends someone to fix
 something that is not wrong. A version floor is part of the requirement rather than a separate
-concern because "GCC 14 is present" and "GCC 15 is required" is exactly the case D1's configure-time
+concern because "GCC 14 is present" and "a newer GCC is required" is exactly the case D1's configure-time
 failure is trying to name early, and a presence-only check would let it through to a compile error
 about a missing header.
 
@@ -330,11 +349,67 @@ and rejected because the benchmark tables are per pair and the READMEs are the d
 lands on; a project that compiles two ways has no single set of numbers to show. *No new demos* —
 rejected, it is the parity that was asked for.
 
+### 9. Ownership at the boundary: the host owns instances, the callee owns nothing after returning
+
+**Decision.** An instance the host holds lives in `nb::class_`/`Napi::ObjectWrap` storage and is
+**borrowed** by generated code, never owned by it. A returned collection is **moved** into the
+binding layer, which copies into the host's representation. Generated code holds no reference to any
+argument after it returns.
+
+```cpp
+// borrowed: the host object owns the value; the method sees a reference
+std::expected<int64_t, compylr::Error> PrimeCache_nth(PrimeCache& self, int64_t n);
+// returned: moved out, then converted; nothing generated retains a pointer to it
+std::expected<std::vector<int64_t>, compylr::Error> sieve(int64_t n);
+```
+
+**Why.** C++ has no borrow checker, so the rule the Rust path gets from the compiler has to be a
+written decision here. Getting it wrong does not produce a wrong answer — it produces a leak, a
+double free, or a dangling reference, none of which a differential test detects. This is the risk
+the Risks section names, and until now the change mitigated it nowhere.
+
+**Alternatives considered.** *Copy instances across* — rejected; it breaks the contrast the subset
+draws, where a mutated attribute is what the caller sees next call. *Reference counting on the C++
+side* — rejected as redundant: the host runtime already owns a lifetime for the wrapper object.
+
+### 10. A mapping read reports, and never inserts
+
+**Decision.** `d[k]` emits through a `compat.hpp` helper over `find()`, returning
+`std::expected`. `std::unordered_map::operator[]` is never emitted for a read.
+
+```cpp
+// NOT operator[] -- it default-constructs the missing key and is non-const
+template <class K, class V>
+std::expected<V, compylr::Error> map_get(const std::unordered_map<K,V>& m, const K& k);
+```
+
+**Why.** The IR states a missing mapping key **always** reports — it is one of the three container
+behaviours deliberately given no mode. `operator[]` would silently insert a default-constructed
+value and return it, so `d["absent"]` would answer `0` *and grow the map*. **A mapping read therefore
+makes its function fallible**, exactly as a checked division does. This is the most likely
+silent-wrong-answer in the whole backend and nothing in the change mentioned it before this pass.
+
+**Alternatives considered.** *`at()`* — closer, but throws, which D2 forbids crossing the boundary.
+
+### 11. Class-valued signatures work on day one
+
+**Decision.** An instance parameter is a `T&` (or `const T&`) over the object the host holds — the
+C++ analogue of `PyRef`/`PyRefMut`. A borrowed instance, **and a field read from one**, may not
+leave in an owned return.
+
+**Why.** `class_valued_signatures.py` is an accepted fixture, `CLAUDE.md` records that it runs
+through **both** differential tiers, and this change's `fixture-corpus` delta requires both tiers over
+**every** registered pair. So `(python, cpp)` must handle it immediately; it is not deferrable.
+
+The escape rule is a located diagnostic in the Rust path because the generated code compiles either
+way and the caller would get a detached copy. In C++ the same mistake is a **dangling reference**, so
+the diagnostic matters more here, not less.
+
 ## Risks / Trade-offs
 
 **C++26 support is partial and uneven, so a machine that builds everything else may not build this.**
-→ D1 confines the emitted feature set to what ships, and `CMAKE_CXX_STANDARD_REQUIRED ON` fails at
-configure time naming the standard. The demo and differential specs both require a missing toolchain
+→ D1 confines the emitted feature set to what ships, and `target_compile_features(cxx_std_23)` fails
+at configure time naming the real floor rather than an aspirational one. The demo and differential specs both require a missing toolchain
 to be reported as *skipped* naming the tool, never as a pass — a green suite that silently never
 compiled C++ is the failure mode worth spending a requirement on.
 
@@ -348,11 +423,11 @@ the confirmed defect recorded in Context: the Go path renders without compiling.
 builds the compile-and-run tier before the C++ backend leans on it, so this change does not inherit
 a check that has never worked.
 
-**Manual memory management at the boundary is the one place this target can leak or double-free,
-and neither shows up as a wrong answer.** → D4 makes the allocating side the freeing side, and the
-ABI spec requires a handle to be released exactly once. This is where the implementation should
-expect to spend its debugging time; running the boundary tier under a sanitizer is the cheap check
-and belongs in tasks.
+**Ownership at the boundary is the one place this target can leak, double-free, or dangle, and none
+of those shows up as a wrong answer.** → D9 decides it; tasks group 5/6 runs the boundary tier under
+AddressSanitizer and LeakSanitizer at least once per bridge. An earlier draft pointed this risk at a
+"D4" that no longer says anything about ownership and at an ABI spec deleted with the hub, leaving
+the risk with no mitigation anywhere in the change.
 
 **The per-element boundary price is paid again, possibly at a different rate.** → The measured Python
 price is recorded in `CLAUDE.md` for the Rust path; nothing here assumes it carries over. The demos
@@ -361,6 +436,12 @@ are what report it, which is the point of building them rather than asserting sp
 **Four demos roughly double the slow suite.** → Each is grouped with the existing slow tests and
 skipped with a named reason when its toolchain is absent, so the fast suite is unchanged and CI
 opts in per pair.
+
+**"Nothing throws" cannot mean what it sounds like.** → `push_back`, `std::string`, and map
+insertion can each throw `std::bad_alloc` or `std::length_error` from inside emitted code. The
+honest promise is narrower and testable: no *compylr-defined* failure is signalled by throwing —
+every one is returned — and each exported entry point terminates or translates anything originating
+below it, so nothing reaches the host runtime. The spec scenario is narrowed to match.
 
 **`std::unordered_map` iteration order differs from every other target's.** → Not a risk to manage,
 a rule already held: the subset promises neither mapping nor set iteration order, and a test that
@@ -390,5 +471,7 @@ cost real time once already.
   detail that changes no requirement, no spec scenario, and no task, and is best decided against
   real generated output.
 * **Whether the TypeScript loader uses `process.dlopen` or Node's FFI surface.** Both satisfy every
-  scenario in the ABI spec, the choice is bounded to one file, and it should be made against the
+  scenario in `specs/cpp-abi`… — superseded: with D3 there is no such spec. The remaining question is
+  narrower and belongs to node-addon-api, not to a hub: the choice is bounded to one file and should
+  be made against the
   Node version the TypeScript host actually targets rather than in advance.

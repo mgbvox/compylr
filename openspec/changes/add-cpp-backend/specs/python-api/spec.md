@@ -30,6 +30,25 @@ Python operation would have raised, so that a caller does not have to know which
 - **WHEN** it is called with a zero divisor under a behavior that reports division by zero
 - **THEN** `ZeroDivisionError` is raised
 
+#### Scenario: A missing mapping key raises KeyError
+
+- **GIVEN** a manager initialized with the `cpp` backend and a marked function reading a mapping key
+- **WHEN** it is called with a mapping that does not contain the key
+- **THEN** `KeyError` is raised
+
+#### Scenario: An out-of-range subscript raises IndexError
+
+- **GIVEN** a manager initialized with the `cpp` backend and a marked function indexing a sequence
+- **WHEN** it is called with an index outside the sequence under Python's reporting stance
+- **THEN** `IndexError` is raised
+
+#### Scenario: The failure kind survives the bridge
+
+- **GIVEN** three marked functions failing in three different ways
+- **WHEN** each is called so that it fails
+- **THEN** three distinct exception types are raised
+- **BUT** they are not all flattened to one type
+
 #### Scenario: An instance attribute survives the call
 
 - **GIVEN** a manager initialized with the `cpp` backend and a marked class whose method mutates an
