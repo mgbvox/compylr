@@ -385,6 +385,83 @@ silently was the first.
 * Planning happens in OpenSpec (`openspec/changes/`). `/opsx:propose` to plan, `/opsx:apply`
   to implement.
 
+# Workflows run under a usage guard
+
+Every workflow fired in this project **must** segment its work and check the live session-limit bar
+between segments, pausing cleanly rather than dying against it. A 26-agent Opus fan-out once burned
+1.24M tokens in six minutes, hit the limit, and returned **nothing** — every agent errored and no
+result reached the return path. The only salvage was two evidence files agents happened to write to
+`context/` before they died.
+
+## The one number that matters
+
+```
+GET https://claude.ai/api/organizations/{org_uuid}/usage
+-> { "five_hour": { "utilization": 0-100, "resets_at": "<iso8601>" },
+     "seven_day": { ... }, "extra_usage": { ... } }
+```
+
+`five_hour.utilization` **is** the session-limit bar the Claude settings page draws — verified
+against it. Pause at >= 95 (within 5% of the limit) and use `resets_at` as the resume time. That is
+the whole guard. Get `org_uuid` from `GET /api/organizations` (`[0].uuid`).
+
+**Do not estimate this from token counts.** That approach was wrong twice: once by inventing a
+ceiling with no denominator, and once by reading a stale `quotaLimits.overageDisabledReason` out of
+a session log and reporting $0 spend while real credits were accruing. `quotaLimits` records in
+`~/.claude/projects/**/*.jsonl` are written **only on rejection**, carry no remaining-quota field,
+and go stale — they are not a usage source. Neither is `~/.claude/stats-cache.json`. There is no
+`claude usage` subcommand, and the Anthropic SDKs cover Console API billing, which is a different
+system from plan limits.
+
+## Transport
+
+The endpoint is cookie-authenticated and the session cookie is `httpOnly`, so a probe cannot `curl`
+it. It goes through the user's own logged-in Chrome via the `claude-in-chrome` MCP, running
+`fetch()` in the page context where cookies already apply — **no credential is read, copied, or
+handled**, and attempting to extract one is both blocked by the auto-mode classifier and the wrong
+instinct. Verified working from inside a workflow subagent (`wf_6cacbc93-4b2`: `ok=true`,
+`utilization=100`, 6 tool calls, 23s, ~50K tokens per probe).
+
+This needs a live, logged-in Chrome, so it does **not** work headless or under cron. A headless
+guard would need the `sessionKey` supplied out of band.
+
+## The shape
+
+`workflows/cpp-review.workflow.js` is the reference implementation — copy its guard block rather
+than rewriting it.
+
+1. Cut the run into **segments** with full parallelism inside each, so a checkpoint costs latency
+   only between segments.
+2. Between segments call `guard()`, which spawns one probe agent and compares `utilization`
+   against the threshold.
+3. On a trip, set a flag, `log()` what was skipped, and let every later segment short-circuit.
+   **Return** `{paused, pause_info, resume_hint}` carrying `resets_at_iso` — never throw, and never
+   leave a segment half-launched.
+4. The resume hook lives in the **main loop**, not the script: the script cannot wait (`Date.now()`
+   and `Math.random()` throw, and there is no sleep). Arm a detached `Bash(run_in_background)`
+   `until` loop on `resets_at_iso`, then re-invoke with the same `scriptPath` plus
+   `resumeFromRunId` — completed `agent()` calls with unchanged `(prompt, opts)` replay from cache.
+
+**A failed measurement must let work proceed.** A probe that cannot read the bar returns
+`ok: false` and the guard continues; treating an unknown as danger would halt every run whenever
+Chrome is logged out.
+
+**The manager is the script, never a subagent.** The script API is `agent`/`parallel`/`pipeline`/
+`log`/`phase`/`workflow`/`budget` — no pause primitive and no inter-agent channel, so a "manager
+agent" can only ever be a *sensor*. The script controls the only thing that matters: whether the
+next segment launches.
+
+**Pin `model` explicitly on every `agent()` call.** Inheriting `CLAUDE_CODE_SUBAGENT_MODEL` makes a
+run's cost depend on a settings file that changes underneath it — that is exactly how the Opus
+fan-out happened. Sonnet for mechanical work, Opus only for the judgement tail.
+
+**Planning-workflow agents are read-only on project code, and their durable output goes in
+`research/`.** Say so in the prompt and name the directories. `research/` is tracked; `context/` is
+gitignored scratch for probe files and throwaway build directories. The distinction is load-bearing:
+a workflow that dies still leaves its files behind, and those are the salvage — three research
+documents and a completed audit dimension survived runs whose return values did not. Anything worth
+salvaging must not be written somewhere git ignores.
+
 # Commands
 
 ```bash

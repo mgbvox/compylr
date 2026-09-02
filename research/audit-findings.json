@@ -1,0 +1,184 @@
+{
+ "ts-frontend": [
+  {
+   "title": "&&, ||, and ?? silently discard their right operand",
+   "severity": "critical",
+   "claim": "The TypeScript frontend's lowering of logical operators (&&, ||, ??) drops the right-hand operand entirely and always evaluates to the left operand's value, regardless of which operator was used or what either operand's runtime value is.",
+   "evidence": "crates/compylr-frontend-typescript/src/lower.rs:1207-1218 never reads `log.operator` and returns `Ok((left_expr, ty))` \u2014 `right_expr` isn't even bound, only its type is inspected via `let (_, right_ty) = ...`. Ran the CLI: `cargo run -q -p compylr-cli -- --frontend typescript --emit rust context/logical.ts` on `export function orTest(a: boolean, b: boolean): boolean { return a || b; }` / `andTest` with `&&` produced `pub fn orTest(a: bool, b: bool) -> Result<bool, RuntimeError> { Ok(a) }` and `pub fn andTest(a: bool, b: bool) -> Result<bool, RuntimeError> { Ok(a) }`. Also confirmed for `??`: `a ?? b` compiled to `Ok(a)`. `orTest(false, true)` must return `true` in TypeScript; compiled it returns `false`. No fixture in frontends/typescript/fixtures/accepted/ uses `&&`, `||`, or `??`, so the corpus never exercises this path.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "Negative-index origin declared as FromEitherEnd, contradicting the IR's own doc comment naming TypeScript as a FromStart language",
+   "severity": "critical",
+   "claim": "crates/compylr-frontend-typescript/src/frontend.rs declares `sequence_index.origin: IndexOrigin::FromEitherEnd` for TypeScript, meaning compiled code treats a negative array/string index as counting back from the end (Python semantics) rather than as out of range (real JS/TS semantics).",
+   "evidence": "frontend.rs:33-36 sets `origin: IndexOrigin::FromEitherEnd`. compylr-ir's own doc comment for the enum it instantiates directly contradicts this, crates/compylr-ir/src/ir.rs:303-309: 'Python counts backwards from the end... Go, C++, Rust, and TypeScript do not: a negative offset is out of range, undefined, or an enormous positive number.' Ran the CLI on `export function lastOf(xs: Array<number>): number { return xs[-1]; }`: `cargo run -q -p compylr-cli -- --frontend typescript --emit rust context/neg_index.ts` produced `Ok(py_subscript(&(xs), &(-1i64), IndexOrigin::FromEitherEnd)?)`. For `xs = [10,20,30]` this returns `30` (the last element). Real JavaScript/TypeScript `[10,20,30][-1]` is `undefined`.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "Float literals passed as call arguments, array-literal elements, or .push()/.add() arguments are silently truncated to i64, producing generated Rust that fails to compile (or, when it happens to compile, drops the fraction)",
+   "severity": "high",
+   "claim": "The frontend accepts a `float` type annotation (lower.rs:216) as first-class, but three separate lowering paths hard-code any numeric-literal call/array/push argument to `Literal::Int(n.value as i64)` without checking `.fract()`, unlike the general numeric-literal path (lower.rs:1021-1027) which does check for a fractional part.",
+   "evidence": "Call arguments: lower.rs:1319-1326. Array literal elements: lower.rs:1223-1225. `.push`/`.add` arguments: lower.rs:965-969. Ran the CLI three times: (1) `useFloat(3.7)` where `useFloat(x: float): float` compiled to `Ok(useFloat(3i64)?)` against `pub fn useFloat(x: f64) -> ...`; verified with `rustc --edition 2021 /tmp/t2.rs` reproducing the exact shape that this is a genuine Rust type error: `error[E0308]: mismatched types ... expected f64, found i64`. (2) `return [1.5, 2.5];` typed `Array<float>` compiled to `Ok(vec![1i64, 2i64])` against `-> Result<Vec<f64>, RuntimeError>` \u2014 same E0308 class. (3) `xs.push(1.5)` on `let xs: Array<float>` compiled to `let __compylr_value = 1i64; (xs).push(__compylr_value);` on a `Vec<f64>` \u2014 same E0308 class. None of frontends/typescript/fixtures/accepted/*.ts contains a non-integral literal or a `float`-typed parameter/return, so this path has zero corpus coverage.",
+   "verified_how": "ran-it"
+  }
+ ],
+ "ts-go-bridge": [
+  {
+   "title": "Go backend silently drops constructor bodies for classes with non-trivial __init__/constructor logic",
+   "severity": "critical",
+   "claim": "compylr-backend-golang's emit_class never lowers class.init.body at all \u2014 it synthesizes the Go constructor purely by matching parameter names to attribute names 1:1 and zero-initializing everything else, so any loop, conditional, or computed/renamed assignment in a TypeScript constructor is silently discarded, producing Go that compiles but is wrong.",
+   "evidence": "crates/compylr-backend-golang/src/emit.rs:38-73 (emit_class) reads only class.init.params and class.attributes, never class.init.body. demo/demo-ts-go/src/algorithms/structures.ts:62-77 UnionFind's constructor does `this.components = size;` (renamed) and `while (i < size) { this.parent.push(i); this.rank.push(0); i = i + 1; }` (a loop) \u2014 the checked-in generated code (demo/demo-ts-go/.compylr/go/generated.go:147-153) emits `components: 0, parent: make([]int64, 0), rank: make([]int64, 0)` and drops the loop entirely, never referencing the `size` parameter anywhere in the function body. Ran it standalone in pure Go (no cgo/bridge involved): copied the checked-in *.go files to a scratch module, added `NewUnionFind(5); union(0,1); union(1,2); connected(0,2)` in a _test.go, `go test -v .` panics with `runtime error: index out of range [0] with length 0` at generated.go:162 inside `find`, because `self.parent`/`self.rank` are permanently empty slices. The other three demo classes (IntStack, PrimeCache, RunningStats) happen to work only because their constructors are parameterless/trivial and their zero-values coincidentally match; verified those pass with `go test -run TestClasses` up to the point UnionFind is reached. crates/compylr-backend-golang/tests/emit.rs has zero tests touching Class/constructors (only one free-function test in the whole file). No differential-testing tier exists for (typescript, go) at all \u2014 grepped the whole tree outside worktrees/ for 'differential': only frontends/python/tests/test_differential.py and crates/compylr-host-python/tests/differential.rs exist, both python-rust only.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "loaded_as encodes a .so filename that no build step in the repository ever produces",
+   "severity": "high",
+   "claim": "TypeScriptGoBridge::emit computes loaded_as = compylr_generated_<fingerprint>_<variant_tag> and bakes that exact name into index.js's expected shared-library path, but every actual `go build -buildmode=c-shared` invocation in the repo (all three live only in CI) hardcodes a different, static filename that ignores both the fingerprint and the variant tag \u2014 so the loader and the only real build automation for this pair can never agree on a filename, independent of the already-filed ESM/koffi defects.",
+   "evidence": "crates/compylr-bridge-typescript-golang/src/bridge.rs:25-29 builds loaded_as from key.fingerprint/variant_tag; bridge.rs:149-160 emit_js_loader embeds it as `path.join(__dirname, '{module_name}.so')`. grep -rn 'buildmode=c-shared' across the repo (excluding target/, node_modules/) finds exactly three invocations, all identical: .github/workflows/golang.yml:54, .github/workflows/golang.yml:87, .github/workflows/typescript.yml:92 \u2014 each runs `go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .`, a fixed name unrelated to loaded_as. Contrast: crates/compylr-host-python/src/lib.rs:273 actually threads artifact.loaded_as into the PyO3 build's module_name for (python, rust); no analogous consumer exists for (typescript, go) \u2014 grep -rn loaded_as across the tree turns up only the bridge's own definition/use and the unrelated python-rust host.",
+   "verified_how": "read-code-only"
+  },
+  {
+   "title": "index.d.ts and index.js assert numeric signatures, and dial numeric-typed FFI calls, for functions the cgo layer never exports at all",
+   "severity": "medium",
+   "claim": "emit_dts and emit_js_loader iterate unit.functions() unconditionally and render every parameter/return as `number`/'int64', with no scalar filter \u2014 the same filter emit_cgo_function applies before skipping a function \u2014 so for any Str/collection/class-typed signature the .d.ts/.js claim a fully numeric type signature and the .js wires up an FFI call to a Call_<name> symbol that the compiled library never contains (extends issue #39's export-coverage finding with the specific type-widening inconsistency between the three emitters).",
+   "evidence": "crates/compylr-bridge-typescript-golang/src/bridge.rs:69-71 (is_scalar = Int|Float|Bool|Unit) gates emit_cgo_function (bridge.rs:73-76) but is never consulted by emit_dts (bridge.rs:124-147, always `${name}: number`) or emit_js_loader (bridge.rs:149-189, always `'int64'` for every param/return). Prior audit's \u00a74 already confirmed via a built .so's symbol table that `Call_shout` (a `string -> string` function) is MISSING from the library while index.d.ts still declares `export function shout(s: number): number;` and index.js still emits `lib.func('Call_shout', 'int64', ['int64'])`.",
+   "verified_how": "read-code-only"
+  }
+ ],
+ "demo-integrity": [
+  {
+   "title": "demo-ts-go's IR coverage report is a hardcoded stub that fabricates full coverage, including forms that don't exist in the compiler",
+   "severity": "critical",
+   "claim": "demo/demo-ts-go/src/algorithms/ir_coverage.ts and the README claim 'Every IR form a TypeScript program can produce is exercised by this demo package' with '13/13' statements and '19/19' expressions, computed from a real build the way demo-python-rust/ir_coverage.py does \u2014 but ir_coverage.ts never reads any file or artifact at all; it is 15 lines of literal console.log strings that print the same output regardless of what was actually compiled, and two of the 'covered' statement names ('Var', 'Delete') and one expression name ('Is') do not exist anywhere in compylr-ir at all.",
+   "evidence": "demo/demo-ts-go/src/algorithms/ir_coverage.ts (full file) contains only console.log calls, no fs/JSON access. Ran it: `node --experimental-strip-types src/algorithms/index.ts` printed 'statements \u2014 13/13: ... Var ... Delete' and 'expressions \u2014 19/19: ... ArrayLit ... Has ... Is' and 'Every IR form a TypeScript program can produce is exercised by this demo package.' Walked the actual build artifact demo/demo-ts-go/.compylr/ir/unit.json with the same externally-tagged-enum traversal ir_coverage.py uses (confirmed identical JSON tagging shape by inspecting the artifact directly) and found it is missing statements ['Var','Delete'] (unsurprising: they aren't real IR tags) and expressions ['ToFloat','ArrayLit','Range','Has','Is']. Cross-checked crates/compylr-ir/src/ir.rs: `pub enum Stmt` (line 728) has exactly 13 variants \u2014 Return, ReturnUnit, Bind, Assign, Effect, SetAttr, SetItem, Append, If, While, For, Break, Continue \u2014 with no Var or Delete variant anywhere in the crate; `pub enum Expr` (line 441) has exactly 19 variants including ListLit (not ArrayLit) and Contains (not Has), with no Is variant anywhere in the crate, and omits the real TupleIndex variant. So the printed table both invents two statement names and one expression name that the compiler has never emitted in its history, and omits the real Bind/Assign/TupleIndex variants, while the real build (checked directly) is actually missing coverage of Bind/Assign, ToFloat, ListLit-as-array-literal-form, Range, and Contains.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "demo-ts-go's test_coverage.test.ts does not test IR coverage despite its name and the README's description mirroring the Python suite",
+   "severity": "medium",
+   "claim": "The file named tests/test_coverage.test.ts, sitting alongside a README table that presents it as demo-ts-go's analogue of demo-python-rust's real coverage-assertion suite, only asserts that >=25 names got registered with the no-op CompylrManager.compyle() passthrough; it never reads .compylr/ir/unit.json or calls anything in ir_coverage.ts, so it cannot fail if IR coverage regresses.",
+   "evidence": "demo/demo-ts-go/tests/test_coverage.test.ts (full file, 14 lines): only assertion is `assert(registered.size >= 25, ...)` plus 4 `.has(name)` checks on `c.getRegistered()`. Contrast demo/demo-python-rust/tests/test_coverage.py: 4 test classes, 9 parametrized/individual assertions directly against `ir_coverage.measure(Path(c.paths.ir))`, including a dedicated 'TestTheMeasurementItself' class whose own docstring says 'A coverage check that cannot fail is worse than none, so it is checked by deletion.'",
+   "verified_how": "read-code-only"
+  }
+ ],
+ "enforcement-tests": [
+  {
+   "title": "conformance.rs's Go-backend coverage is render-only; the emitted Go for the corpus's own for/range entries is syntactically invalid and no test catches it",
+   "severity": "critical",
+   "claim": "conformance.rs's module doc says it is 'A corpus of IR units every implemented backend must render,' and its own `every_corpus_entry_compiles_for_the_rust_backend` test states the guiding principle that 'Rendering is not enough: the result has to build... Only handing the output to the target's own compiler settles it' \u2014 but that build check is hardcoded to `compylr_registry::backends::lookup(\"rust\")` (conformance.rs:998) and no equivalent exists for the Go backend anywhere in the enforcement suite, even though the registry-derived backend list explicitly includes \"go\" and is what `every_implemented_backend_renders_the_whole_corpus` (conformance.rs:970-984) iterates over.",
+   "evidence": "conformance.rs:970-984 only asserts `backend.emit(&unit)` doesn't error and `!files.is_empty()` \u2014 no syntax/build check. conformance.rs:995-1021 (`every_corpus_entry_compiles_for_the_rust_backend`) is the only build-check in the file and is hardcoded to backend \"rust\". The corpus already contains `Stmt::For { iter: Expr::Range { .. }, .. }` entries (conformance.rs lines 351-354, 619-622, 658-661, 729-732, 886-889). crates/compylr-backend-golang/src/emit.rs:439 has a catch-all `_ => \"/* unsupported expr */\".to_string()` in `emit_expr` with no arm for `Expr::Range`, and `Stmt::For` (emit.rs:263-296) always interpolates `emit_expr(iter)` into a Go `range` clause. Reproduced directly: `cargo run -q -p compylr-cli -- --backend go --emit rust frontends/python/fixtures/accepted/loops.py frontends/python/fixtures/accepted/mutation.py frontends/python/fixtures/accepted/nested_mutation.py ...` emits `for _, i := range /* unsupported expr */ {` for every `for x in range(...)` loop; reconstructing the crate (go.mod from golang.rs:72-74, compat.go from compat.rs's GO_COMPAT_SOURCE) and running `go build ./...` in context/go_check2 fails with 10 syntax errors (`syntax error: unexpected {, expected expression` etc., first at generated.go:110). Then confirmed the enforcement test itself is blind to this: `cargo test -p compylr --test conformance every_implemented_backend_renders_the_whole_corpus -- --nocapture` prints `test every_implemented_backend_renders_the_whole_corpus ... ok` \u2014 passing on the exact corpus that contains the Range entries and is fed to the \"go\" backend by name. Full transcript in context/audit-enforcement-tests.md.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "readme.rs's backend-status check never verifies the Go/TypeScript backend claims, letting a false 'not built yet' claim about Go stand",
+   "severity": "high",
+   "claim": "readme.rs's module doc says 'A README drifts the moment it is only prose someone promises to update... cargo test fails when the code and the README disagree,' but its only backend-status test (`readme_status_matches_reality`) checks solely whether the Rust backend crate's existence matches the presence of the strings \"no backend\"/\"Rust source\" in README.md \u2014 there is no equivalent check for Go or TypeScript anywhere in readme.rs.",
+   "evidence": "`grep -ni \"golang\\|\\\"go\\\"\\|typescript\" crates/compylr-host-python/tests/readme.rs` returns zero hits. Meanwhile README.md:185-186 currently reads: 'Not built yet: `llm_assist` ..., and the TypeScript, Go, and C++ backends (reserved names that fail with a message saying so).' This is false for Go: `crates/compylr-backend-golang` exists and is registered (`registry.rs:12-17`, `the_rust_and_go_backends_are_implemented`), and `cargo run -q -p compylr-cli -- --backend go --emit rust frontends/python/fixtures/accepted/arithmetic.py` emits real Go source (`func add(a int64, b int64) int64 { return (a + b) }`), not a reserved-name refusal message.",
+   "verified_how": "ran-it"
+  }
+ ],
+ "python-rust-path": [
+  {
+   "title": "compylr compyle's documented exit-code contract is false for import failures",
+   "severity": "critical",
+   "claim": "README.md:324-325 states the compylr CLI's exit status alone distinguishes built/reused (0), nothing marked (3), and failure (1) \u2014 but a module that genuinely fails to import (a real defect, explicitly described one sentence earlier as 'reported and skipped') never produces exit code 1: it is folded into exit 0 ('built') if any other module still marked something, or exit 3 ('nothing marked') if none did.",
+   "evidence": "frontends/python/compylr/_precompile.py:312-316: `quiet = report.found_nothing or report.disabled; ... return 3 if quiet else 0` never inspects `report.failures`. Verified live by invoking the real console-script target (pyproject.toml:29 `compylr = \"compylr._precompile:main\"`): a project with one good module (marks a function) and one module that does `raise RuntimeError('boom')` on import prints '1 module(s) failed to import: bad.py: RuntimeError: boom' followed by 'built', and `main()` returns 0. A project where every module raises on import returns 3 ('nothing marked'). Exit code 1 is reachable only via `main()`'s `except Exception` branch, which catches a downstream build/toolchain exception escaping `precompile()` -- never an import failure, which is caught inside `precompile()`'s own try/except and appended to `report.failures` instead of being re-raised. Confirmed no test in frontends/python/tests/test_precompile.py or test_disable.py ever asserts an exit code with `report.failures` non-empty; the only `main()` exit-code assertions cover a missing root (2), nothing marked (3), and clean success (0) -- code path 1 is untested entirely.",
+   "verified_how": "ran-it"
+  }
+ ],
+ "spec-vs-reality": [
+  {
+   "title": "Go backend never emits the fallible (Ret, error) signature its own spec requires",
+   "severity": "critical",
+   "claim": "golang-backend spec, Requirement 'Function and method emission', scenario 'Fallible function emission' states divide(a,b) must generate `func Divide(a int64, b int64) (int64, error)`; the constructor scenario likewise requires `NewClassName(...) (*ClassName, error)` and methods `(Ret, error)`.",
+   "evidence": "crates/compylr-backend-golang/src/emit.rs:89-98 (emit_method) and :117-125 (emit_function) build `ret_str` as either empty or just `go_ty(&ret)` \u2014 no error is ever added to the return tuple; emit_class's constructor signature at emit.rs:48 is `func New{}({}) *{} {{` with no error slot either. Ran it: `cargo run -q -p compylr-cli -- --frontend typescript --backend go --emit rust /tmp/t2.ts` on a Counter class + `first(xs)` producing `func NewCounter(start int64) *Counter {` and `func first(xs []int64) int64 {` \u2014 no `error` anywhere in any signature.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "Go's own compat helpers panic on division by zero instead of returning the error the spec (and the backend's own declared guarantee) requires",
+   "severity": "critical",
+   "claim": "golang-backend spec scenario 'Division by zero returns error': 'the Go helper returns `(0, errors.New(\"division by zero\"))` rather than causing a panic.' The backend's own `GO_PRESERVES` (golang.rs:20-23) declares `Guarantee::DivisionByZeroReported`, and semantic-behavior's 'A resolved behavior determines what the program requires preserved' requirement depends on that declaration being honest.",
+   "evidence": "crates/compylr-backend-golang/src/compat.rs:10-19 and :22-30 (`GoFloorDiv`/`GoRem`): `if b == 0 { panic(\"division by zero\") }`. Empirically built and ran it: emitted `divide(a,b)` for `a/b` via the CLI, wrote a `runCheck()` calling `divide(1,0)`, and `go run .` in /tmp/gocheck/out produced `panic: division by zero ... exit status 2` \u2014 the whole process crashes, nothing is returned or reported.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "GoSubscript, the negative-indexing/bounds-checking helper, is dead code \u2014 every subscript emits raw unchecked Go indexing",
+   "severity": "critical",
+   "claim": "golang-backend spec scenario 'Negative indexing helper is emitted': 'WHEN an IR subscript node requests negative-from-end indexing THEN emitted Go code invokes the subscript helper in compat.go and returns an error if out of bounds.'",
+   "evidence": "crates/compylr-backend-golang/src/emit.rs:356-358: `Expr::Subscript { base, index, .. } => format!(\"({{}})[{{}}]\", emit_expr(base), emit_expr(index))` \u2014 no call to `GoSubscript` anywhere in emit.rs (confirmed via `grep -n \"GoSubscript\\|Subscript\" crates/compylr-backend-golang/src/emit.rs`, which only shows the match arm itself). Ran `xs[0]` through the CLI, got `(xs)[int64(0)]` \u2014 direct Go indexing, no helper call, no negative resolution, no bounds check.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "Go backend's constructor discards the actual __init__ body \u2014 silently wrong field values for any non-trivial constructor",
+   "severity": "critical",
+   "claim": "golang-backend spec scenario 'Class emission': 'it generates a Go struct definition, a constructor function initializing fields, and methods with pointer receivers.'",
+   "evidence": "crates/compylr-backend-golang/src/emit.rs:28-79 (`emit_class`) never reads `class.init.body` \u2014 it only reads `class.init.params`, matching each attribute name against param names by string equality and either copying the identically-named param or zero-initializing (emit.rs:54-70). The IR's `Class.init: Function` explicitly documents 'its body initialises the attributes' (crates/compylr-ir/src/ir.rs:1053), so the real logic exists in the IR and is thrown away. Ran two cases: (1) `class Counter { count: number; constructor(start: number) { this.count = start; } }` \u2014 differently-named param \u2192 generated `inst := &Counter{count: 0,}`, silently dropping the constructor argument entirely. (2) `class Doubler { count: number; constructor(count: number) { this.count = count * 2; } }` \u2014 same-named param but with logic \u2192 generated `inst := &Doubler{count: count,}`, silently dropping the `* 2`, so `NewDoubler(5)` yields `count=5` instead of the correct `10`.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "TypeScript frontend never checks type compatibility on reassignment or on an annotated initializer, producing Go that fails to type-check",
+   "severity": "critical",
+   "claim": "typescript-frontend spec, Requirement 'TypeScript type validation and inference', scenario 'Incompatible type assignment is rejected': 'WHEN a variable initialized as a string is assigned a number THEN lowering fails with a diagnostic stating the type mismatch.'",
+   "evidence": "crates/compylr-frontend-typescript/src/lower.rs:895-902 (reassignment): `let ty = if let Some((var_ty, _)) = ctx.lookup_var(name) { var_ty.clone() } else {...}` \u2014 uses the variable's declared type as the emitted `ty` but never compares it against `right_ty` (the actual type of the RHS), so any RHS type is accepted silently. crates/compylr-frontend-typescript/src/lower.rs:706-717 (declaration with an annotation): `let ty = if let Some(type_annot) = &decl.type_annotation { lower_type(...) } else if inferred_ty != Ty::Unit {...}` \u2014 when an annotation is present it is used as-is, never checked against `inferred_ty`. Ran two cases through the CLI: `let y: string = \"hi\"; y = 42;` compiled clean and emitted `var y string = \"hi\"\ny = int64(42)`; `const x: string = 5;` compiled clean and emitted `var x string = int64(5)`. Both are invalid Go (`go build` would reject `string = int64(...)`).",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "typescript-api spec describes a full manager/build-orchestration package that does not exist anywhere in the repository",
+   "severity": "critical",
+   "claim": "typescript-api spec's every requirement: `initialize(config)` returning a manager with `backend`/`behavior`/`llmAssist` options; `@c.compyle`/`c.compyle(fn)` validating source 'immediately against compylr-frontend-typescript'; first-call compilation invoking `go build -buildmode=c-shared`, loading the artifact via the bridge FFI loader, and replacing the function body; `.compylr/build.json` fingerprint/version caching; `COMPYLR_DISABLE=1` bypass.",
+   "evidence": "The only implementation of a TypeScript-side compyle manager anywhere in the repo is demo/demo-ts-go/src/algorithms/_compylr.ts (18 lines): `compyle<T extends Function>(target: T): T { if (target.name) { this.registered.set(target.name, target); } return target; }` \u2014 no `initialize()` function exists anywhere (confirmed: `grep -rln \"initialize\"` over every non-vendored, non-context .ts file in the repo returns nothing), no `.compylr/build.json` writer/reader exists in TS, no `go build` invocation from TS/JS exists, and `grep -rn \"COMPYLR_DISABLE\" --include=\"*.ts\"` over the whole repo (excluding vendored/worktrees) returns zero matches.",
+   "verified_how": "ran-it"
+  },
+  {
+   "title": "typescript-bindings spec's entire Node-API compiler surface does not exist \u2014 the crate only exports a version string",
+   "severity": "critical",
+   "claim": "typescript-bindings spec Requirement 'Expose compiler pipeline operations': the native addon SHALL expose lowering TypeScript to IR with a behavior profile, validating/fingerprinting units, resolving frontends/backends/bridges from compylr-registry, and emitting target source / HostArtifacts. Requirement 'Structured error translation': LoweringError/FrontendError/BackendError/BridgeError SHALL be translated into JS Errors with `kind`, `line`, `column`, `code`, `message`.",
+   "evidence": "crates/compylr-host-typescript/src/lib.rs, in full: `use napi_derive::napi; #[napi] pub fn version() -> String { \"0.1.0\".to_string() }` \u2014 that is the entire crate. No `lowerTypeScript`, no validate/fingerprint export, no registry resolution export, no emit/HostArtifact export, and no error-translation code of any kind exist in this or any other file in `crates/compylr-host-typescript/`.",
+   "verified_how": "read-code-only"
+  },
+  {
+   "title": "typescript-go-bridge's error-propagation requirement has no implementing code at all, not merely a bug",
+   "severity": "high",
+   "claim": "typescript-go-bridge spec, Requirement 'Boundary type marshalling and error propagation': 'When an emitted Go function returns a non-nil `error`, the JavaScript wrapper translates the error into a thrown JavaScript `Error`.' Scenario 'Runtime error becomes thrown exception': a compiled Go function returning an error must produce `throw new Error(\"division by zero\")` in JS.",
+   "evidence": "crates/compylr-bridge-typescript-golang/src/bridge.rs:149-189 (`emit_js_loader`) generates a koffi `lib.func` binding whose return signature is hardcoded to `'int64'` (line 165 `let ret_sig = \"'int64'\";`) and whose wrapper function is `function name(args) { return native_name(args); }` (lines 178-185) \u2014 there is no error-checking branch, no `if (err) throw`, no reference to any error value anywhere in the generated JS. This is consistent with the Go backend finding above: since Go functions never return `(Ret, error)` in the first place (emit.rs never emits it), there is nothing for the bridge to translate even in principle.",
+   "verified_how": "read-code-only"
+  },
+  {
+   "title": "The conformance/corpus test suite that pipeline-architecture relies on to catch exactly these defects only ever checks that Rust-emitted code compiles, never Go",
+   "severity": "high",
+   "claim": "pipeline-architecture spec, Requirement 'Every implemented backend renders the shared conformance corpus': '...a backend that cannot render a corpus entry SHALL fail visibly rather than emitting code that does not build,' checked 'through every backend the registry reports as implemented, enumerated from the registry.'",
+   "evidence": "crates/compylr-host-python/tests/conformance.rs:970 `every_implemented_backend_renders_the_whole_corpus` does loop over `compylr_registry::backends::implemented_names()` and call `backend.emit(&unit)`, but only asserts the result is non-empty files \u2014 it never invokes a toolchain. The one test that actually attempts to build the output, `every_corpus_entry_compiles_for_the_rust_backend` (line 995), is hardcoded to `compylr_registry::backends::lookup(\"rust\")` only; there is no analogous `..._compiles_for_the_go_backend` anywhere (`grep -rln \"go build\\|go vet\\|compiles_for_the_go\" --include=\"*.rs\" crates/` returns nothing). The Go backend's own unit test, crates/compylr-backend-golang/tests/emit.rs `emits_valid_go_package_and_function`, only does string-`contains` assertions on the generated text and never runs `gofmt`/`go build` despite its name claiming validity.",
+   "verified_how": "read-code-only"
+  }
+ ],
+ "generated-docs": [
+  {
+   "title": "golang.yml's job literally named \"demo\" never runs or exercises anything \u2014 it only compiles",
+   "severity": "high",
+   "claim": "The Go workflow's `demo` job (.github/workflows/golang.yml:57) precompiles the TypeScript sources to Go and then, as its last step, builds the .so \u2014 and stops. Nothing in the job invokes the shared library, calls an exported symbol, or runs any demo/test against it.",
+   "evidence": "`.github/workflows/golang.yml` job `demo` (name: demo, line 57) steps: checkout, setup-rust, setup-golang, \"Precompile TypeScript demo to Go crate\" (cargo run --emit crate), then the final step \"Build compiled shared library\" (line 86): `go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .`. No step after that exists in the job. `grep -n \"node\\|npm\\|dlopen\" .github/workflows/golang.yml` finds nothing \u2014 this job never touches Node/TypeScript at all despite compiling a TypeScript-sourced crate. This is new, specific evidence beyond what the existing audit file recorded (which only examined typescript.yml's demo job, not golang.yml's).",
+   "verified_how": "read-code-only"
+  },
+  {
+   "title": "typescript.yml's \"verify IR coverage\" step has no code path that can fail, confirmed at the source level",
+   "severity": "high",
+   "claim": "The CI step named \"Run every algorithm and verify IR coverage\" (.github/workflows/typescript.yml:94-96, `run: npm start`) executes `main()` in demo/demo-ts-go/src/algorithms/index.ts, which calls `reportCoverage()` and `runAllBenchmarks()` \u2014 neither of which contains a `throw`, `process.exit`, or `process.exitCode` assignment anywhere in their source.",
+   "evidence": "`.github/workflows/typescript.yml:94`: `- name: Run every algorithm and verify IR coverage` / `run: npm start`. `package.json` \"start\": \"node --experimental-strip-types src/algorithms/index.ts\". `src/algorithms/index.ts`'s `main()` is exactly: `console.log(...); reportCoverage(); runAllBenchmarks();` with no error handling. `grep -n \"process.exit\\|throw\\|process.exitCode\" src/algorithms/ir_coverage.ts src/algorithms/benchmark.ts` \u2192 no output (ran directly, zero matches). This is a stronger, source-verified version of the observation the existing evidence file made only in passing (section C names the step but does not trace the absence of any failure path).",
+   "verified_how": "read-code-only"
+  },
+  {
+   "title": "The weekly benchmark.yml workflow automates turning demo-ts-go's fabricated (random-multiplier) benchmark numbers into a real, mergeable pull request with a false provenance claim",
+   "severity": "critical",
+   "claim": "`.github/workflows/benchmark.yml` runs on a Monday cron (line 29: `cron: \"17 6 * * 1\"`) and on every push touching demo/demo-ts-go/src or the compiler, calls `scripts/update_benchmarks.py` (which, per the already-filed finding, writes demo-ts-go's README benchmark tables from `benchmark.ts`'s `fast * item.speedup` hardcoded-constant fabrication, not a real interpreted measurement), then opens/updates a PR whose body states \"Generated by `.github/workflows/benchmark.yml` from run ${GITHUB_RUN_ID}\" (line 141) \u2014 i.e., the automation asserts real provenance for numbers it never measured.",
+   "evidence": "benchmark.yml:26-29 (schedule/cron), :90 (`python scripts/update_benchmarks.py --scale \"$SCALE\" --n \"$N\"` \u2014 the same call already shown in the evidence file to write demo-ts-go's tables from `benchmark.ts`'s random-multiplier fabrication), :141 (`\"Generated by \\`.github/workflows/benchmark.yml\\` from run ${GITHUB_RUN_ID}...\"`). The job's own header comment (lines 1-12) states: \"It writes the numbers back... A table nobody re-measures is worse than no table, because a reader trusts it.\" That stated design goal is what makes the automated laundering of fake numbers into a mergeable PR the worst-case realization of the already-filed defect, not just a latent risk in an unrun script.",
+   "verified_how": "read-code-only"
+  },
+  {
+   "title": "update_benchmarks.py's TypeScript benchmark runner has no disagreement guard, unlike its Python counterpart",
+   "severity": "low",
+   "claim": "`run_benchmark` (the Python demo path, scripts/update_benchmarks.py:74-95) checks the subprocess output for `\"WARNING: compiled and interpreted disagreed\"` and raises if found, refusing to publish a table where the two modes disagree. `run_ts_benchmark` (the TypeScript demo path, :99-111) has no equivalent check at all \u2014 it publishes whatever the subprocess prints unconditionally.",
+   "evidence": "scripts/update_benchmarks.py:93-95 (`if \"WARNING: compiled and interpreted disagreed\" in output: raise SystemExit(...)`) exists only inside `run_benchmark`; `run_ts_benchmark` (:99-111) returns `completed.stdout.strip()` directly with no string check of any kind.",
+   "verified_how": "read-code-only"
+  }
+ ]
+}
