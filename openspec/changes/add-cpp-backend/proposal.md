@@ -9,20 +9,23 @@ costs N × M. It also records the escape hatch, and defers it:
 > be implemented *behind* it later, collapsing N × M back to N + M at the cost of a marshalling
 > layer. That trade is deferred, not foreclosed.
 
-Two frontends and two backends make four pairs and we have written two bridges. A third target
-written the old way costs two more hand-written bridges, and a third frontend would then cost
-three. The deferral comes due now, and **C++ is the target that makes cashing it in honest**: it
-is the only supported target whose idiomatic export surface already *is* a C ABI, and both host
-runtimes we have can consume one with what they ship — `ctypes` in CPython, `node:ffi` /
-`process.dlopen` in Node — rather than through a third-party binding library that would have to be
-chosen per pair.
+**The deferral stays deferred, and C++ is what shows why.** An earlier draft of this proposal
+argued the opposite — that C++ is where the hub could finally be cashed in, because its idiomatic
+export surface already is a C ABI and both hosts could consume one with what they ship. The second
+half is false: **Node has no core FFI**, and `process.dlopen` loads only Node-API addons, requiring
+`napi_register_module_v1` rather than arbitrary C symbols. A hub would mean writing a Node-API addon
+anyway, behind an extra indirection, with hand-rolled marshalling that `Napi::` already provides.
 
-So this change is two things that only make sense together. A third backend, which is the second
-*statically compiled* one and the first with move semantics, RAII, and no garbage collector — the
-combination [`conformance.rs`](../../../crates/compylr-host-python/tests/conformance.rs#L971)
-enumerates from the registry precisely so a backend added tomorrow is covered today. And the first
-bridge that is not written twice: one crate emits the export surface, and each frontend adds a
-loader. Adding a fourth frontend after this costs a loader, not a bridge.
+The inversion is the point: **C++ is the target that needs a hub least**, because both hosts'
+first-class binding libraries — nanobind and node-addon-api — are already C++ header libraries.
+Every other target reaches across a language gap to bind; C++ is the one where the host's own
+tooling meets you where you are. So this change adds a third backend and two ordinary pairwise
+bridges, and the N x M cost is paid, visibly, as `bridge.rs` always said it would be.
+
+The backend itself is the second *statically compiled* target and the first with move semantics,
+RAII, and no garbage collector — which is a real test of the IR's neutrality. It is a weaker test
+than it should be, because the shared corpus check turns out to render without compiling; closing
+that is part of this change rather than an assumption it inherits.
 
 The subset, its rules, and their reasoning are in [`CLAUDE.md`](../../../CLAUDE.md); this change
 grows none of them.
@@ -38,17 +41,20 @@ grows none of them.
   [`backends`](../../../crates/compylr-registry/src/backends.rs#L37) — it stays reserved as a
   *frontend*, so the reserved-name scenarios elsewhere keep a live example.
 
-- **`crates/compylr-bridge-cpp-abi`, the shared half.** Emits the `extern "C"` export surface and
-  the marshalling layer for every generated member: one exported symbol per member, opaque handles
-  for instances, and an out-parameter error channel. It is not registered as a bridge and
-  implements no pair; it is what the pair bridges are built from.
+- **`crates/compylr-bridge-python-cpp`**, implementing
+  [`HostBridge`](../../../crates/compylr-core/src/bridge.rs#L83) for `(python, cpp)` by generating a
+  **nanobind** module: boundary marshalling, `nb::class_` instance binding, and a returned failure
+  translated into the Python exception the source operation would have raised. nanobind rather than
+  pybind11 for compile time, binary size, and stable ABI on 3.12+.
 
-- **`crates/compylr-bridge-python-cpp` and `crates/compylr-bridge-typescript-cpp`, the thin
-  halves.** Each implements [`HostBridge`](../../../crates/compylr-core/src/bridge.rs#L83) for its
-  pair, adds only its own loader — a `ctypes` module and a `.pyi` for Python, an FFI loader and an
-  `index.d.ts` for TypeScript — and delegates everything else. Both register in
-  [`bridges`](../../../crates/compylr-registry/src/bridges.rs#L22). The registry stays keyed by
-  pair: the hub sits *behind* the trait, exactly as the deferral described.
+- **`crates/compylr-bridge-typescript-cpp`**, the same for `(typescript, cpp)` via
+  **node-addon-api**, built with cmake-js — which fits because the backend already emits
+  `CMakeLists.txt`, where node-gyp would want a `binding.gyp` and a Python interpreter.
+  `Napi::ObjectWrap` carries instances; a returned failure becomes a thrown `Error`.
+
+- **A conformance tier that compiles and runs what it renders.** The existing corpus check is
+  render-only for a non-Rust backend, so "every implemented backend renders the corpus" has never
+  meant the output builds. This change closes that before the C++ backend relies on it.
 
 - **C++ declares its own stance on all six axes**, and only its own — the rule
   [`a_stance_declaration_names_only_its_own_language`](../../../crates/compylr-host-python/tests/crate_boundaries.rs#L341)
@@ -68,7 +74,8 @@ grows none of them.
   permitting it fails saying it is reserved rather than silently doing nothing.
 
 - **Two demo projects, `demo/demo-python-cpp` and `demo/demo-ts-cpp`**, at the standard
-  [`demo/demo-python-rust`](../../../demo/demo-python-rust/README.md) sets: the same algorithm
+  [`demo/demo-python-rust`](../../../demo/demo-python-rust/README.md) sets — **only** that one, since
+  `demo-ts-go`'s coverage report is a hardcoded stub and its benchmark table is fabricated (#38): the same algorithm
   breadth, the same nth-prime depth, the IR-coverage table asserted rather than claimed, benchmark
   tables behind `<!-- benchmark:NAME -->` markers, and verification from this repository's suite as
   well as their own.
@@ -176,19 +183,22 @@ expected:
   IR-to-C++ type spellings, the `std::expected` fallible-call convention, the `compat.hpp` helpers
   implementing each behavior axis, C++'s own stance declaration and preserved guarantees, and
   `clang-format` post-processing.
-- `cpp-abi-bridge`: The shared `extern "C"` export surface and marshalling layer for generated C++,
-  and the contract a per-frontend loader implements against it — including how the two registered
-  pair bridges are composed from it without breaking pair-keyed resolution.
+- `python-cpp-bridge`: The nanobind module generated onto compiled C++ so it is callable from
+  Python — boundary marshalling, instance binding, and translating a returned failure into the
+  Python exception the source operation would have raised.
+- `typescript-cpp-bridge`: The same for Node, generated as a node-addon-api addon built with
+  cmake-js, including `Napi::ObjectWrap` instance binding and `Error` translation.
 
 ### Modified Capabilities
 
-- `pipeline-architecture`: `cpp` becomes an implemented backend; `(python, cpp)` and
-  `(typescript, cpp)` become registered bridges; and a bridge may be composed from a shared
-  target-side ABI plus a source-side loader while still resolving by pair.
+- `pipeline-architecture`: `cpp` becomes an implemented backend and `(python, cpp)` /
+  `(typescript, cpp)` become registered bridges. The shared-conformance-corpus requirement is
+  tightened: rendering is not coverage, and a backend's corpus output must be compiled and run.
 - `semantic-behavior`: C++ declares a complete stance on all six axes.
 - `cli`: `--backend cpp` emits C++ source, and the whole-crate form writes a buildable CMake tree.
 - `demo`: the demo requirement covers a set of projects, one per bridged pair, rather than one
-  project; `demo-python-cpp` and `demo-ts-cpp` join at the existing standard.
+  project. `demo-python-cpp` and `demo-ts-cpp` join — but they **establish** the standard rather
+  than joining an existing one, because `demo-ts-go` has been confirmed not to meet it (#38, #39).
 - `fixture-corpus`: the differential tiers run each accepted fixture over every bridged pair the
   registry reports, rather than over one.
 - `build-pipeline`: the toolchain a build requires depends on the target, and a missing one is
@@ -198,8 +208,10 @@ expected:
 
 ## Impact
 
-- **New crates**: `compylr-backend-cpp`, `compylr-bridge-cpp-abi`, `compylr-bridge-python-cpp`,
-  `compylr-bridge-typescript-cpp` — taking the workspace from 13 to 17.
+- **New crates**: `compylr-backend-cpp`, `compylr-bridge-python-cpp`,
+  `compylr-bridge-typescript-cpp` — taking the workspace from 13 to 16.
+- **New build dependencies for generated trees**: nanobind (Python side) and node-addon-api +
+  cmake-js (Node side), each fetched by its own host's package manager.
 - **Modified crates**: [`backends`](../../../crates/compylr-registry/src/backends.rs#L23) and
   [`bridges`](../../../crates/compylr-registry/src/bridges.rs#L22) grow entries;
   [`compylr-cli`](../../../crates/compylr-cli/src/main.rs) gains nothing but a passing name.

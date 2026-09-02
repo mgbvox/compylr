@@ -51,8 +51,9 @@
       `std::expected`, one containing none returns its type directly, and a failure propagates out of
       a caller rather than being dropped (`cpp-backend`: *A fallible operation returns a value*)
 - [ ] 4.2 Emit every statement form in every position it is legal in — function body, constructor,
-      shared receiver, mutable receiver, loop body. [`conformance.rs`](../../../crates/compylr-host-python/tests/conformance.rs#L1033)
-      enumerates backends from the registry, so this group is done when it passes with no edit to it
+      shared receiver, mutable receiver, loop body. `conformance.rs` enumerates backends from the
+      registry, so registering the backend enrols it; group 4a is what makes that enrolment mean the
+      output actually builds
 - [ ] 4.3 Emit classes: one member per attribute, a constructor assigning all of them, methods whose
       mutation is observable to the next call
 - [ ] 4.4 Emit `mut`-equivalent places rather than values for mutation targets, and borrows for
@@ -64,42 +65,47 @@
       already states it over every backend; confirm it covers the new crate
 - [ ] 4.7 `cargo test --workspace`; commit
 
-## 5. The shared C-ABI surface
+## 4a. Make conformance compile and run, before the backend leans on it
 
-- [ ] 5.1 Write the surface tests first: the generated export surface contains no source-language
-      spelling, and two units holding the same IR from different frontends emit byte-identical
-      shared files (`cpp-abi-bridge`: *One target-side export surface serves every source language*)
-- [ ] 5.2 Create `crates/compylr-bridge-cpp-abi/`, depending on `compylr-ir`, `compylr-core`, and
-      `compylr-backend-cpp`. It implements no pair and is **not** registered as a bridge
-- [ ] 5.3 Emit `bindings.cpp`: one flat `extern "C"` symbol per member, arguments by C-compatible
-      value, result through an out-parameter, integer status returned — design D4
-- [ ] 5.4 Emit the allocation and release entry points, so every buffer is freed by the surface that
-      allocated it, and opaque handles for instances
-- [ ] 5.5 Derive `loaded_as` from the [`BuildKey`](../../../crates/compylr-core/src/bridge.rs#L44)
-      fingerprint **and** variant tag; test that two pass configurations of one unit do not collide
+**This group is a prerequisite, not a nicety.** An audit confirmed the corpus check is render-only
+for a non-Rust backend: the emitted Go for the corpus's own entries is never compiled and never run,
+so "every implemented backend renders the corpus" has never meant the output builds. The C++ backend
+inherits no safety net until this exists — design.md Context.
+
+- [ ] 4a.1 Write the failing test first: a backend deliberately emitting text that does not compile
+      must fail the conformance check. Today it passes
+- [ ] 4a.2 Extend [`conformance.rs`](../../../crates/compylr-host-python/tests/conformance.rs#L1033)
+      so each implemented backend's corpus output is compiled with that target's toolchain
+- [ ] 4a.3 Where a corpus entry carries an expected value, run the compiled output and compare
+- [ ] 4a.4 Report a missing target toolchain as **skipped, naming the tool** — never as a pass
+- [ ] 4a.5 Run it against the existing Go backend and record what it finds. Expect failures; they are
+      pre-existing defects (#39 and the confirmed spec-vs-reality set), not regressions from this
+      change. File what is new, do not fix it here
+- [ ] 4a.6 `cargo test --workspace`; commit
+
+## 5. The Python to C++ bridge (nanobind)
+
+- [ ] 5.1 Write the boundary tests first: a scalar crosses and returns, text crosses as UTF-8, a
+      collection parameter is a copy the caller does not see mutated, an instance keeps its state
+      across two calls, and a reported failure raises `ZeroDivisionError`
+- [ ] 5.2 Create `crates/compylr-bridge-python-cpp` implementing `HostBridge` for `("python", "cpp")`,
+      emitting a nanobind module over the backend's output — design D3
+- [ ] 5.3 Emit `nb::class_` instance binding so a mutated attribute is what the caller sees next call
+- [ ] 5.4 Translate a returned `std::expected` failure into the Python exception the source operation
+      would have raised
+- [ ] 5.5 Register the pair in [`bridges`](../../../crates/compylr-registry/src/bridges.rs#L22)
 - [ ] 5.6 `cargo test --workspace`; commit
 
-## 6. The Python to C++ loader
+## 6. The TypeScript to C++ bridge (node-addon-api)
 
-- [ ] 6.1 Write the loader tests first: a scalar crosses and returns, text crosses as UTF-8, a
-      collection parameter is a copy the caller does not see mutated, an instance handle keeps its
-      state across two calls, and a reported failure raises `ZeroDivisionError`
-- [ ] 6.2 Create `crates/compylr-bridge-python-cpp/`, implementing `HostBridge` for `("python", "cpp")`
-      by delegating to the shared crate and adding only the `ctypes` loader and its stubs — design D3
-- [ ] 6.3 Register the pair in [`bridges`](../../../crates/compylr-registry/src/bridges.rs#L22)
-- [ ] 6.4 Assert a handle is released exactly once, and run this group's tests under a leak
-      sanitizer — the failure mode here does not surface as a wrong answer
-- [ ] 6.5 `cargo test --workspace`; commit
-
-## 7. The TypeScript to C++ loader
-
-- [ ] 7.1 Write the same boundary tests from the TypeScript side, including that a reported failure
-      is thrown as an `Error` carrying the message
-- [ ] 7.2 Create `crates/compylr-bridge-typescript-cpp/` on the same shape, adding only the FFI
-      loader and `index.d.ts`, and register `("typescript", "cpp")`
-- [ ] 7.3 Assert the two artifacts' shared files are byte-identical and only the loader differs —
-      the claim design D3 is making, and the one that stops the split becoming a copy
-- [ ] 7.4 `cargo test --workspace`; commit
+- [ ] 6.1 Write the same boundary tests from the TypeScript side, including a returned failure
+      becoming a thrown `Error`
+- [ ] 6.2 Create `crates/compylr-bridge-typescript-cpp` emitting a node-addon-api addon, built with
+      cmake-js against the `CMakeLists.txt` the backend already emits — not node-gyp
+- [ ] 6.3 Use `Napi::ObjectWrap` for instances, and assert state persists across calls
+- [ ] 6.4 Register `("typescript", "cpp")`
+- [ ] 6.5 Assert no bridge crate links a host runtime or parses a source language — group 1's rules
+- [ ] 6.6 `cargo test --workspace`; commit
 
 ## 8. Toolchain preflight, per target
 

@@ -1,44 +1,44 @@
 ## ADDED Requirements
 
-### Requirement: A bridge may be composed from a shared target surface and a source-side loader
+### Requirement: A backend's conformance output SHALL be compiled and run, not merely rendered
 
-A host bridge MAY be implemented as a shared, source-language-independent surface belonging to the
-target, plus a small loader belonging to the source language. Where it is, the composition SHALL be
-invisible to resolution: each pair SHALL still be registered and resolved as its own bridge, and an
-unregistered pair SHALL still report that the pair is not bridged.
+Rendering the shared corpus SHALL NOT by itself constitute conformance coverage. For every
+implemented backend, the corpus output SHALL be **compiled** with that target's toolchain and, where
+the entry has an expected value, **run** and compared against it. A backend that renders text which
+does not build SHALL fail the check.
 
-Where a target admits such a surface, adding a source language that calls it SHALL cost one loader
-rather than one bridge, so the N × M bridge cost is paid once per target instead of once per pair.
-A target that admits no such surface SHALL remain free to implement each pair directly; this is a
-permission, not an obligation.
+Where the target toolchain is unavailable on the machine, the check SHALL report itself **skipped**,
+naming the missing toolchain, and SHALL NOT report success.
 
-The trait is already shaped for this — [`bridge.rs`](../../../../../crates/compylr-core/src/bridge.rs#L18)
-records it as deferred rather than foreclosed — so nothing about resolution changes.
+This is not a new idea but a correction: the requirement that every implemented backend renders the
+corpus has been satisfied by a backend whose emitted output was never compiled, so the check
+established that text was produced and nothing more. "Renders" was doing work the word cannot carry.
 
-#### Scenario: A composed bridge resolves like any other
+#### Scenario: Rendered output is compiled
 
-- **GIVEN** two source languages whose bridges to one target share a generated surface
-- **WHEN** either pair is resolved from the bridge registry
-- **THEN** resolution returns a bridge whose source and target are that pair
+- **GIVEN** an implemented backend and the shared conformance corpus
+- **WHEN** the conformance check runs
+- **THEN** the emitted source for every corpus entry is compiled with that target's toolchain
 
-#### Scenario: The shared half is not itself a bridge
+#### Scenario: Output that does not build fails the check
 
-- **GIVEN** a crate holding a target's shared export surface
-- **WHEN** the bridge registry is enumerated
-- **THEN** that crate is not registered as a bridge for any pair
+- **GIVEN** a backend whose emitted source for a corpus entry does not compile
+- **WHEN** the conformance check runs
+- **THEN** it fails, naming the entry and the backend
+- **BUT** it does not report that backend as covered
 
-#### Scenario: A third source language costs a loader
+#### Scenario: A missing toolchain is a skip, not a pass
 
-- **GIVEN** a target with a shared export surface and two registered pairs
-- **WHEN** a third source language is added by supplying only a loader
-- **THEN** the pair resolves
-- **AND** the two existing pairs' emitted artifacts are unchanged
+- **GIVEN** a machine without the toolchain an implemented backend requires
+- **WHEN** the conformance check runs for that backend
+- **THEN** it reports itself skipped and names the missing toolchain
+- **BUT** it does not report success
 
-#### Scenario: An unregistered pair is still unbridged
+#### Scenario: Answers are compared where the corpus states them
 
-- **GIVEN** a target with a shared export surface
-- **WHEN** a pair whose loader has not been supplied is resolved
-- **THEN** resolution fails naming both languages and stating the pair is not bridged
+- **GIVEN** a corpus entry carrying an expected result
+- **WHEN** the compiled output for an implemented backend is run
+- **THEN** its answer is compared against that expected result
 
 ## MODIFIED Requirements
 

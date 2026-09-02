@@ -3,16 +3,19 @@
 See [`proposal.md`](proposal.md) — Why. The facts that shape the approach:
 
 * [`bridge.rs`](../../../crates/compylr-core/src/bridge.rs#L18) records the canonical-C-ABI hub as
-  deferred rather than foreclosed, and the trait is already shaped for it:
-  [`HostBridge::emit`](../../../crates/compylr-core/src/bridge.rs#L95) returns a whole
-  [`HostArtifact`](../../../crates/compylr-core/src/bridge.rs#L69), so a bridge is free to obtain
-  most of that artifact from somewhere shared.
+  deferred rather than foreclosed. It stays deferred: **Node cannot consume a C ABI with anything it
+  ships** — there is no core FFI module, and `process.dlopen` loads only Node-API addons, requiring
+  `napi_register_module_v1` rather than arbitrary C symbols. That single fact is what settles D3.
 * [`bridges`](../../../crates/compylr-registry/src/bridges.rs#L22) keys by pair and holds
-  `&'static dyn HostBridge` — two entries, no `Option`. Nothing prevents two entries delegating to
-  one implementation; the registry never asks where the bytes came from.
+  `&'static dyn HostBridge`. Two more entries join it; nothing about resolution changes.
 * [`conformance.rs`](../../../crates/compylr-host-python/tests/conformance.rs#L971) enumerates
-  backends from the registry, and the corpus is authored as IR rather than as any source language,
-  so a third backend is covered the moment it is registered. There is nothing to add there.
+  backends from the registry, and the corpus is authored as IR rather than as any source language.
+  **An earlier draft of this document claimed the corpus also compiles what it renders, and that a
+  third backend was therefore covered the moment it was registered. That is false.** An audit
+  confirmed the Go-backend path is *render-only*: the emitted Go for the corpus's own entries is
+  never compiled and never run, so the check establishes that a backend produced text, not that the
+  text builds or answers correctly. The C++ backend inherits no such safety net, and this change has
+  to build one — see tasks group 4a.
 * The Rust backend's own stance
   ([`RUST_BEHAVIOR`](../../../crates/compylr-backend-rust/src/rust.rs#L226)) is `Unchecked` on
   every axis, and its [`PRESERVES`](../../../crates/compylr-backend-rust/src/rust.rs#L189) names
@@ -22,7 +25,7 @@ See [`proposal.md`](proposal.md) — Why. The facts that shape the approach:
   [`RUNTIME_SOURCE`](../../../crates/compylr-backend-rust/src/rust.rs#L71), and is deliberately
   self-contained so it compiles once pasted into somebody else's project.
 * [`Unit::add_function`](../../../crates/compylr-ir/src/ir.rs#L1216) refuses a duplicate member
-  name across a whole unit, which is what makes a flat `extern "C"` symbol namespace viable at all.
+  name across a whole unit, which is what makes a flat binding namespace viable at all — see D4.
 * [`_build.py`](../../../frontends/python/compylr/_build.py#L161) checks `cargo` and `maturin`
   unconditionally, before any target is consulted.
 * [`CLAUDE.md`](../../../CLAUDE.md) records the per-element boundary price already measured for the
@@ -38,8 +41,8 @@ The demo coverage claim is therefore untouched too — no form is added for the 
 
 **Goals:**
 
-* Pay the N × M bridge cost once for this target rather than once per pair, without changing how a
-  bridge is resolved.
+* Two working bridges on each host's own C++ binding library, accepting the N x M cost rather than
+  paying for a hub that Node cannot use.
 * A third backend that tests target-neutrality against a language with no garbage collector, where
   ownership of every value crossing the boundary must be decided rather than assumed.
 * Parity at the demo level, so the two new pairs are demonstrated the way the first two are.
@@ -48,8 +51,8 @@ The demo coverage claim is therefore untouched too — no form is added for the 
 
 * A C++ **frontend**. `cpp` stays reserved on the frontend side, which also keeps a live example
   for the reserved-name scenarios elsewhere.
-* Retrofitting the shared-ABI split onto the Rust or Go bridges. Both work; neither's target
-  presents a C ABI as its idiomatic surface.
+* A canonical-C-ABI hub, here or anywhere. D3 records why the target that looked likeliest to
+  justify one is in fact the target that needs one least.
 * Making generated C++ idiomatic C++. It is generated code that must *mean* what the unit declares,
   which is sometimes not what a person would write.
 * Growing the accepted subset in any direction.
@@ -102,9 +105,9 @@ std::expected<int64_t, compylr::Error> divide(int64_t a, int64_t b) {
 }
 ```
 
-**Why:** three reasons that agree. An exception cannot cross the `extern "C"` boundary D3 builds on
-— it is undefined behavior — so the error channel has to be a value at the edge regardless, and
-having two error mechanisms inside would mean converting between them at every export. The
+**Why:** three reasons that agree. The error channel has to be a value at the generated-code layer
+regardless — nanobind and node-addon-api each translate a returned failure into their host's idiom,
+and letting a C++ exception unwind into either binding layer is the one thing both forbid. The
 propagation is visible in the generated source, which is the source a user reads under `.compylr/`
 to answer "what did compylr understand?". And it matches what the Rust backend already emits, so the
 two targets' generated code reads the same way and a reviewer moving between them is not switching
@@ -113,87 +116,74 @@ mental models.
 **Alternatives considered:** *Exceptions internally, caught at each export* — rejected; the catch
 blocks are per-export boilerplate, and a `noexcept` violation anywhere terminates the process
 rather than reporting. *An out-parameter for the error and a plain return* — rejected inside
-generated code, because a caller that forgets to check it gets a garbage value silently; it is used
-only at the C boundary in D4, where the language offers nothing better. *`std::optional`* —
+generated code, because a caller that forgets to check it gets a garbage value silently.
+*`std::optional`* —
 rejected, it cannot carry which failure occurred, and the diagnostics are the point.
 
-### 3. The bridge splits into one shared ABI crate and two thin loader crates
+### 3. Two pairwise bridges on each host's own C++ binding library, not a shared C-ABI hub
 
-**Decision:** `compylr-bridge-cpp-abi` emits everything that does not depend on the caller;
-`compylr-bridge-python-cpp` and `compylr-bridge-typescript-cpp` add only a loader and register the
-pair.
+**Decision.** `compylr-bridge-python-cpp` emits nanobind; `compylr-bridge-typescript-cpp` emits
+node-addon-api. There is no shared ABI crate. Bridges stay N x M.
 
 ```rust
-// compylr-bridge-python-cpp/src/bridge.rs
+// compylr-bridge-python-cpp
 impl HostBridge for PythonCppBridge {
     fn source(&self) -> &'static str { "python" }
     fn target(&self) -> &'static str { "cpp" }
-
     fn emit(&self, unit: &Unit, key: &BuildKey) -> Result<HostArtifact, BackendError> {
-        // Everything target-side: generated.cpp, compat.hpp, bindings.cpp, CMakeLists.txt.
-        let mut artifact = compylr_bridge_cpp_abi::emit_shared(unit, key)?;
-        // Everything source-side: the ctypes loader and its type stubs.
-        artifact.files.insert("__init__.py".into(), emit_ctypes_loader(unit, &artifact.loaded_as));
-        artifact.files.insert("__init__.pyi".into(), emit_stubs(unit));
-        Ok(artifact)
+        let mut files = compylr_backend_cpp::CppBackend.emit(unit)?;   // generated.cpp, compat.hpp
+        files.insert("bindings.cpp".into(), emit_nanobind_module(unit, &loaded_as));
+        // ...
     }
 }
 ```
 
-**Why:** the registry keys by pair because a calling convention is a negotiation between two
-runtimes — that reasoning is sound and stays. What it does not imply is that every *byte* of the
-artifact depends on both, and for a C++ target most of them depend only on the target. Splitting
-where the dependence actually falls means the second pair cost a loader, and the third will too. The
-composition is invisible to resolution: `bridges::lookup` sees two entries and cannot tell.
+**Why.** An earlier draft of this decision proposed a shared `compylr-bridge-cpp-abi` crate emitting
+one `extern "C"` surface, with thin per-frontend loaders, on the theory that C++ is where the
+canonical-C-ABI hub [`bridge.rs`](../../../crates/compylr-core/src/bridge.rs#L18) defers could
+finally be cashed in. **The premise was wrong, on a checkable fact: Node cannot consume a C ABI with
+anything it ships.** There is no core FFI module, and `process.dlopen` loads only Node-API addons —
+it requires the object to export `napi_register_module_v1` and cannot call arbitrary C symbols. So
+the Node side needs a Node-API addon regardless, and a C-ABI hub would mean writing that addon
+*anyway*, plus an extra indirection, plus a hand-rolled marshalling layer that `Napi::` already
+provides.
 
-The cost is real and worth stating: a shared surface is a shared failure mode, so a defect in
-`emit_shared` breaks both pairs at once. That is why the differential tier in the specs runs *per
-pair* rather than once — a shared implementation still has to be checked from each side.
+Once Python->C++ goes through nanobind, the hub's only remaining benefit — one mechanism everywhere
+— is gone. The inversion is the interesting part: **C++ is the target that needs a hub least**,
+because both hosts' first-class binding libraries are already C++ header libraries. Every other
+target has to reach across a language gap to bind; C++ is the one where the host's own tooling meets
+you where you are.
 
-**Alternatives considered:** *Two full bridges, as Go and Rust have* — rejected; it is the N × M
-cost paid deliberately when this target does not require it, and the two would drift. *One bridge
-registered for many pairs* — rejected; the loader genuinely differs, `HostBridge::source` returns
-one `&'static str`, and making a bridge answer "several" would change the trait for every existing
-implementation to serve one target. *A `ctypes` loader for both* — rejected, Node cannot use it.
+`Napi::ObjectWrap<T>` and nanobind's `nb::class_` each give a live native instance the host holds by
+identity — which is the contrast the accepted subset already draws between a collection parameter
+(crosses by value) and an instance (not converted at all), and the hardest thing to hand-roll over a
+C ABI.
 
-### 4. The C surface is one flat symbol per member, with handles for instances
+**Alternatives considered.** *A shared C-ABI hub* — rejected on the Node fact above. *pybind11
+instead of nanobind* — rejected: same author, but nanobind has dramatically faster compile times
+(which matter when the first call compiles), smaller binaries, and a real stable-ABI story on 3.12+.
+*Keeping the pair count down by skipping the TypeScript side* — rejected; every `(source, target)`
+pair owes a working demo, so a target with one bridge is half a target.
 
-**Decision:** each member exports one `extern "C"` symbol taking its arguments by C-compatible
-value, returning an integer status, and writing its result through an out-parameter. An instance is
-an opaque handle.
+### 4. Flat member names make either binding library straightforward
+
+**Decision.** No name mangling scheme, no namespacing: each member binds under its own name.
 
 ```cpp
-extern "C" {
-    // Scalars in, result out, status returned. 0 is success.
-    int32_t compylr_divide(int64_t a, int64_t b, int64_t* out, compylr_err* err);
-    // A sequence crosses as pointer plus length; the callee copies.
-    int32_t compylr_running_totals(const int64_t* values, size_t n, int64_t divisor,
-                                   int64_t** out, size_t* out_n, compylr_err* err);
-    // An instance is a handle the caller owns and releases.
-    int32_t compylr_PrimeCache_new(compylr_handle* out, compylr_err* err);
-    void    compylr_free_i64(int64_t* p, size_t n);
-    void    compylr_PrimeCache_free(compylr_handle h);
+NB_MODULE(compylr_generated_<fp>_<variant>, m) {
+    m.def("running_totals", &running_totals);
+    nb::class_<PrimeCache>(m, "PrimeCache").def(nb::init<>()).def("nth", &PrimeCache::nth);
 }
 ```
 
-**Why:** flat symbols are viable because
-[`Unit::add_function`](../../../crates/compylr-ir/src/ir.rs#L1216) already refuses a duplicate name
-across the whole unit — the property four demo fixtures carry a header about — so `extern "C"`
-losing overloading costs nothing. Every buffer is freed by the surface that allocated it, which is
-the one ownership rule a language without a collector cannot leave implicit; a loader that called
-its own runtime's free on a C++ allocation is the defect this shape exists to make impossible.
+**Why.** [`Unit::add_function`](../../../crates/compylr-ir/src/ir.rs#L1216) already refuses a
+duplicate member name across a whole unit — the property four demo fixtures carry a header about — so
+a flat binding namespace is safe without further work. This was originally load-bearing for an
+`extern "C"` surface, which has no overloading; it survives D3's replacement because both binding
+libraries are simpler when names are unique, not because either requires it.
 
-The handle is what preserves the contrast the subset already draws and that people get wrong: a
-collection **parameter** crosses by value and cannot be mutated observably, while an **instance** is
-not converted at all — so a mutated attribute is what the caller sees next call, and an attribute can
-be a cache. Copying an instance across would silently break every memoized demo variant.
-
-**Alternatives considered:** *Serialize arguments to a buffer and pass one pointer* — rejected; it
-adds a format to version and a copy per call on top of the per-element price already measured.
-*Return a struct by value* — rejected; struct return across a C ABI is where calling conventions
-differ most between platforms. *Reference-counted handles* — rejected as unneeded: the calling
-runtime already has a lifetime for the object it wraps, and a second count is a second thing to get
-wrong.
+**Alternatives considered.** *Mangling to allow duplicates* — rejected; it would weaken a uniqueness
+rule the corpus and the demos already depend on, to buy nothing.
 
 ### 5. C++'s stance is unchecked; the backend preserves all three guarantees anyway
 
@@ -324,10 +314,15 @@ configure time naming the standard. The demo and differential specs both require
 to be reported as *skipped* naming the tool, never as a pass — a green suite that silently never
 compiled C++ is the failure mode worth spending a requirement on.
 
-**A shared ABI surface is a shared failure mode: one defect breaks both pairs.** → The differential
-tier runs per registered pair rather than once, so a defect that only manifests through one loader
-is still caught; and the "two source languages receive the same target-side artifact" scenario pins
-that the shared half really is shared, so the split cannot quietly become a copy.
+**Two independent bridges is duplicated marshalling logic that can drift.** → Accepted, and it is
+the price of D3. What bounds it: both bridges consume the *same* `compylr-backend-cpp` output, so
+only the binding layer differs, and the differential tier runs per registered pair so a defect
+manifesting through one binding library is still caught by the other's run disagreeing with CPython.
+
+**The corpus check will not catch a C++ backend that emits text which does not build.** → This is
+the confirmed defect recorded in Context: the Go path renders without compiling. Tasks group 4a
+builds the compile-and-run tier before the C++ backend leans on it, so this change does not inherit
+a check that has never worked.
 
 **Manual memory management at the boundary is the one place this target can leak or double-free,
 and neither shows up as a wrong answer.** → D4 makes the allocating side the freeing side, and the
@@ -348,11 +343,10 @@ a rule already held: the subset promises neither mapping nor set iteration order
 distinguishes them by iteration order is asserting behavior the language deliberately does not
 provide. Worth restating here because a new target is exactly when someone writes that test.
 
-**Two more crates named for a language raises the "which of these is which" question again.** →
+**Three more crates named for a language raises the "which of these is which" question again.** →
 The existing convention answers it: a crate is named for the *job*. `compylr-backend-cpp` writes
-C++, `compylr-bridge-cpp-abi` is the target-side half of calling it, and
-`compylr-bridge-<source>-cpp` is a source-side half. The boundary tests are extended to state it
-rather than leaving it to the names.
+C++; `compylr-bridge-python-cpp` and `compylr-bridge-typescript-cpp` each make it callable from one
+source language. The boundary tests are extended to state it rather than leaving it to the names.
 
 ## Migration Plan
 
