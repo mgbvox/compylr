@@ -1,0 +1,246 @@
+{
+ "paused": false,
+ "pause_info": null,
+ "dimensions_covered": [
+  "ts-frontend",
+  "ts-go-bridge",
+  "demo-integrity",
+  "enforcement-tests",
+  "python-rust-path",
+  "spec-vs-reality",
+  "generated-docs"
+ ],
+ "dimensions_not_reached": [],
+ "confirmed_count": 23,
+ "refuted_count": 1,
+ "verdicts_by_dimension": {
+  "ts-frontend": [
+   {
+    "title": "&&, ||, and ?? silently discard their right operand",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "reasoning": "Correctness: confirmed by direct code read (lower.rs:1207-1218, the single OxcExpr::LogicalExpression arm never inspects log.operator, binds right_expr's value with `let (_, right_ty)`, and returns Ok((left_expr, ty))) and by independently re-running the exact CLI command on the exact source given: `orTest`/`andTest` both compiled to `Ok(a)` verbatim, matching the finding byte-for-byte. Intent: the typescript-frontend openspec spec explicitly lists 'boolean ops' as a supported expression category with no caveat, and there is no comment, spec scenario, or CLAUDE.md passage documenting this as deliberate \u2014 it directly contradicts the one spec statement that touches it. Materiality: `&&`/`||`/`??` are basic, common TypeScript operators reachable through the registered CLI pipeline exactly as tested (not a dead or gated path); the corpus's failure to exercise them is a coverage gap, not evidence of unreachability. Grep of frontends/typescript/fixtures/accepted/ confirmed zero fixtures use any of the three operators, exactly as claimed.",
+    "corrected_claim": ""
+   },
+   {
+    "title": "Negative-index origin declared as FromEitherEnd, contradicting the IR's own doc comment naming TypeScript as a FromStart language",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "reasoning": "Correctness: confirmed by reading frontend.rs:33-36 (origin: IndexOrigin::FromEitherEnd) against ir.rs's IndexOrigin doc comment (lines ~300-309), which names TypeScript explicitly in the FromStart camp ('Go, C++, Rust, and TypeScript do not [count backwards]: a negative offset is out of range'). Independently re-ran the CLI on the exact given source (`lastOf` indexing `xs[-1]`) and got the exact cited output, `py_subscript(&(xs), &(-1i64), IndexOrigin::FromEitherEnd)`, which for [10,20,30] returns 30 instead of real TS's `undefined`. Intent: this is not deliberate design \u2014 the project's own top-level README states plainly (line 361) 'Go, C++, and TypeScript all treat a negative index as out of range,' so the frontend.rs value contradicts the IR doc comment AND the README AND real TypeScript semantics simultaneously; there is no comment or spec scenario asserting the opposite on purpose. Materiality: array/string indexing is core, ordinary TypeScript and the bug silently returns wrong (Python-flavored) values rather than erroring, which is worse than a compile failure.",
+    "corrected_claim": ""
+   },
+   {
+    "title": "Float literals passed as call arguments, array-literal elements, or .push()/.add() arguments are silently truncated to i64, producing generated Rust that fails to compile (or, when it happens to compile, drops the fraction)",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "reasoning": "Correctness: confirmed by reading all three cited sites (lower.rs:965-969 push argument, lower.rs:1223-1225 array literal element, lower.rs:1319-1326 call argument) versus the fractional-aware general path at lower.rs:1021-1027 that these three bypass. Independently re-ran the CLI on TypeScript using this frontend's own 'float' type-reference convention (lower.rs:216 maps identifier 'float' to Ty::Float) for all three cases and reproduced the exact generated Rust claimed: `useFloat(3i64)` against `fn useFloat(x: f64)`, `vec![1i64, 2i64]` against `-> Result<Vec<f64>, ...>`, and `let __compylr_value = 1i64; (xs).push(__compylr_value);` against `Vec<f64>`. Also independently compiled a minimal reproduction with rustc, confirming a genuine E0308 mismatched-types error, matching the finding's own verification. Intent: no spec, doc comment, or CLAUDE.md text documents float-argument truncation as intentional; the frontend spec lists 'arithmetic' and typed parameters as ordinary supported behavior with no float-specific carve-out, and the general numeric-literal path in the same file already handles `.fract()` correctly, showing the omission in these three call sites is an inconsistency rather than a design choice. Materiality: float-typed parameters, arrays, and .push() calls are ordinary, reachable TypeScript; corpus grep confirmed zero fixtures cover this, exactly as claimed, but that is a coverage gap in the corpus, not proof the path is unreachable from real programs.",
+    "corrected_claim": ""
+   }
+  ],
+  "ts-go-bridge": [
+   {
+    "title": "Go backend silently drops constructor bodies for classes with non-trivial __init__/constructor logic",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "CORRECTNESS: Read crates/compylr-backend-golang/src/emit.rs in full. emit_class (fn starts at line 28, not 38 as cited, but the substance matches exactly) builds the Go struct and constructor purely from class.attributes and class.init.params -- there is zero reference to class.init.body anywhere in the file (grep confirms). It 1:1-matches attribute names to param names and zero-initializes the rest. Confirmed demo/demo-ts-go/.compylr/go/generated.go:147-154 matches the claim verbatim: NewUnionFind(size) builds components:0, parent/rank as empty slices, never touching `size` in the body. Confirmed the TS source at demo/demo-ts-go/src/algorithms/structures.ts:62-77 has exactly the described renamed-assignment-plus-loop constructor. I independently reproduced the runtime failure myself (not just trusting the finding's claim): copied generated.go+compat.go into a fresh scratch Go module, wrote a minimal _test.go calling NewUnionFind(5); union(0,1); union(1,2); connected(0,2), ran `go test -v`, and got the exact panic described: `runtime error: index out of range [0] with length 0` inside `find` at generated.go:162, because parent/rank are permanently empty. Also confirmed crates/compylr-backend-golang/tests/emit.rs has exactly one test (emits_valid_go_package_and_function) with no Class/constructor coverage, and grepping the whole tree for 'differential' turns up only python-rust artifacts, none for typescript/go. INTENT: checked openspec/specs/golang-backend/spec.md and the archived add-typescript-to-golang change -- the spec only says the backend 'SHALL emit... a constructor function initializing fields,' and archived tasks.md marks '2.6 constructor field extraction' and '3.2 constructor emission' complete with no caveat anywhere about loops/computed logic being out of scope. Nothing documents dropping constructor body statements as deliberate; it directly contradicts the spec's own words. MATERIALITY: this is not a hypothetical corpus fixture -- it is the checked-in demo (demo-ts-go), i.e. exactly the code the project ships as its worked example, and it panics on first real use of a non-trivial class. Fully material."
+   },
+   {
+    "title": "loaded_as encodes a .so filename that no build step in the repository ever produces",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "CORRECTNESS: Read crates/compylr-bridge-typescript-golang/src/bridge.rs directly. loaded_as = format!(\"compylr_generated_{fingerprint:016x}_{variant_tag}\") at line ~25, and emit_js_loader bakes it into `path.join(__dirname, '{module_name}.so')` at line ~156 -- exact match to the finding. Grepped the whole repo (excluding target/, node_modules/, worktrees/) for `buildmode=c-shared`: found the finding's three CI hits (golang.yml:54,88; typescript.yml:92) AND two more in the Makefile (lines 100, 104) that the finding didn't even mention -- all five hardcode the identical static name `compylr_generated_demo.so`, none derived from a fingerprint/variant. This makes the finding's core claim, if anything, an understatement. I also confirmed no other code anywhere threads `loaded_as`/`BuildKey` into an actual `go build -o` invocation (grep for loaded_as across the repo shows only its own definition/use plus the unrelated python-rust host at compylr-host-python/src/lib.rs:273, which is a different pair). INTENT: openspec/specs/typescript-go-bridge/spec.md explicitly requires (Requirement: Loadable name uniqueness) that loaded_as be the fingerprinted name specifically so 'recompilations or different pass configurations load as distinct modules without cache collision' -- i.e. the fingerprinted name is meant to be the real artifact name, mirroring what compylr-host-python actually does for python-rust. There is no documentation anywhere sanctioning a static demo filename as an intentional stand-in; it's a direct violation of the bridge's own stated purpose, not deliberate design. I also found the archived tasks.md marks '6.4 JIT build manager invoking go build -buildmode=c-shared under .compylr/' as done, but no `typescript/compylr` package or any such runtime manager exists anywhere in the tree -- so there is no actual dynamic build step to consult loaded_as at all; the only real build automation is the static CI/Makefile scripts the finding cites. MATERIALITY: since nothing wires loaded_as into an actual go build -o argument, the (typescript, go) pair cannot function outside the single fixed demo artifact, and even that only via manual CI/Makefile invocation rather than the claimed JIT flow -- this breaks the pair's basic operation, not an edge case."
+   },
+   {
+    "title": "index.d.ts and index.js assert numeric signatures, and dial numeric-typed FFI calls, for functions the cgo layer never exports at all",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "CORRECTNESS: Read bridge.rs directly. is_scalar (Int|Float|Bool|Unit) gates emit_cgo_function, which returns early (no //export emitted) for any function with a non-scalar param or return -- confirmed at the cited lines. emit_dts and emit_js_loader both iterate unit.functions() with zero is_scalar filtering, unconditionally rendering `number`/'int64' for every parameter and return -- confirmed by direct code reading, exactly as claimed. I did not just trust the finding's cited 'prior audit' reference (which uses an illustrative 'shout' example not present as a repo fixture) -- I independently reproduced the exact scenario myself: built a throwaway Rust crate (context/scratch-shout, kept out of the workspace via its own [workspace] table, not touching crates/) that calls TypeScriptGoBridge::emit directly on a hand-built Str->Str `shout` function. Output confirmed the defect precisely: bindings.go emitted contains NO //export Call_shout function at all (just an empty main()), while index.d.ts declares `export function shout(s: number): number;` and index.js emits `lib.func('Call_shout', 'int64', ['int64'])` -- a symbol that will never exist in the compiled .so. I also confirmed the bridge crate's own test suite (tests/bridge.rs) only exercises an Int-only function, with no Str/collection case, so this gap has zero test coverage. INTENT: openspec/specs/typescript-go-bridge/spec.md's 'Boundary type marshalling and error propagation' requirement explicitly states 'Primitive numbers, booleans, and UTF-8 strings are converted between JS and Go types' and 'Array, Map, and Struct collections are serialized/marshalled across the boundary' -- directly contradicting what the code does (silently skips them in the cgo layer while still emitting numeric-typed d.ts/js for them). This is a spec violation, not a documented limitation; nothing anywhere flags non-scalar signatures as an accepted MVP restriction. MATERIALITY: string parameters/returns are commonly used and exist in the typescript accepted fixture corpus (frontends/typescript/fixtures/accepted/collections.ts, branching.ts); any such function compiled through the (typescript, go) bridge produces a d.ts/js pair that will crash at call time with a missing-symbol error from koffi. This is a load-bearing, easily-triggered defect for the pair, not an edge case."
+   }
+  ],
+  "demo-integrity": [
+   {
+    "title": "demo-ts-go's IR coverage report is a hardcoded stub that fabricates full coverage, including forms that don't exist in the compiler",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "reasoning": "Independently reproduced. Read demo/demo-ts-go/src/algorithms/ir_coverage.ts: it is 15 lines of literal console.log strings, no fs/JSON access. Ran it directly (node --experimental-strip-types --input-type=module -e importing reportCoverage) and it printed the exact cited output verbatim, including 'Var'/'Delete' among 13 statements and 'Is' among 19 expressions, and the closing sentence claiming full IR-form coverage. Cross-checked crates/compylr-ir/src/ir.rs directly by extracting the enum bodies: Stmt has exactly 13 real variants (Return, ReturnUnit, Bind, Assign, Effect, SetAttr, SetItem, Append, If, While, For, Break, Continue) -- no Var or Delete anywhere in the crate. Expr has exactly 19 real variants (Literal, Name, Neg, ToFloat, Binary, ListLit, DictLit, SetLit, TupleLit, TupleIndex, Attribute, Construct, MethodCall, Contains, Not, Subscript, Len, Range, Call) -- no Is anywhere; the stub also renames ListLit to 'ArrayLit' and Contains to 'Has', and omits the real TupleIndex. Intent: nothing in CLAUDE.md, the root README, or the archived openspec/changes/archive/2026-08-30-add-typescript-to-golang change documents this stub as deliberate; the introducing commit (cd05eed, 'Add TypeScript demo project (demo-ts) with full parity to python demo') explicitly claims parity, contradicting the actual behavior -- this is not a documented design choice. Materiality: demo-python-rust/ir_coverage.py is a real artifact-driven measurement enforced by its own pytest suite and by crates/compylr-host-python/tests/demo_coverage.rs (per CLAUDE.md, that Rust test enforces the Python-side tables stay honest against the compiler's actual enum definitions); the ts-go package/README present the fabricated stub as the equivalent evidence of feature coverage for the TS-to-Go path, with no such enforcement existing on that side, so this is squarely within the repo's stated 'a coverage check that cannot fail is worse than none' philosophy being violated. One correction to the finding's own secondary evidence: I parsed .compylr/ir/unit.json directly (grepping raw tag counts) and found Bind (167x), Assign (95x), ListLit (29x), and Contains (13x) are all genuinely present in the real build -- the finding's claim that these four are 'actually missing' from the real build is wrong; only Range and ToFloat are genuinely absent from real coverage. This narrows one piece of evidence but does not touch the finding's central, independently-verified claim that the stub fabricates a fixed report inventing nonexistent IR variant names, which stands as accurate and material."
+   },
+   {
+    "title": "demo-ts-go's test_coverage.test.ts does not test IR coverage despite its name and the README's description mirroring the Python suite",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "reasoning": "Read both files in full and confirmed verbatim. demo/demo-ts-go/tests/test_coverage.test.ts is exactly 14 lines: a single node:test case asserting c.getRegistered().size >= 25 plus four .has(name) checks; it never touches .compylr/ir/unit.json or ir_coverage.ts, matching the finding precisely. demo/demo-python-rust/tests/test_coverage.py by contrast has 4 test classes and 9+ assertions built directly on ir_coverage.measure(Path(c.paths.ir)), including a TestTheMeasurementItself class whose docstring reads verbatim 'A coverage check that cannot fail is worse than none, so it is checked by deletion.' -- exact match to the cited evidence. Intent: nothing documents the ts-go test as an intentionally lighter-weight or placeholder check; the README's own table entry for tests/test_coverage.test.ts ('Asserts all demo functions and classes are registered and accounted for') is itself accurate to what the file does but sits beside a coverage-reporting story (npm start / ir_coverage.ts) that implies IR-level verification the test never performs, and the file name and directory parity with the Python suite invite exactly the false equivalence the finding names. Materiality: real -- this test cannot fail if the Go/TypeScript backend regresses on any IR form, which is the entire purpose the analogous Python suite serves per CLAUDE.md's demo philosophy (the demo is where coverage claims are checked mechanically, not asserted in prose)."
+   }
+  ],
+  "enforcement-tests": [
+   {
+    "title": "conformance.rs's Go-backend coverage is render-only; the emitted Go for the corpus's own for/range entries is syntactically invalid and no test catches it",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "CORRECTNESS: Verified every cited line directly. crates/compylr-backend-golang/src/emit.rs:439 is exactly a catch-all `_ => \"/* unsupported expr */\".to_string()` in emit_expr with no Expr::Range arm; the For-statement emission at lines 263-296 unconditionally interpolates emit_expr(iter) into `for _, {name} := range {iter} {`. Ran `cargo run -q -p compylr-cli -- --backend go --emit rust frontends/python/fixtures/accepted/loops.py` myself and got the literal broken output `for _, i := range /* unsupported expr */ {` for every `for x in range(...)` (functions stepped, total) \u2014 this is unambiguously invalid Go syntax, no need to even invoke gofmt/go build to see it. Confirmed conformance.rs:970-984 (`every_implemented_backend_renders_the_whole_corpus`) only asserts `backend.emit` doesn't error and produces non-empty files, and conformance.rs:995-1021 (`every_corpus_entry_compiles_for_the_rust_backend`) is hardcoded to `backends::lookup(\"rust\")` with no Go analogue anywhere in the file or in compylr-backend-golang's own tests (no `go build`/`Command::new(\"go\")` call exists anywhere in that crate). Confirmed the corpus contains `Stmt::For{iter: Expr::Range{..}}` entries at the cited line ranges (checked 345-360, 615-665, 725-735, 883-892 \u2014 all present). Ran `cargo test -p compylr --test conformance every_implemented_backend_renders_the_whole_corpus -- --nocapture` and it printed `ok`, confirming the suite is blind to this on the exact corpus fed to the 'go' backend by name via `implemented_names()`. Every load-bearing claim in the finding checks out.\n\nINTENT: Not documented/deliberate. The archived change `add-typescript-to-golang` (openspec/changes/archive/2026-08-30-add-typescript-to-golang) marks task 3.9 'Add unit tests and conformance tests rendering the shared IR corpus to Go' as done ([x]), i.e. full corpus render coverage was the stated goal, not a scoped-out subset \u2014 build-checking was simply never added. The golang-backend spec makes no mention of Range/for-loop support being out of scope. This reads as an oversight in the enforcement suite, not a documented design choice.\n\nMATERIALITY: Not refuted. The corpus is explicitly designed to be frontend-agnostic (`the_corpus_needs_no_source_language` test, and the module doc for `every_corpus_entry_compiles_for_the_rust_backend`: 'Rendering is not enough: the result has to build... Only handing the output to the target's own compiler settles it') \u2014 this is exactly the contract the audited test suite claims to enforce for 'every implemented backend', and Go is registered as implemented (`Some(&GoBackend)` in compylr-registry/src/backends.rs, confirmed via `the_rust_and_go_backends_are_implemented` test). The gap is real and reachable within the suite's own stated scope, regardless of whether the current TypeScript frontend happens to never emit Expr::Range."
+   },
+   {
+    "title": "readme.rs's backend-status check never verifies the Go/TypeScript backend claims, letting a false 'not built yet' claim about Go stand",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "CORRECTNESS: `grep -ni \"golang\\|\\\"go\\\"\\|typescript\" crates/compylr-host-python/tests/readme.rs` returns zero hits, confirmed directly. `readme_status_matches_reality` (readme.rs:225-243) checks only `crates/compylr-backend-rust`'s existence against the strings 'no backend'/'Rust source' in the README \u2014 no equivalent logic for Go or TypeScript exists in the file. README.md lines 185-186 read verbatim: 'Not built yet: `llm_assist` ..., and the TypeScript, Go, and C++ backends (reserved names that fail with a message saying so).' This is demonstrably false for Go: `crates/compylr-registry/src/backends.rs` registers `go` as `Some(&GoBackend)` (implemented), confirmed by the passing test `the_rust_and_go_backends_are_implemented` (registry.rs:12) and `reserved_backends_resolve_as_reserved` (registry.rs:20) which lists only `typescript` and `cpp` as reserved. I independently ran `cargo run -q -p compylr-cli -- --backend go --emit rust frontends/python/fixtures/accepted/arithmetic.py` and it emitted real Go (`func add(a int64, b int64) int64 { ... }`), not a reserved-name refusal. Every cited fact checks out.\n\nINTENT: Not deliberate. The archived change that added the Go backend (2026-08-30-add-typescript-to-golang) has no README task anywhere in its tasks.md/proposal.md/design.md \u2014 the omission looks like the change simply forgetting the README, not a scoped decision to leave it stale. This directly violates the project's own stated convention in CLAUDE.md: 'Keep README.md in sync... when a change... makes the backend real, update the README in the same change, not afterwards.'\n\nMATERIALITY: Not refuted. The README is the project's stated 'entry point for anyone who has not read the specs' and is required to 'never describe a state the code is not in.' A user reading it is told Go is an unimplemented, reserved, refusing target when it is in fact a working, registered, tested backend \u2014 a materially false and user-facing claim, and the enforcement test whose own module doc says 'cargo test fails when the code and the README disagree' fails to catch precisely this disagreement for the two newest backend/frontend names."
+   }
+  ],
+  "python-rust-path": [
+   {
+    "title": "compylr compyle's documented exit-code contract is false for import failures",
+    "correctness_refuted": false,
+    "intent_refuted": true,
+    "materiality_refuted": true,
+    "final_refuted": true,
+    "corrected_claim": "",
+    "reasoning": "CORRECTNESS (not refuted): Verified by reading frontends/python/compylr/_precompile.py:main() line-by-line and by running it live. main()'s only path to exit 1 is `except Exception` wrapping the *call* to precompile() -- an import failure is caught inside precompile()'s own loop (`except BaseException as error: report.failures.append(...); continue`) and never re-raised, so it can never reach that branch. The final `return 3 if quiet else 0` (quiet = found_nothing or disabled) never inspects report.failures, exactly as claimed. I reproduced this directly: a project with one good module (marks a function) and one module raising RuntimeError('boom') on import, run through _precompile.main() with a mocked successful build, printed '1 module(s) failed to import: bad.py: RuntimeError: boom' and returned exit code 0. With COMPYLR_DISABLE=1 (nothing marked because compylr is off), the same import failure was folded into exit code 3. I also confirmed frontends/python/tests/test_precompile.py and test_disable.py only assert main()'s exit code for the 2/3/0 paths -- no test exercises a non-empty report.failures against main()'s return value. The technical claim is accurate.\n\nINTENT (refuted): openspec/changes/archive/2026-08-19-add-cli-precompile/design.md section D4 explicitly states 'Exit status distinguishes three outcomes: Success, build failure, and nothing-found' -- exactly the three the code implements, with no fourth category for import failures. The same document's Risks/Trade-offs section names this exact scenario verbatim: 'A partially-importable project builds partially -> By design, and reported. The risk is a user skimming the output and missing that a module was skipped, so the count of failures belongs in the summary line rather than only in the detail.' That is precisely what _describe() does (failure count promoted to the summary line, per its own comment 'a count buried below is a count nobody reads'). This is not an unnoticed gap; it is a deliberate design decision, with the considered risk and its chosen mitigation (visible text, not a new exit code) written down before implementation.\n\nMATERIALITY (refuted): The README passage in question promises exactly three exit-status-distinguishable outcomes -- built/reused (0), nothing marked (3), failure of the run itself (1/2) -- and the implementation delivers precisely that partition; it never claims a per-module import failure is its own exit-code-visible outcome. The 'contradiction' is the audit's own broader reading of the prose, not a promise the docs or spec (openspec/specs/cli/spec.md's 'Exit status distinguishes the outcomes' scenario, which speaks only to 'succeeds, fails to build, or finds nothing') actually make. Given the design doc treats surfacing the failure in text (not a distinct exit code) as the accepted mitigation, there is no load-bearing claim here that's actually false -- a script that greps stdout/stderr, as the report's own module doc anticipates, still sees the failure; only exit-code-only scripting misses it, a risk the project explicitly accepted.\n\nWith 2 of 3 lenses refuted (intent and materiality) on a documented, deliberately-accepted trade-off, this finding does not survive as a genuine, undisclosed defect."
+   }
+  ],
+  "spec-vs-reality": [
+   {
+    "title": "Go backend never emits the fallible (Ret, error) signature its own spec requires",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "Verified emit.rs:89-98 (emit_method) and :117-125 (emit_function): ret_str is either empty or just go_ty(&ret), never an (T, error) tuple; emit_class's constructor at emit.rs:48 is `func New{}(...) *{} {` with no error return either. openspec/specs/golang-backend/spec.md's 'Function and method emission' requirement and its 'Fallible function emission' scenario explicitly require `(int64, error)` and `NewClassName(...) (*ClassName, error)`. Intent: tasks.md for the archived add-typescript-to-golang change marks 3.2 ('Implement Go function, struct, constructor, and method receiver code emission') complete, and this spec file lives in the live openspec/specs/ directory, not a superseded draft -- there is no doc comment or design note anywhere declaring fallible signatures deferred. Materiality: this is the backend's core function/method emission path, exercised by every Go-backend program, and it directly enables finding #2 (panics instead of returned errors) -- fully load-bearing and reachable."
+   },
+   {
+    "title": "Go's own compat helpers panic on division by zero instead of returning the error the spec (and the backend's own declared guarantee) requires",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "Verified compat.rs:10-19 (GoFloorDiv) and :22-30 (GoRem) both contain `if b == 0 { panic(\"division by zero\") }` with no error return. The spec's 'Division by zero returns error' scenario explicitly requires `(0, errors.New(\"division by zero\"))`. No doc comment, CLAUDE.md note, or design.md entry anywhere describes this panic as an intentional stand-in; it directly contradicts the backend's own declared GO_PRESERVES guarantee (DivisionByZeroReported) mentioned in golang.rs. Materiality: this is the actual division/modulo helper invoked by every emitted division or remainder operation, so it is fully reachable from ordinary compiled programs, and a whole-process panic is about as material a consequence as a runtime defect can have."
+   },
+   {
+    "title": "GoSubscript, the negative-indexing/bounds-checking helper, is dead code \u2014 every subscript emits raw unchecked Go indexing",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "Verified emit.rs:356 has `Expr::Subscript { base, index, .. } => format!(\"({{}})[{{}}]\", ...)` with no reference to GoSubscript, and grep confirms GoSubscript is defined in compat.rs but never called from emit.rs. The spec's 'Negative indexing helper is emitted' scenario requires the compat helper be invoked with bounds/negative-index handling. compat.rs even documents GoSubscript's purpose in its own doc comment ('resolves positive or negative-from-end slice indexing'), which is strong evidence the helper was meant to be wired up, not deliberately left unused. Materiality: subscripting is a routine operation in the accepted TypeScript subset (array/string indexing), so this is a reachable, load-bearing gap, not a corner case."
+   },
+   {
+    "title": "Go backend's constructor discards the actual __init__ body \u2014 silently wrong field values for any non-trivial constructor",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "Verified emit_class (emit.rs:28-79) directly: it iterates class.attributes and matches against class.init.params by name equality or zero-initializes, and class.init.body is never referenced anywhere in the function. This is the same underlying defect as the ts-go-bridge dimension's UnionFind finding, restated here specifically as a spec violation ('generates ... a constructor function initializing fields' -- via the actual init logic, per the IR's own doc comment at compylr-ir/src/ir.rs:1053 that init's body 'initialises the attributes'). Intent: tasks 3.2 is marked done in the archived, completed change; no doc anywhere flags constructor-body lowering as deferred. Materiality: any class with a constructor that does anything beyond a 1:1 identically-named field assignment (renamed params, computed values, loops) silently produces wrong instances -- squarely inside the accepted class subset."
+   },
+   {
+    "title": "TypeScript frontend never checks type compatibility on reassignment or on an annotated initializer, producing Go that fails to type-check",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "Verified lower.rs:895-902 (reassignment): `ty` is taken from `ctx.lookup_var(name)` and used directly in the emitted Stmt::Assign; `right_ty` (from lowering the RHS) is computed but never compared against it anywhere in the surrounding match arm. Verified lower.rs:706-717 (declaration with annotation): when `decl.type_annotation` is present, `ty` is set from it directly with no comparison to `inferred_ty` (the tuple-literal branch a few lines above is the only place inferred/annotated shapes interact, and even that doesn't validate element types). This matches typescript-frontend spec's 'Incompatible type assignment is rejected' scenario, which the code does not implement. Materiality: this is the core statement-lowering path for the two most common TypeScript statement forms (variable declaration, reassignment) in the accepted subset, so a string/number type mismatch reaching all the way to a Go compile failure is a real, easily-triggered consequence, not a hypothetical edge case."
+   },
+   {
+    "title": "typescript-api spec describes a full manager/build-orchestration package that does not exist anywhere in the repository",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "Verified directly: grep for 'initialize' across every non-vendored .ts file in the repo returns zero hits; grep for COMPYLR_DISABLE across .ts files also returns zero hits; the only TS-side compyle manager in the repo is demo/demo-ts-go/src/algorithms/_compylr.ts, read in full -- 18 lines, just a Map-based registration wrapper with no initialize(), no build orchestration, no go build invocation, no .compylr/build.json handling. openspec/specs/typescript-api/spec.md (the live spec, read in full) requires exactly the initialize()/compyle/build-orchestration/caching/COMPYLR_DISABLE surface described in the finding. tasks.md section 6 marks all of this 'done' in the archived, completed change. Materiality: this is the entire user-facing API surface for the TypeScript half of the project (the equivalent of `import compylr` for Python) -- about as load-bearing as a claim can be."
+   },
+   {
+    "title": "typescript-bindings spec's entire Node-API compiler surface does not exist \u2014 the crate only exports a version string",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "Verified by reading crates/compylr-host-typescript/src/lib.rs in full: it is exactly `#[napi] pub fn version() -> String { \"0.1.0\".to_string() }` and nothing else -- no lowerTypeScript, validateUnit, fingerprint, emitBridge, or error-translation code of any kind. openspec/specs/typescript-bindings requirement 'Expose compiler pipeline operations' and 'Structured error translation' (as quoted) require exactly this missing surface. tasks.md section 5 marks all of 5.1-5.4 complete. Materiality: this crate is the sole bridge between the native compiler and any real TypeScript-side tooling; without it nothing in typescript-api's spec could ever be implemented, making this a foundational, fully load-bearing gap."
+   },
+   {
+    "title": "typescript-go-bridge's error-propagation requirement has no implementing code at all, not merely a bug",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "Verified bridge.rs's emit_js_loader (shown in full for the relevant section, lines ~149-189): ret_sig is hardcoded to the literal `'int64'`, and the emitted wrapper is `function name(args) { return native_name(args); }` with no error check, no `if (err) throw`, and no reference to any error value. This matches the spec's 'Boundary type marshalling and error propagation' requirement verbatim. Consistent with findings #1/#2 (Go functions don't return `(Ret, error)` in the first place), so there is genuinely nothing for the bridge to translate. Materiality: any runtime failure in compiled Go code (division by zero, index out of range) is currently a process panic rather than a catchable JS exception -- for FFI-based interop this is a significant, reachable defect for the entire (typescript, go) bridge path, not a cosmetic one."
+   },
+   {
+    "title": "The conformance/corpus test suite that pipeline-architecture relies on to catch exactly these defects only ever checks that Rust-emitted code compiles, never Go",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "corrected_claim": "",
+    "reasoning": "Verified conformance.rs directly: every_implemented_backend_renders_the_whole_corpus (line ~970) loops over implemented_names() and only asserts emit() succeeds and files are non-empty; every_corpus_entry_compiles_for_the_rust_backend (line ~995) is hardcoded to `backends::lookup(\"rust\")` with no Go equivalent anywhere in the file or crate tree (grep for 'go build'/'go vet'/'compiles_for_the_go' across crates/ returns nothing). Also verified compylr-backend-golang/tests/emit.rs's emits_valid_go_package_and_function does only string `.contains()` assertions, never gofmt or go build, despite its name implying validity. pipeline-architecture spec's 'Every implemented backend renders the shared conformance corpus' requirement (quoted text matches the live spec.md verbatim) explicitly demands a backend 'fail visibly rather than emitting code that does not build' -- exactly the gap this finding identifies. Materiality: this is precisely the mechanism that would have caught findings #1-#4 and the ts-go-bridge dimension's UnionFind/Range defects before they shipped; its absence is the direct explanation for why those defects exist uncaught in an archived, 'complete' change."
+   }
+  ],
+  "generated-docs": [
+   {
+    "title": "golang.yml's job literally named \"demo\" never runs or exercises anything \u2014 it only compiles",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "reasoning": "Read .github/workflows/golang.yml in full: the `demo` job (lines 56-88) runs checkout, setup-rust, setup-golang, the CLI precompile step (`--frontend typescript --backend go --emit crate`), then a single final step `go build -buildmode=c-shared -o ../lib/compylr_generated_demo.so .` \u2014 no step after that, and no `node`/`npm`/`dlopen`/FFI invocation anywhere in the file (grep confirms). Correctness holds exactly as claimed. Intent: no CLAUDE.md, openspec spec, or commit message documents this as a deliberate build-only smoke test; the original commit (81c44a3) added it as a full parallel to typescript.yml's demo job with no stated scope limitation, and it contradicts the repo's own stated demo philosophy (\"the demo is where cost shows up\"). Materiality is not just intact but stronger than the finding states: I verified (via demo/demo-ts-go/src grep and the tests directory) that nothing anywhere in the TypeScript demo source or its three test files ever loads `.compylr/go`, `index.js`, or any FFI/koffi binding \u2014 so even typescript.yml's own more elaborate `demo` job never actually invokes the Go artifact it builds either. That means no CI job in the repository exercises the generated Go shared library at all, which only reinforces (does not undercut) this finding's specific, accurate claim about golang.yml.",
+    "corrected_claim": ""
+   },
+   {
+    "title": "typescript.yml's \"verify IR coverage\" step has no code path that can fail, confirmed at the source level",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "reasoning": "Verified directly: demo/demo-ts-go/src/algorithms/ir_coverage.ts's `reportCoverage()` is nothing but `console.log` statements printing hardcoded strings (\"13/13\", \"19/19\", \"10/10\", \"2/2\", etc.) \u2014 there is no `throw`, no `process.exit`, and critically no computation of any kind against the actual build artifact, which is even stronger than the finding's claim of \"no failure path.\" index.ts's `main()` just calls `reportCoverage()` and `runAllBenchmarks()` with no error handling, matching the CI step (`npm start`) exactly. Intent: this is not deliberate design \u2014 the repository's own Python counterpart (demo/demo-python-rust/src/algorithms/ir_coverage.py) genuinely reads `.compylr/ir/unit.json` and its docstring explicitly warns against exactly this failure mode (\"'Showcases everything compylr can do' is the kind of sentence that is true when it is written and quietly false a release later. So it is not a sentence here\"). The TS version is precisely the anti-pattern the Python module's own doc warns about, and cross-checking the hardcoded claims against the real IR enums and the demo's own committed unit.json shows several of the printed claims (Float type, division modes, ArrayLit/Has/Is forms that don't exist in the IR at all) are simply false. Materiality: this step runs in real CI (typescript.yml:94-96) under a name that promises verification. final_refuted = false.",
+    "corrected_claim": ""
+   },
+   {
+    "title": "The weekly benchmark.yml workflow automates turning demo-ts-go's fabricated (random-multiplier) benchmark numbers into a real, mergeable pull request with a false provenance claim",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "reasoning": "Read .github/workflows/benchmark.yml in full and confirmed every cited line: the Monday cron `\"17 6 * * 1\"` (line 29), the call to `python scripts/update_benchmarks.py --scale \"$SCALE\" --n \"$N\"`, and the PR-body line `\"Generated by \\`.github/workflows/benchmark.yml\\` from run ${GITHUB_RUN_ID}...\"` are all present verbatim. Read benchmark.ts directly and confirmed the fabrication: for every non-reference workload the \"interpreted\" figure is computed as `fast * item.speedup` for a hardcoded per-item constant (21.5, 11.2, ... 0.4), not an independent measurement \u2014 the committed README table even shows the tell (`matrices.transpose 20.19us 20.19us 1.0x`, identical to 2dp because its constant is exactly 1.0). Contrast with demo-python-rust's benchmark.py, which genuinely runs compiled and interpreted code in separate child processes. Intent: not deliberate \u2014 it contradicts the openspec `generated-code-performance` spec (\"A speedup claimed for generated code SHALL be supported by a measurement... against the harness's noise floor\") and the workflow's own header comment (\"A table nobody re-measures is worse than no table, because a reader trusts it\"), which argues for real re-measurement, not for automating a fabricated one. Materiality: real, reachable, and already realized \u2014 the fabricated numbers are already sitting in the committed README. One nuance: the PR-body \"provenance\" line itself (naming the workflow and run ID) is literally true \u2014 that run really did produce those exact numbers \u2014 so \"false provenance claim\" slightly overstates that specific line; the actual falsehood is the README's own caption (\"comparing compiled Go execution to interpreted TypeScript\") describing fabricated multiplier output as a real comparison. That distinction doesn't change the substance or severity.",
+    "corrected_claim": "The PR-metadata provenance line (workflow name + run ID) is itself accurate; what's false is the semantic claim carried into the committed README caption (\"comparing compiled Go execution to interpreted TypeScript\") for numbers that are actually `fast * hardcoded_constant`, not an independent interpreted measurement \u2014 and benchmark.yml automates publishing that into a mergeable PR on a schedule."
+   },
+   {
+    "title": "update_benchmarks.py's TypeScript benchmark runner has no disagreement guard, unlike its Python counterpart",
+    "correctness_refuted": false,
+    "intent_refuted": false,
+    "materiality_refuted": false,
+    "final_refuted": false,
+    "reasoning": "Read scripts/update_benchmarks.py directly: `run_benchmark` (lines 74-93) contains `if \"WARNING: compiled and interpreted disagreed\" in output: raise SystemExit(...)`; `run_ts_benchmark` (lines 97-111) is structurally parallel (same subprocess pattern) but has no such check and returns `completed.stdout.strip()` unconditionally. The asymmetry is real and precisely as described. Intent: nothing documents this omission as deliberate; if anything it's an artifact of the TS path never having had a real dual-measurement design to guard in the first place (its benchmark fabricates the comparison rather than computing it), but that's a reason the gap exists, not evidence it was chosen on purpose. Materiality: low but genuine, matching the finding's own \"low\" severity rating \u2014 the check being present would only matter if/when the TS benchmark's fabrication is ever fixed to do a real comparison; today it's dead-code-equivalent since the TS side can never emit that warning string, but the finding accurately describes existing code and doesn't overclaim impact. final_refuted = false.",
+    "corrected_claim": ""
+   }
+  ]
+ }
+}

@@ -8,7 +8,7 @@ export const meta = {
 }
 
 const ROOT = '/Users/mgb/RustRoverProjects/compylr'
-const FINDINGS = ROOT + '/context/audit-findings.json'
+const FINDINGS = ROOT + '/research/audit-findings.json'
 const PAUSE_AT = 95
 
 // ---- guard: same fail-closed shape as cpp-review.workflow.js -------------------------------
@@ -99,7 +99,7 @@ function refutePrompt(dim) {
     'REPO: ' + ROOT,
     'READ-ONLY on project code. You may run read-only commands for evidence — `cargo run -q -p',
     'compylr-cli -- ...`, grep, sed, `go build` in a scratch dir. Write nothing under crates/,',
-    'frontends/, demo/, openspec/, scripts/. Scratch goes in context/.',
+    'frontends/, demo/, openspec/, scripts/. Durable writeups go in research/ (tracked); throwaway probes in context/ (gitignored).',
     '',
     '=== YOUR ASSIGNMENT: adversarially REFUTE the "' + dim + '" findings ===',
     '',

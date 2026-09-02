@@ -24,8 +24,10 @@ const RULES = [
   'You MUST NOT run cargo build/test that modifies tracked files. Read-only cargo/CLI invocations',
   'for evidence (e.g. `cargo run -q -p compylr-cli -- --emit rust <file>`) ARE allowed and encouraged.',
   '',
-  'YOU MAY WRITE ONLY TO: context/** (gitignored scratch) and inspiration/*.md (summary docs).',
-  'Write scratch/evidence dumps under context/. Never write into inspiration/py2many/.',
+  'YOU MAY WRITE ONLY TO: research/** (tracked, durable), context/** (gitignored scratch), and',
+  'inspiration/*.md (summary docs). Findings, writeups and evidence transcripts go in research/ --',
+  'context/ is wiped and untracked, and work has already been lost that way. Throwaway probe files',
+  'and scratch build dirs belong in context/. Never write into inspiration/py2many/.',
   '',
   'If you need WebSearch or WebFetch, load them first with:',
   'ToolSearch({query: "select:WebSearch,WebFetch", max_results: 2})',
@@ -169,7 +171,7 @@ const RESEARCH_SCHEMA = {
     },
     implications_for_compylr: { type: 'string' },
     open_questions: { type: 'string' },
-    context_file: { type: 'string', description: 'path of the markdown file you wrote under context/' },
+    context_file: { type: 'string', description: 'path of the markdown file you wrote under research/' },
   },
 }
 
@@ -318,7 +320,7 @@ const PRIOR = {
   'ts-go-bridge': [
     '',
     'HEAD START — a previous agent already audited this dimension and its evidence file survived at',
-    'context/audit-ts-go-bridge.md. READ IT FIRST. Its findings became issue #39. Your job is NOT to',
+    'research/audit-ts-go-bridge.md. READ IT FIRST. Its findings became issue #39. Your job is NOT to',
     'redo it: verify a sample of its transcripts still reproduce, then push PAST it. Specifically it',
     'did NOT examine: whether the Go backend emits correct code for the 57 members that never reach',
     'the boundary; whether HostArtifact.manifest and loaded_as are correct; what happens to Str',
@@ -327,7 +329,7 @@ const PRIOR = {
   'generated-docs': [
     '',
     'HEAD START — a previous agent already audited this dimension and its evidence file survived at',
-    'context/audit-generated-docs.md. READ IT FIRST. Its findings became issue #40 and the correction',
+    'research/audit-generated-docs.md. READ IT FIRST. Its findings became issue #40 and the correction',
     'on #38. Your job is NOT to redo it: verify a sample still reproduces, then push PAST it.',
     'Specifically it did NOT examine: the Python demo\'s benchmark for the same class of defect with',
     'fresh eyes; whether scripts/update_subset.py\'s generated subset matrix is actually true against',
@@ -351,7 +353,7 @@ function auditPrompt(d) {
     'behavior that does not exist, and measurements that are not measurements.',
     '',
     'Be exhaustive within your dimension. Run the compiler to check behavior wherever you can rather than',
-    'reasoning from the source. Write any long evidence transcripts to context/audit-' + d.key + '.md.',
+    'reasoning from the source. Write any long evidence transcripts to research/audit-' + d.key + '.md.',
     'Rate severity by how misleading the claim is, not by how hard it is to fix: something that makes a',
     'broken thing look working is critical; a wrong number is high; a cosmetic gap is low.',
     'Report ONLY defects you actually confirmed. An empty findings list is a fine and honest answer.',
@@ -454,7 +456,7 @@ function researchPrompt(t) {
     'number, say so rather than estimating one. Mark confidence honestly: `high` only when you fetched a',
     'primary source that states it directly.',
     '',
-    'Write a full markdown writeup to context/research-' + t.key + '.md — the structured return value is a',
+    'Write a full markdown writeup to research/' + t.key + '.md — the structured return value is a',
     'summary, the file is the record. Include source URLs inline in that file.',
     'Return context_file as the path you wrote.',
   ].join('\n')
@@ -478,7 +480,7 @@ function deepenPrompt(t, prior) {
     '4. Check recency. Is anything it reports superseded by a newer release?',
     '',
     'Load WebSearch and WebFetch first. APPEND your corrections and additions to',
-    'context/research-' + t.key + '.md under a heading "## Adversarial review and gaps", preserving what is',
+    'research/' + t.key + '.md under a heading "## Adversarial review and gaps", preserving what is',
     'already there.',
     '',
     'Return the CONSOLIDATED picture — the original findings as corrected by you, plus what you added.',
@@ -824,7 +826,7 @@ if (!await guard('before-synthesis')) {
     'and prior-art analysis. Read the repository yourself where you need to check something — do not take the',
     'dossier on faith, and say so where you disagree with it.', '',
     'Give a decisive recommendation, not a survey of options. Where you are uncertain, say what measurement',
-    'or experiment would settle it. Write your full analysis to context/synthesis-' + l.key + '.md and return it.', '',
+    'or experiment would settle it. Write your full analysis to research/synthesis-' + l.key + '.md and return it.', '',
     'DOSSIER:', dossier,
   ].join('\n'), { label: 'synth:' + l.key, phase: 'Synthesize', model: 'opus', effort: 'xhigh' })))).filter(Boolean)
 
@@ -842,7 +844,7 @@ if (!await guard('before-synthesis')) {
     '4. Prior art worth acting on: what to steal, from where, and what to vendor.',
     '5. The concrete revision list for openspec/changes/add-cpp-backend/ — per artifact, per requirement.',
     '6. What should be a SEPARATE openspec change rather than part of this one, and why.', '',
-    'Write it to context/DECISION.md and return the full text.', '',
+    'Write it to research/DECISION.md and return the full text.', '',
     'THREE SYNTHESES:', JSON.stringify(judged, null, 2), '', 'DOSSIER:', dossier,
   ].join('\n'), { label: 'merge', phase: 'Synthesize', model: 'opus', effort: 'xhigh' })
 
@@ -861,7 +863,7 @@ if (!await guard('before-synthesis')) {
     '  what other class should have been searched?', '',
     'Verify at least three of the decision document\'s load-bearing claims yourself against the repository',
     'or the web, and report whether they hold.', '',
-    'Write your critique to context/CRITIQUE.md. Return a prioritized list of concrete follow-up work,',
+    'Write your critique to research/CRITIQUE.md. Return a prioritized list of concrete follow-up work,',
     'each item phrased so it could be handed to another agent as a task.', '',
     'DECISION DOCUMENT:', merged,
   ].join('\n'), { label: 'critique', phase: 'Critique', model: 'opus', effort: 'xhigh' })

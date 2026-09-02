@@ -422,9 +422,12 @@ next segment launches.
 run's cost depend on a settings file that changes underneath it — that is exactly how the Opus
 fan-out happened. Sonnet for mechanical work, Opus only for the judgement tail.
 
-**Planning-workflow agents are read-only on project code.** Say so in the prompt, name the
-directories, and give them `context/` (gitignored) to write evidence into. A workflow that dies
-still leaves its files behind, and those are the salvage.
+**Planning-workflow agents are read-only on project code, and their durable output goes in
+`research/`.** Say so in the prompt and name the directories. `research/` is tracked; `context/` is
+gitignored scratch for probe files and throwaway build directories. The distinction is load-bearing:
+a workflow that dies still leaves its files behind, and those are the salvage — three research
+documents and a completed audit dimension survived runs whose return values did not. Anything worth
+salvaging must not be written somewhere git ignores.
 
 # Commands
 
