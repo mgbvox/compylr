@@ -93,7 +93,12 @@ go: go-lint go-test go-demo ## Run Go linters, tests, and demo build
 
 .PHONY: go-lint
 go-lint: ## Verify gofmt and go vet on generated Go code
-	cd $(DEMO_TS)/.compylr/go && gofmt -l . && go vet ./...
+	cd $(DEMO_TS)/.compylr/go && \
+		diffs=$$(gofmt -l .) && \
+		if [ -n "$$diffs" ]; then \
+			printf 'Unformatted files found:\n%s\n' "$$diffs"; \
+			exit 1; \
+		fi && go vet ./...
 
 .PHONY: go-test
 go-test: ## Test and build Go packages
