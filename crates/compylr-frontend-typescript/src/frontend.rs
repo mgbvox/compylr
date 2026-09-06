@@ -31,7 +31,7 @@ pub const TYPESCRIPT_BEHAVIOR: LanguageBehavior = LanguageBehavior {
         checked: Checked::Reported,
     },
     sequence_index: SequenceIndex {
-        origin: IndexOrigin::FromEitherEnd,
+        origin: IndexOrigin::FromStart,
         checked: Checked::Reported,
     },
     text_length: TextUnits::Utf16Units,

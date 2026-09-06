@@ -101,3 +101,5 @@ skip_negatives 0
 # only-typescript compute
 # only-typescript sumList
 # only-typescript sumTo
+# only-typescript typescript_at
+# only-typescript typescript_last
