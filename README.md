@@ -388,6 +388,11 @@ index as out of range, and `len` counts UTF-8 bytes in Go and UTF-16 units in Ty
 three readings agree on ASCII, which is exactly what would make a wrong assumption survive a test
 suite.
 
+TypeScript sequence indexing defaults to `FromStart`; negative offsets do not select from the
+end. The subset retains checked indexing, so the Rust backend reports an out-of-bounds error
+instead of returning JavaScript's `undefined`. An explicit behavior override can still select
+`FromEitherEnd`. The Go backend's existing raw-index emission does not yet honor these checks.
+
 Two divergences worth knowing. **Collections cross the boundary by value**, so a compiled function
 cannot affect a list its caller still holds — currently unobservable, since nothing in the subset
 mutates, but stated so that adding mutation has to confront it. And **a returned `dict` does not
