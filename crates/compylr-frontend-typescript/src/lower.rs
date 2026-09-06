@@ -4,9 +4,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, BindingPattern, Class as OxcClass, ClassElement, Declaration,
-    Expression as OxcExpr, ForStatementLeft, FormalParameters, Function as OxcFunction,
-    FunctionBody, Program, Statement as OxcStmt, TSType,
+    BindingPattern, Class as OxcClass, ClassElement, Declaration, Expression as OxcExpr,
+    ForStatementLeft, FormalParameters, Function as OxcFunction, FunctionBody, Program,
+    Statement as OxcStmt, TSType,
 };
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType, Span as OxcSpan};
@@ -962,19 +962,7 @@ fn lower_expr_statement<'a>(
                         }
                     }
                     if let Some(arg) = call.arguments.first() {
-                        if let Argument::NumericLiteral(n) = arg {
-                            out.push(Stmt::Append {
-                                sequence: target_expr,
-                                value: Expr::Literal(Literal::Int(n.value as i64)),
-                            });
-                            return Ok(());
-                        } else if let Argument::StringLiteral(s) = arg {
-                            out.push(Stmt::Append {
-                                sequence: target_expr,
-                                value: Expr::Literal(Literal::Str(s.value.to_string())),
-                            });
-                            return Ok(());
-                        } else if let Some(arg_expr) = arg.as_expression() {
+                        if let Some(arg_expr) = arg.as_expression() {
                             let (val_expr, _) = lower_expr(arg_expr, ctx)?;
                             out.push(Stmt::Append {
                                 sequence: target_expr,
@@ -1220,13 +1208,7 @@ fn lower_expr<'a>(
             let mut elements = Vec::new();
             let mut elem_ty = Ty::Int;
             for el in &arr.elements {
-                if let ArrayExpressionElement::NumericLiteral(n) = el {
-                    elements.push(Expr::Literal(Literal::Int(n.value as i64)));
-                    elem_ty = Ty::Int;
-                } else if let ArrayExpressionElement::StringLiteral(s) = el {
-                    elements.push(Expr::Literal(Literal::Str(s.value.to_string())));
-                    elem_ty = Ty::Str;
-                } else if let Some(e) = el.as_expression() {
+                if let Some(e) = el.as_expression() {
                     let (lowered, ty) = lower_expr(e, ctx)?;
                     elem_ty = ty;
                     elements.push(lowered);
@@ -1316,11 +1298,7 @@ fn lower_expr<'a>(
         OxcExpr::CallExpression(call) => {
             let mut args = Vec::new();
             for arg in &call.arguments {
-                if let Argument::NumericLiteral(n) = arg {
-                    args.push(Expr::Literal(Literal::Int(n.value as i64)));
-                } else if let Argument::StringLiteral(s) = arg {
-                    args.push(Expr::Literal(Literal::Str(s.value.to_string())));
-                } else if let Some(e) = arg.as_expression() {
+                if let Some(e) = arg.as_expression() {
                     let (lowered, _) = lower_expr(e, ctx)?;
                     args.push(lowered);
                 }

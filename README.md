@@ -189,6 +189,11 @@ editing output.
 
 ### What the two frontends agree on
 
+TypeScript fractional literals retain their values in call arguments, array literals, and
+collection `push`/`add` arguments. The `float_literals.ts` fixture uses the subset's explicit
+`float` annotation; this does not change the current mapping of `number` to an integer IR type.
+Its compile-and-run regression uses Rust: Go still hardcodes nonempty list literals as `[]int64`.
+
 The IR is meant to be universal, so the interesting question is whether two frontends produce the
 same shape for the same program. That is measured rather than asserted. Members accepted by both
 the Python and TypeScript corpora under the same name are compared node by node, ignoring what the
