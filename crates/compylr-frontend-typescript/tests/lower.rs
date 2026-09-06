@@ -1,6 +1,50 @@
 use compylr_core::{Frontend, Source};
 use compylr_frontend_typescript::TypeScriptFrontend;
-use compylr_ir::{Behavior, BinOp, Expr, Stmt, Ty};
+use compylr_ir::{Behavior, BinOp, Expr, Literal, Stmt, Ty};
+
+#[test]
+fn fractional_literals_keep_their_value_in_calls_arrays_and_push() {
+    let frontend = TypeScriptFrontend;
+    let code = include_str!("../../../frontends/typescript/fixtures/accepted/float_literals.ts");
+    let source = Source::new(code, Behavior::of(frontend.behavior()));
+    let unit = frontend.lower(&[source]).expect("lowering failed");
+    unit.validate().expect("valid float literal IR");
+    let body = |name: &str| &unit.functions().find(|f| f.name == name).unwrap().body;
+
+    assert_eq!(
+        body("float_call")[0],
+        Stmt::Return(Expr::Call {
+            callee: "float_identity".into(),
+            args: vec![Expr::Literal(Literal::float(3.7))],
+        })
+    );
+    assert_eq!(
+        body("float_array")[0],
+        Stmt::Return(Expr::ListLit(vec![
+            Expr::Literal(Literal::float(1.5)),
+            Expr::Literal(Literal::float(2.5)),
+        ]))
+    );
+    assert!(matches!(
+        &body("float_push")[1],
+        Stmt::Append { value, .. } if *value == Expr::Literal(Literal::float(1.5))
+    ));
+}
+
+#[test]
+fn fractional_literal_in_set_add_is_not_truncated() {
+    let frontend = TypeScriptFrontend;
+    let source = Source::new(
+        "function add_float(): void { let values: Set<float> = new Set<float>(); values.add(2.5); }",
+        Behavior::of(frontend.behavior()),
+    );
+    let unit = frontend.lower(&[source]).expect("lowering failed");
+    let function = unit.functions().next().unwrap();
+    assert!(matches!(
+        &function.body[1],
+        Stmt::Append { value, .. } if *value == Expr::Literal(Literal::float(2.5))
+    ));
+}
 
 #[test]
 fn lowers_simple_addition() {

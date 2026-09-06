@@ -99,5 +99,9 @@ skip_negatives 0
 # only-python zeros
 # only-typescript Accumulator
 # only-typescript compute
+# only-typescript float_array
+# only-typescript float_call
+# only-typescript float_identity
+# only-typescript float_push
 # only-typescript sumList
 # only-typescript sumTo
