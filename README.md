@@ -273,16 +273,16 @@ only when the generated body saves more than that conversion costs.
 <!-- benchmark:summary -->
 | workload | compiled | interpreted | speedup |
 | --- | ---: | ---: | ---: |
-| `dynamic.knapsack` | 10.25us | 214.32us | **20.9x** |
-| `arithmetic.collatz_length` | 0.24us | 4.11us | **16.9x** |
-| `arithmetic.collatz_length (Rust behavior)` | 0.25us | 4.09us | **16.2x** |
+| `dynamic.knapsack` | 19.90us | 426.60us | **21.4x** |
+| `arithmetic.collatz_length` | 0.46us | 8.28us | **18.0x** |
+| `arithmetic.collatz_length (Rust behavior)` | 0.46us | 8.03us | **17.6x** |
 | … | | | |
-| `text.total_length` | 13.40us | 9.59us | **0.7x** |
-| `text.word_count` | 24.58us | 16.46us | **0.7x** |
-| `sorting.binary_search` | 2.60us | 0.55us | **0.2x** |
-| `reference (never compiled)` | 32.82us | 30.73us | not resolvable |
+| `text.total_length` | 25.62us | 18.58us | **0.7x** |
+| `text.word_count` | 47.94us | 30.69us | **0.6x** |
+| `sorting.binary_search` | 4.78us | 1.16us | **0.2x** |
+| `reference (never compiled)` | 59.74us | 60.28us | not resolvable |
 
-_scale 1 — measured on Linux x86_64, Python 3.12.14, 2026-08-29._
+_scale 1 — measured on Linux x86_64, Python 3.12.15, 2026-10-12._
 <!-- /benchmark:summary -->
 
 The `reference` row is never compiled, so its ratio is what "no difference" looks like on the
