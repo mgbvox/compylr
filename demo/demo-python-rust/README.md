@@ -197,27 +197,27 @@ every algorithm, scale=1, per call, best of 5 batches
 
 workload                             compiled    interpreted   spread          speedup
 --------------------------------------------------------------------------------------
-dynamic.knapsack                      10.25us       214.32us      0%            20.9x
-arithmetic.collatz_length              0.24us         4.11us      4%            16.9x
-arithmetic.collatz_length (Rust behavior)       0.25us         4.09us      2%            16.2x
-structures.component_count             3.25us        44.56us      1%            13.7x
-matrices.multiply                      5.41us        72.33us      1%            13.4x
-arithmetic.sieve                       0.78us         7.73us      1%            10.0x
-sorting.merge_sort                    19.68us       163.42us      1%             8.3x
-stats.standard_deviation               3.42us        19.55us      0%             5.7x
-graphs.topological_order              41.31us       201.66us      1%             4.9x
-dynamic.edit_distance                 21.48us       101.16us      1%             4.7x
-sorting.insertion_sort                 3.80us        10.19us      2%             2.7x
-stats.normalize                       10.21us        25.43us      2%             2.5x
-text.joined                           14.85us        35.22us      0%             2.4x
-matrices.transpose                     2.87us         5.43us      1%             1.9x
-graphs.bfs_distances                  21.41us        24.73us      1%             1.2x
-reference (never compiled)            32.82us        30.73us      1%   not resolvable
-text.total_length                     13.40us         9.59us      1%             0.7x
-text.word_count                       24.58us        16.46us      1%             0.7x
-sorting.binary_search                  2.60us         0.55us      2%             0.2x
+dynamic.knapsack                      10.40us       225.82us      1%            21.7x
+arithmetic.collatz_length              0.25us         4.46us      2%            18.0x
+arithmetic.collatz_length (Rust behavior)       0.26us         4.49us      1%            17.2x
+structures.component_count             3.58us        48.89us      3%            13.6x
+matrices.multiply                      5.85us        74.74us      1%            12.8x
+arithmetic.sieve                       0.80us         8.18us      2%            10.2x
+sorting.merge_sort                    21.36us       171.13us      3%             8.0x
+stats.standard_deviation               3.63us        19.48us      3%             5.4x
+graphs.topological_order              45.06us       216.07us      4%             4.8x
+dynamic.edit_distance                 23.18us       108.34us      1%             4.7x
+sorting.insertion_sort                 4.25us        10.69us      6%             2.5x
+stats.normalize                       10.83us        26.59us      3%             2.5x
+text.joined                           15.85us        37.21us      1%             2.3x
+matrices.transpose                     3.11us         6.05us      1%             1.9x
+graphs.bfs_distances                  23.38us        26.02us      3%             1.1x
+reference (never compiled)            32.29us        32.66us      5%   not resolvable
+text.total_length                     14.65us         9.89us      5%             0.7x
+text.word_count                       25.95us        16.41us      2%             0.6x
+sorting.binary_search                  2.83us         0.59us      3%             0.2x
 
-The reference is never compiled, so its true ratio is exactly 1.0 and everything it reports instead is this run's noise floor: 6%. A row closer to 1.0 than that reads "not resolvable" rather than a figure, because it would be one.
+The reference is never compiled, so its true ratio is exactly 1.0 and everything it reports instead is this run's noise floor: 5%. A row closer to 1.0 than that reads "not resolvable" rather than a figure, because it would be one.
 `spread` is how far the slowest batch ran from the fastest, in the mode that varied more. A row must clear its own spread as well as the floor to report a figure.
 Both modes returned the same answer for every workload.
 
@@ -225,15 +225,15 @@ behavior comparison: arithmetic.collatz_length(97)
 
 mode                                    best    spread
 ------------------------------------------------------
-interpreted Python                    4.11us       3%
-compiled, Python behavior             0.24us       4%
-compiled, Rust behavior               0.25us       2%
+interpreted Python                    4.46us       2%
+compiled, Python behavior             0.25us       1%
+compiled, Rust behavior               0.26us       1%
 
-Rust/Python compiled ratio: not resolvable, read against a 6% noise floor.
+Rust/Python compiled ratio: 0.9x, read against a 5% noise floor.
 All three modes returned 118.
 ```
 
-_scale 1 — measured on Linux x86_64, Python 3.12.14, 2026-08-29._
+_scale 1 — measured on Linux x86_64, Python 3.12.15, 2026-10-26._
 <!-- /benchmark:algorithms -->
 
 **The spread is the point.** A demo reporting one speedup would be hiding what is worth knowing.
@@ -312,17 +312,17 @@ nth prime, n=500, per call, best of 5 batches
 
 variant                            compiled    interpreted   spread          speedup
 ------------------------------------------------------------------------------------
-reference (never compiled)         867.91us       860.09us      2%   not resolvable
-recursive                           44.38us      1233.82us      1%            27.8x
-iterative                           18.25us       553.16us      1%            30.3x
-memoized (cold cache)               43.94us       891.09us      4%            20.3x
-memoized (warm cache)                0.06us         0.07us      3%             1.2x
+reference (never compiled)         925.83us       949.08us      5%   not resolvable
+recursive                           46.26us      1214.27us      1%            26.2x
+iterative                           19.38us       563.13us      1%            29.1x
+memoized (cold cache)               49.39us       953.21us      1%            19.3x
+memoized (warm cache)                0.07us         0.08us      5%             1.1x
 
-The reference is never compiled, so its true ratio is exactly 1.0 and everything it reports instead is this run's noise floor: 2%. A row closer to 1.0 than that reads "not resolvable" rather than a figure, because it would be one.
+The reference is never compiled, so its true ratio is exactly 1.0 and everything it reports instead is this run's noise floor: 5%. A row closer to 1.0 than that reads "not resolvable" rather than a figure, because it would be one.
 Both modes returned the same answer for every variant.
 ```
 
-_n = 500 — measured on Linux x86_64, Python 3.12.14, 2026-08-29._
+_n = 500 — measured on Linux x86_64, Python 3.12.15, 2026-10-26._
 <!-- /benchmark:nth-prime -->
 
 **A warm cache hit is *slower* compiled** — 0.10 µs against 0.08 µs. Crossing the boundary costs
